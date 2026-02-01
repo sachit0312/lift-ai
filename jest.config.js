@@ -3,4 +3,7 @@ module.exports = {
   transformIgnorePatterns: [
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@supabase/.*|react-native-url-polyfill)',
   ],
+  moduleNameMapper: {
+    '^expo-sqlite$': '<rootDir>/src/__mocks__/expo-sqlite.ts',
+  },
 };
