@@ -55,6 +55,9 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - `pullUpcomingWorkout()` — pulls latest upcoming workout into local SQLite
 - Sync runs on app startup (App.tsx) and on workout finish
 
+## Auth
+- `src/contexts/AuthContext.tsx` — AuthProvider with session management via Supabase. Exposes `useAuth()` hook returning `{ session, user, loading }`. On `SIGNED_IN`, clears local data and pulls upcoming workout.
+
 ## Layout
 - All screens wrapped in SafeAreaView from react-native-safe-area-context (prevents content behind notch/home indicator).
 - App.tsx wraps NavigationContainer in SafeAreaProvider.
