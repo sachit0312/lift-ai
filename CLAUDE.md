@@ -4,7 +4,7 @@ Expo React Native workout tracking app with SQLite local storage.
 
 ## Architecture
 - **Navigation**: Bottom tab navigator with a native stack navigator nested inside the Templates tab for list -> detail -> exercise picker flow.
-- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises, templates, template_exercises, workouts, workout_sets.
+- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises, templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets.
 - **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius).
 - **Types**: All DB types in src/types/database.ts.
 

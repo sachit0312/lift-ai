@@ -3,6 +3,7 @@ import uuid from '../utils/uuid';
 import type {
   Exercise, Template, TemplateExercise, Workout, WorkoutSet,
   ExerciseType, TrainingGoal, SetTag,
+  UpcomingWorkout, UpcomingWorkoutExercise, UpcomingWorkoutSet,
 } from '../types/database';
 
 let db: SQLite.SQLiteDatabase;
@@ -72,6 +73,35 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
       notes TEXT,
       FOREIGN KEY (workout_id) REFERENCES workouts(id) ON DELETE CASCADE,
       FOREIGN KEY (exercise_id) REFERENCES exercises(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS upcoming_workouts (
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      template_id TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (template_id) REFERENCES templates(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS upcoming_workout_exercises (
+      id TEXT PRIMARY KEY,
+      upcoming_workout_id TEXT NOT NULL,
+      exercise_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      rest_seconds INTEGER NOT NULL DEFAULT 90,
+      notes TEXT,
+      FOREIGN KEY (upcoming_workout_id) REFERENCES upcoming_workouts(id) ON DELETE CASCADE,
+      FOREIGN KEY (exercise_id) REFERENCES exercises(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS upcoming_workout_sets (
+      id TEXT PRIMARY KEY,
+      upcoming_exercise_id TEXT NOT NULL,
+      set_number INTEGER NOT NULL,
+      target_weight REAL NOT NULL,
+      target_reps INTEGER NOT NULL,
+      FOREIGN KEY (upcoming_exercise_id) REFERENCES upcoming_workout_exercises(id) ON DELETE CASCADE
     );
   `);
 
@@ -293,6 +323,66 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
     result.push({ workout: w, sets: sets.map((s: any) => ({ ...s, is_completed: !!s.is_completed, tag: s.tag as SetTag })) });
   }
   return result;
+}
+
+// ─── Upcoming Workouts ───
+
+export async function getUpcomingWorkoutForToday(): Promise<{
+  workout: UpcomingWorkout;
+  exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[];
+} | null> {
+  const database = await getDb();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const workouts = await database.getAllAsync<any>(
+    'SELECT * FROM upcoming_workouts WHERE date = ? ORDER BY created_at DESC LIMIT 1',
+    today,
+  );
+  if (workouts.length === 0) return null;
+
+  const workout: UpcomingWorkout = workouts[0];
+
+  const exerciseRows = await database.getAllAsync<any>(
+    `SELECT ue.*, e.id as e_id, e.user_id as e_user_id, e.name as e_name, e.type as e_type,
+            e.muscle_groups as e_muscle_groups, e.training_goal as e_training_goal,
+            e.description as e_description, e.created_at as e_created_at
+     FROM upcoming_workout_exercises ue
+     JOIN exercises e ON ue.exercise_id = e.id
+     WHERE ue.upcoming_workout_id = ?
+     ORDER BY ue.sort_order`,
+    workout.id,
+  );
+
+  const exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] = [];
+
+  for (const r of exerciseRows) {
+    const sets = await database.getAllAsync<UpcomingWorkoutSet>(
+      'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
+      r.id,
+    );
+
+    exercises.push({
+      id: r.id,
+      upcoming_workout_id: r.upcoming_workout_id,
+      exercise_id: r.exercise_id,
+      order: r.sort_order,
+      rest_seconds: r.rest_seconds,
+      notes: r.notes,
+      exercise: {
+        id: r.e_id,
+        user_id: r.e_user_id,
+        name: r.e_name,
+        type: r.e_type as ExerciseType,
+        muscle_groups: JSON.parse(r.e_muscle_groups || '[]'),
+        training_goal: r.e_training_goal as TrainingGoal,
+        description: r.e_description,
+        created_at: r.e_created_at,
+      },
+      sets,
+    });
+  }
+
+  return { workout, exercises };
 }
 
 // ─── Helpers ───

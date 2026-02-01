@@ -53,3 +53,30 @@ export interface WorkoutSet {
   is_completed: boolean;
   notes: string | null;
 }
+
+export interface UpcomingWorkout {
+  id: string;
+  date: string;
+  template_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface UpcomingWorkoutExercise {
+  id: string;
+  upcoming_workout_id: string;
+  exercise_id: string;
+  order: number;
+  rest_seconds: number;
+  notes: string | null;
+  exercise?: Exercise;
+  sets?: UpcomingWorkoutSet[];
+}
+
+export interface UpcomingWorkoutSet {
+  id: string;
+  upcoming_exercise_id: string;
+  set_number: number;
+  target_weight: number;
+  target_reps: number;
+}
