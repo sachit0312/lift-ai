@@ -29,6 +29,7 @@ TemplatesStackParamList is exported from src/navigation/TabNavigator.tsx for typ
 - Finish: Modal confirmation dialog showing completed/total sets, then summary screen (duration, exercises, sets completed, total volume in lb) with celebration vibration. Triggers `syncToSupabase()` after finishing.
 - Upcoming Workout: On idle screen, pulls upcoming workout from Supabase via `pullUpcomingWorkout()`, then loads from local DB via `getUpcomingWorkoutForToday()`. Shows a "Workout Ready" card with exercise count and notes. Starting from upcoming workout pre-populates exercise blocks and enables a TARGET column (weight x reps) per set from the upcoming workout plan.
 - TARGET column: Shown in set header/rows only when workout was started from an upcoming workout. Displays target weight x reps per set in a muted primary color.
+- Template name displayed in active workout header is stored in a separate `templateName` state variable (not mutated onto the Workout object) for type safety.
 - All set changes persist to SQLite immediately via `updateWorkoutSet()`.
 - Uses `useFocusEffect` to check for active workouts on tab focus.
 - Keyboard dismisses on scroll (`keyboardDismissMode="on-drag"`).
@@ -72,6 +73,18 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - `npx tsc --noEmit` — type-check without emitting
 - MCP server: `cd /Users/sachitgoyal/code/workout-mcp-server && npm run build && npm start`
 - iOS build uses Xcode DerivedData at default location
+
+## Testing
+- Jest with jest-expo preset. Run: `npm test` or `npx jest`
+- expo-sqlite mock at `src/__mocks__/expo-sqlite.ts` — provides `openDatabaseAsync` returning a mock db with `getAllAsync`, `runAsync`, `execAsync`. Mapped via `moduleNameMapper` in `jest.config.js`.
+- Config in `jest.config.js`.
+- Database service tests at `src/services/__tests__/database.test.ts` — tests createExercise, getAllExercises, createTemplate, startWorkout, updateWorkoutSet.
+- UUID utility tests at `src/utils/__tests__/uuid.test.ts` — uniqueness and v4 format.
+- Format utility tests at `src/utils/__tests__/format.test.ts` — formatDuration and formatDate.
+
+## Utils
+- `src/utils/uuid.ts` — UUID v4 generator.
+- `src/utils/format.ts` — `formatDuration(startedAt, finishedAt)` and `formatDate(iso)` extracted from HistoryScreen.
 
 ## Notes
 - Alert.prompt is iOS-only; Android uses fallback Alert.alert patterns. Finish workout uses a custom Modal instead of Alert.alert for web compatibility.
