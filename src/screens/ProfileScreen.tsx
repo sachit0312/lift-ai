@@ -3,11 +3,8 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Modal,
-  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,18 +20,6 @@ interface Stats {
   streak: number;
 }
 
-interface RestTimerSettings {
-  strength: number;
-  hypertrophy: number;
-  endurance: number;
-}
-
-const DEFAULT_REST: RestTimerSettings = {
-  strength: 180,
-  hypertrophy: 90,
-  endurance: 60,
-};
-
 export default function ProfileScreen() {
   const [stats, setStats] = useState<Stats>({
     totalWorkouts: 0,
@@ -44,9 +29,6 @@ export default function ProfileScreen() {
     streak: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [showRestModal, setShowRestModal] = useState(false);
-  const [restSettings, setRestSettings] = useState<RestTimerSettings>(DEFAULT_REST);
-  const [editingRest, setEditingRest] = useState<RestTimerSettings>(DEFAULT_REST);
 
   useFocusEffect(
     useCallback(() => {
@@ -154,11 +136,6 @@ export default function ProfileScreen() {
     }, []),
   );
 
-  const handleSaveRest = () => {
-    setRestSettings(editingRest);
-    setShowRestModal(false);
-  };
-
   const statCards: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
     { label: 'Total Workouts', value: `${stats.totalWorkouts}`, icon: 'fitness-outline', color: colors.primary },
     { label: 'This Month', value: `${stats.thisMonth}`, icon: 'calendar-outline', color: colors.success },
@@ -173,17 +150,6 @@ export default function ProfileScreen() {
     },
     { label: 'Avg Duration', value: stats.avgDuration, icon: 'time-outline', color: colors.accent },
     { label: 'Streak', value: stats.streak > 0 ? `${stats.streak} day${stats.streak > 1 ? 's' : ''}` : '—', icon: 'flame-outline', color: colors.error },
-  ];
-
-  const settingsRows: { label: string; icon: keyof typeof Ionicons.glyphMap; detail?: string; onPress?: () => void }[] = [
-    {
-      label: 'Rest Timer Defaults',
-      icon: 'timer-outline',
-      detail: `${restSettings.strength}s / ${restSettings.hypertrophy}s / ${restSettings.endurance}s`,
-      onPress: () => { setEditingRest(restSettings); setShowRestModal(true); },
-    },
-    { label: 'Units', icon: 'scale-outline', detail: 'lb' },
-    { label: 'Account', icon: 'person-circle-outline' },
   ];
 
   if (loading) {
@@ -215,66 +181,6 @@ export default function ProfileScreen() {
           </View>
         ))}
       </View>
-
-      <Text style={styles.sectionTitle}>SETTINGS</Text>
-      <View style={styles.settingsContainer}>
-        {settingsRows.map((row, i) => (
-          <TouchableOpacity
-            key={i}
-            style={[
-              styles.settingsRow,
-              i < settingsRows.length - 1 && styles.settingsRowBorder,
-            ]}
-            activeOpacity={0.6}
-            onPress={row.onPress}
-          >
-            <Ionicons name={row.icon} size={20} color={colors.textSecondary} style={{ marginRight: spacing.md }} />
-            <Text style={styles.settingsLabel}>{row.label}</Text>
-            {row.detail && <Text style={styles.settingsDetail}>{row.detail}</Text>}
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Rest Timer Settings Modal */}
-      <Modal visible={showRestModal} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowRestModal(false)}>
-          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Rest Timer Defaults</Text>
-            <Text style={styles.modalSub}>Set default rest time (in seconds) for each training goal</Text>
-
-            {(['strength', 'hypertrophy', 'endurance'] as const).map((goal) => (
-              <View key={goal} style={styles.restInputRow}>
-                <Text style={styles.restInputLabel}>{goal.charAt(0).toUpperCase() + goal.slice(1)}</Text>
-                <View style={styles.restInputGroup}>
-                  <TouchableOpacity
-                    style={styles.restAdjBtn}
-                    onPress={() => setEditingRest(prev => ({ ...prev, [goal]: Math.max(15, prev[goal] - 15) }))}
-                  >
-                    <Ionicons name="remove" size={16} color={colors.text} />
-                  </TouchableOpacity>
-                  <Text style={styles.restInputValue}>{editingRest[goal]}s</Text>
-                  <TouchableOpacity
-                    style={styles.restAdjBtn}
-                    onPress={() => setEditingRest(prev => ({ ...prev, [goal]: prev[goal] + 15 }))}
-                  >
-                    <Ionicons name="add" size={16} color={colors.text} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity onPress={() => setShowRestModal(false)} style={styles.modalCancelBtn}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleSaveRest} style={styles.modalSaveBtn}>
-                <Text style={styles.modalSaveText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -344,125 +250,5 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
-  },
-  sectionTitle: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    letterSpacing: 1.5,
-    marginBottom: spacing.sm,
-  },
-  settingsContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    overflow: 'hidden',
-  },
-  settingsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  settingsRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  settingsLabel: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    flex: 1,
-  },
-  settingsDetail: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
-    marginRight: spacing.sm,
-  },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    width: '85%',
-    maxWidth: 360,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
-    marginBottom: spacing.xs,
-  },
-  modalSub: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    marginBottom: spacing.lg,
-  },
-  restInputRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  restInputLabel: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  restInputGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  restAdjBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  restInputValue: {
-    color: colors.primaryLight,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    minWidth: 48,
-    textAlign: 'center',
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: spacing.lg,
-    gap: spacing.sm,
-  },
-  modalCancelBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
-  },
-  modalCancelText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  modalSaveBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.md,
-  },
-  modalSaveText: {
-    color: colors.white,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
   },
 });
