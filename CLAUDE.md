@@ -81,3 +81,4 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Exercise search filters by name and muscle group.
 - Per-set previous data shown (weight×reps from last workout's matching set number).
 - Template cards show exercise count and last updated date.
+- metro.config.js adds COOP/COEP headers (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`) for SharedArrayBuffer support required by expo-sqlite OPFS VFS on web.

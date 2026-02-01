@@ -1130,20 +1130,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     flex: 1,
   },
-  tipBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primaryDim + '25',
-    borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xxs,
-    gap: 4,
-  },
-  tipBtnText: {
-    color: colors.primaryLight,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
   lastTimeText: {
     color: colors.textMuted,
     fontSize: fontSize.xs,
@@ -1352,12 +1338,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
 
-  // Tip section
-  tipSection: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-
   // No active workout
   noActiveContent: {
     padding: spacing.md,
@@ -1475,32 +1455,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
   },
-  aiCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.primaryDim,
-  },
-  aiHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  aiLabel: {
-    color: colors.primaryLight,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-    marginLeft: spacing.sm,
-  },
-  aiText: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    lineHeight: 22,
-    flex: 1,
-  },
-
   // Modals
   modalOverlay: {
     flex: 1,
