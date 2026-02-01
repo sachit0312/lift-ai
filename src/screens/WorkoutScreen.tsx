@@ -13,7 +13,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { syncToSupabase, pullUpcomingWorkout } from '../services/sync';
+import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
 import {
+  getUpcomingWorkoutForToday,
   getAllTemplates,
   getTemplateExercises,
   getActiveWorkout,
@@ -90,6 +93,8 @@ export default function WorkoutScreen() {
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
   const [exerciseSearch, setExerciseSearch] = useState('');
+  const [upcomingWorkout, setUpcomingWorkout] = useState<Awaited<ReturnType<typeof getUpcomingWorkoutForToday>>>(null);
+  const [upcomingTargets, setUpcomingTargets] = useState<(UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -114,6 +119,10 @@ export default function WorkoutScreen() {
       } else {
         const t = await getAllTemplates();
         setTemplates(t);
+        // Pull upcoming workout from Supabase then load from local DB
+        pullUpcomingWorkout().catch(console.error);
+        const upcoming = await getUpcomingWorkoutForToday();
+        setUpcomingWorkout(upcoming);
       }
     } catch (e) {
       console.error('Failed to load workout state', e);
@@ -315,6 +324,65 @@ export default function WorkoutScreen() {
       startElapsedTimer(workout.started_at);
     } catch (e) {
       console.error('Failed to start empty workout', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStartFromUpcoming() {
+    if (!upcomingWorkout) return;
+    try {
+      setLoading(true);
+      const workout = await startWorkout(upcomingWorkout.workout.template_id);
+      const blocks: ExerciseBlock[] = [];
+
+      for (const upEx of upcomingWorkout.exercises) {
+        if (!upEx.exercise) continue;
+        const previousSets = await getPreviousSets(upEx.exercise_id);
+        const sets: LocalSet[] = [];
+        const targetSets = upEx.sets ?? [];
+
+        for (let i = 1; i <= Math.max(targetSets.length, 1); i++) {
+          const ws = await addWorkoutSet({
+            workout_id: workout.id,
+            exercise_id: upEx.exercise_id,
+            set_number: i,
+            reps: null,
+            weight: null,
+            tag: 'working',
+            rpe: null,
+            is_completed: false,
+            notes: null,
+          });
+          sets.push({
+            id: ws.id,
+            exercise_id: upEx.exercise_id,
+            set_number: i,
+            weight: '',
+            reps: '',
+            tag: 'working',
+            is_completed: false,
+            previous: previousSets[i - 1] ?? null,
+          });
+        }
+
+        const lastTime = await formatLastTime(upEx.exercise_id);
+        blocks.push({
+          exercise: upEx.exercise,
+          sets,
+          lastTime,
+          notesExpanded: false,
+          notes: '',
+        });
+      }
+
+      setUpcomingTargets(upcomingWorkout.exercises);
+      setActiveWorkout(workout);
+      workoutRef.current = workout;
+      setExerciseBlocks(blocks);
+      startElapsedTimer(workout.started_at);
+    } catch (e) {
+      console.error('Failed to start upcoming workout', e);
     } finally {
       setLoading(false);
     }
@@ -529,6 +597,7 @@ export default function WorkoutScreen() {
     const durationStr = `${m}m ${s}s`;
 
     await finishWorkout(workout.id);
+    syncToSupabase().catch(console.error);
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();
@@ -593,7 +662,7 @@ export default function WorkoutScreen() {
   }
 
   if (!activeWorkout) {
-    return <NoActiveWorkout templates={templates} onStartTemplate={handleStartFromTemplate} onStartEmpty={handleStartEmpty} />;
+    return <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleStartFromTemplate} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} />;
   }
 
   const completedSetsCount = exerciseBlocks.reduce((sum, b) => sum + b.sets.filter(s => s.is_completed).length, 0);
@@ -633,7 +702,8 @@ export default function WorkoutScreen() {
             {/* Set header row */}
             <View style={styles.setHeaderRow}>
               <Text style={[styles.setHeaderCell, styles.setNumCol]}>SET</Text>
-              <Text style={[styles.setHeaderCell, styles.colPrev]}>PREVIOUS</Text>
+              <Text style={[styles.setHeaderCell, styles.colPrev]}>PREV</Text>
+              {upcomingTargets && <Text style={[styles.setHeaderCell, styles.colTarget]}>TARGET</Text>}
               <Text style={[styles.setHeaderCell, styles.colFlex]}>LBS</Text>
               <Text style={[styles.setHeaderCell, styles.colFlex]}>REPS</Text>
               <Text style={[styles.setHeaderCell, styles.checkCol]} />
@@ -673,6 +743,16 @@ export default function WorkoutScreen() {
                 <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
                   {prevText}
                 </Text>
+                {upcomingTargets && (() => {
+                  const target = upcomingTargets
+                    .find(e => e.exercise_id === block.exercise.id)
+                    ?.sets?.find(s => s.set_number === set.set_number);
+                  return (
+                    <Text style={[styles.targetCol, styles.colTarget]} numberOfLines={1}>
+                      {target ? `${target.target_weight}×${target.target_reps}` : '—'}
+                    </Text>
+                  );
+                })()}
                 <TextInput
                   style={[styles.setInput, styles.colFlex]}
                   keyboardType="numeric"
@@ -841,12 +921,16 @@ export default function WorkoutScreen() {
 
 function NoActiveWorkout({
   templates,
+  upcomingWorkout,
   onStartTemplate,
   onStartEmpty,
+  onStartUpcoming,
 }: {
   templates: Template[];
+  upcomingWorkout: Awaited<ReturnType<typeof getUpcomingWorkoutForToday>>;
   onStartTemplate: (t: Template) => void;
   onStartEmpty: () => void;
+  onStartUpcoming: () => void;
 }) {
   return (
     <View style={styles.container}>
@@ -856,6 +940,22 @@ function NoActiveWorkout({
           <Text style={styles.heroTitle}>Start Workout</Text>
           <Text style={styles.heroSub}>Choose a template or start from scratch.</Text>
         </View>
+
+        {upcomingWorkout && (
+          <TouchableOpacity style={styles.upcomingCard} onPress={onStartUpcoming}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Ionicons name="sparkles" size={20} color={colors.primary} style={{ marginRight: 8 }} />
+              <Text style={styles.upcomingTitle}>Workout Ready</Text>
+            </View>
+            <Text style={styles.upcomingSubtitle}>
+              {upcomingWorkout.exercises.length} exercises
+              {upcomingWorkout.workout.notes ? ` · ${upcomingWorkout.workout.notes}` : ''}
+            </Text>
+            <View style={styles.upcomingBtn}>
+              <Text style={styles.upcomingBtnText}>Start Workout</Text>
+            </View>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.emptyBtn} onPress={onStartEmpty}>
           <Ionicons name="flash-outline" size={20} color={colors.white} style={{ marginRight: spacing.sm }} />
@@ -1467,5 +1567,47 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: fontSize.sm,
     marginTop: 2,
+  },
+
+  // Upcoming workout card
+  upcomingCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  upcomingTitle: {
+    color: colors.text,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+  },
+  upcomingSubtitle: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    marginBottom: spacing.md,
+  },
+  upcomingBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.sm + 2,
+    alignItems: 'center' as const,
+  },
+  upcomingBtnText: {
+    color: colors.white,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  // Target column
+  colTarget: {
+    width: 70,
+    textAlign: 'center' as const,
+  },
+  targetCol: {
+    color: colors.primaryLight,
+    opacity: 0.5,
+    fontSize: 12,
+    textAlign: 'center' as const,
   },
 });
