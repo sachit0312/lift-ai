@@ -1,0 +1,1471 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  Modal,
+  Vibration,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import {
+  getAllTemplates,
+  getTemplateExercises,
+  getActiveWorkout,
+  startWorkout,
+  finishWorkout,
+  addWorkoutSet,
+  getWorkoutSets,
+  updateWorkoutSet,
+  deleteWorkoutSet,
+  getExerciseHistory,
+  getExerciseById,
+  getAllExercises,
+} from '../services/database';
+import type {
+  Template,
+  TemplateExercise,
+  Workout,
+  WorkoutSet,
+  Exercise,
+  SetTag,
+  TrainingGoal,
+} from '../types/database';
+
+// ─── Types for local state ───
+
+interface PreviousSetData {
+  weight: number;
+  reps: number;
+}
+
+interface LocalSet {
+  id: string;
+  exercise_id: string;
+  set_number: number;
+  weight: string;
+  reps: string;
+  tag: SetTag;
+  is_completed: boolean;
+  previous?: PreviousSetData | null;
+}
+
+interface ExerciseBlock {
+  exercise: Exercise;
+  sets: LocalSet[];
+  lastTime: string | null;
+  notesExpanded: boolean;
+  notes: string;
+}
+
+// ─── Rest timer defaults by training goal ───
+
+const REST_SECONDS: Record<TrainingGoal, number> = {
+  strength: 180,
+  hypertrophy: 90,
+  endurance: 60,
+};
+
+// ─── Main Component ───
+
+export default function WorkoutScreen() {
+  const [loading, setLoading] = useState(true);
+  const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+
+  // Active workout state
+  const [exerciseBlocks, setExerciseBlocks] = useState<ExerciseBlock[]>([]);
+  const [elapsed, setElapsed] = useState('00:00');
+  const [restSeconds, setRestSeconds] = useState(0);
+  const [restTotal, setRestTotal] = useState(0);
+  const [restExerciseName, setRestExerciseName] = useState('');
+  const [showFinishModal, setShowFinishModal] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryStats, setSummaryStats] = useState({ exercises: 0, sets: 0, volume: 0, duration: '' });
+  const [showAddExercise, setShowAddExercise] = useState(false);
+  const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
+  const [exerciseSearch, setExerciseSearch] = useState('');
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const workoutRef = useRef<Workout | null>(null);
+
+  // ─── Check for active workout on focus ───
+
+  useFocusEffect(
+    useCallback(() => {
+      loadState();
+    }, []),
+  );
+
+  async function loadState() {
+    setLoading(true);
+    try {
+      const active = await getActiveWorkout();
+      setActiveWorkout(active);
+      workoutRef.current = active;
+      if (active) {
+        await loadActiveWorkout(active);
+      } else {
+        const t = await getAllTemplates();
+        setTemplates(t);
+      }
+    } catch (e) {
+      console.error('Failed to load workout state', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ─── Load existing active workout from DB ───
+
+  async function loadActiveWorkout(workout: Workout) {
+    const sets = await getWorkoutSets(workout.id);
+    const exerciseOrder: string[] = [];
+    const exerciseMap: Record<string, WorkoutSet[]> = {};
+
+    for (const s of sets) {
+      if (!exerciseMap[s.exercise_id]) {
+        exerciseMap[s.exercise_id] = [];
+        exerciseOrder.push(s.exercise_id);
+      }
+      exerciseMap[s.exercise_id].push(s);
+    }
+
+    const blocks: ExerciseBlock[] = [];
+    for (const exId of exerciseOrder) {
+      const wSets = exerciseMap[exId];
+      const exercise = await getExerciseById(exId);
+      if (!exercise) continue;
+
+      const lastTime = await formatLastTime(exId);
+      const previousSets = await getPreviousSets(exId);
+
+      blocks.push({
+        exercise,
+        sets: wSets.map((s, idx) => ({
+          id: s.id,
+          exercise_id: s.exercise_id,
+          set_number: s.set_number,
+          weight: s.weight != null && s.weight > 0 ? String(s.weight) : '',
+          reps: s.reps != null ? String(s.reps) : '',
+          tag: s.tag,
+          is_completed: s.is_completed,
+          previous: previousSets[idx] ?? null,
+        })),
+        lastTime,
+        notesExpanded: false,
+        notes: '',
+      });
+    }
+
+    setExerciseBlocks(blocks);
+    startElapsedTimer(workout.started_at);
+  }
+
+  // ─── Helpers ───
+
+  async function getPreviousSets(exerciseId: string): Promise<PreviousSetData[]> {
+    try {
+      const hist = await getExerciseHistory(exerciseId, 1);
+      if (hist.length === 0) return [];
+      return hist[0].sets
+        .filter((s) => s.is_completed)
+        .map((s) => ({ weight: s.weight ?? 0, reps: s.reps ?? 0 }));
+    } catch {
+      return [];
+    }
+  }
+
+  async function formatLastTime(exerciseId: string): Promise<string | null> {
+    try {
+      const hist = await getExerciseHistory(exerciseId, 1);
+      if (hist.length === 0) return null;
+      const sets = hist[0].sets.filter((s) => s.is_completed);
+      if (sets.length === 0) return null;
+      const setCount = sets.length;
+      const avgReps = Math.round(sets.reduce((a, s) => a + (s.reps ?? 0), 0) / setCount);
+      const maxWeight = Math.max(...sets.map((s) => s.weight ?? 0));
+      return `Last: ${setCount}\u00D7${avgReps} @ ${maxWeight}lb`;
+    } catch {
+      return null;
+    }
+  }
+
+  function startElapsedTimer(startedAt: string) {
+    if (timerRef.current) clearInterval(timerRef.current);
+    const update = () => {
+      const diff = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+      const m = Math.floor(diff / 60);
+      const s = diff % 60;
+      setElapsed(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    update();
+    timerRef.current = setInterval(update, 1000);
+  }
+
+  function startRestTimer(goal: TrainingGoal, exerciseName: string) {
+    if (restRef.current) clearInterval(restRef.current);
+    const total = REST_SECONDS[goal];
+    setRestTotal(total);
+    setRestSeconds(total);
+    setRestExerciseName(exerciseName);
+    restRef.current = setInterval(() => {
+      setRestSeconds((prev) => {
+        if (prev <= 1) {
+          if (restRef.current) clearInterval(restRef.current);
+          restRef.current = null;
+          // Vibrate when timer ends
+          try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }
+
+  function adjustRestTimer(delta: number) {
+    setRestSeconds((prev) => {
+      const next = Math.max(0, prev + delta);
+      if (next === 0 && restRef.current) {
+        clearInterval(restRef.current);
+        restRef.current = null;
+      }
+      return next;
+    });
+    setRestTotal((prev) => Math.max(prev + delta, 1));
+  }
+
+  function dismissRest() {
+    if (restRef.current) clearInterval(restRef.current);
+    restRef.current = null;
+    setRestSeconds(0);
+  }
+
+  // ─── Start workout from template ───
+
+  async function handleStartFromTemplate(template: Template) {
+    try {
+      setLoading(true);
+      const workout = await startWorkout(template.id);
+      const templateExercises = await getTemplateExercises(template.id);
+
+      const blocks: ExerciseBlock[] = [];
+      for (const te of templateExercises) {
+        if (!te.exercise) continue;
+        const previousSets = await getPreviousSets(te.exercise_id);
+        const sets: LocalSet[] = [];
+        for (let i = 1; i <= te.default_sets; i++) {
+          const ws = await addWorkoutSet({
+            workout_id: workout.id,
+            exercise_id: te.exercise_id,
+            set_number: i,
+            reps: te.default_reps,
+            weight: te.default_weight,
+            tag: 'working',
+            rpe: null,
+            is_completed: false,
+            notes: null,
+          });
+          sets.push({
+            id: ws.id,
+            exercise_id: te.exercise_id,
+            set_number: i,
+            weight: te.default_weight > 0 ? String(te.default_weight) : '',
+            reps: String(te.default_reps),
+            tag: 'working',
+            is_completed: false,
+            previous: previousSets[i - 1] ?? null,
+          });
+        }
+        const lastTime = await formatLastTime(te.exercise_id);
+        blocks.push({
+          exercise: te.exercise,
+          sets,
+          lastTime,
+          notesExpanded: false,
+          notes: '',
+        });
+      }
+
+      workout.template_name = template.name;
+      setActiveWorkout(workout);
+      workoutRef.current = workout;
+      setExerciseBlocks(blocks);
+      startElapsedTimer(workout.started_at);
+    } catch (e) {
+      console.error('Failed to start workout', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStartEmpty() {
+    try {
+      setLoading(true);
+      const workout = await startWorkout(null);
+      setActiveWorkout(workout);
+      workoutRef.current = workout;
+      setExerciseBlocks([]);
+      startElapsedTimer(workout.started_at);
+    } catch (e) {
+      console.error('Failed to start empty workout', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ─── Add exercise mid-workout ───
+
+  async function handleOpenAddExercise() {
+    const exercises = await getAllExercises();
+    setAvailableExercises(exercises);
+    setExerciseSearch('');
+    setShowAddExercise(true);
+  }
+
+  async function handleAddExerciseToWorkout(exercise: Exercise) {
+    const workout = workoutRef.current;
+    if (!workout) return;
+
+    setShowAddExercise(false);
+    const previousSets = await getPreviousSets(exercise.id);
+    const ws = await addWorkoutSet({
+      workout_id: workout.id,
+      exercise_id: exercise.id,
+      set_number: 1,
+      reps: null,
+      weight: null,
+      tag: 'working',
+      rpe: null,
+      is_completed: false,
+      notes: null,
+    });
+
+    const lastTime = await formatLastTime(exercise.id);
+    const newBlock: ExerciseBlock = {
+      exercise,
+      sets: [{
+        id: ws.id,
+        exercise_id: exercise.id,
+        set_number: 1,
+        weight: '',
+        reps: '',
+        tag: 'working',
+        is_completed: false,
+        previous: previousSets[0] ?? null,
+      }],
+      lastTime,
+      notesExpanded: false,
+      notes: '',
+    };
+
+    setExerciseBlocks((prev) => [...prev, newBlock]);
+  }
+
+  // ─── Set manipulation ───
+
+  async function handleSetChange(
+    blockIdx: number,
+    setIdx: number,
+    field: 'weight' | 'reps',
+    value: string,
+  ) {
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      block.sets[setIdx] = { ...block.sets[setIdx], [field]: value };
+      next[blockIdx] = block;
+      return next;
+    });
+    const set = exerciseBlocks[blockIdx]?.sets[setIdx];
+    if (set) {
+      const numVal = value === '' ? null : Number(value);
+      await updateWorkoutSet(set.id, { [field]: numVal });
+    }
+  }
+
+  async function handleCycleTag(blockIdx: number, setIdx: number) {
+    const set = exerciseBlocks[blockIdx]?.sets[setIdx];
+    if (!set) return;
+    const tags: SetTag[] = ['working', 'warmup', 'failure', 'drop'];
+    const idx = tags.indexOf(set.tag);
+    const newTag = tags[(idx + 1) % tags.length];
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      block.sets[setIdx] = { ...block.sets[setIdx], tag: newTag };
+      next[blockIdx] = block;
+      return next;
+    });
+    await updateWorkoutSet(set.id, { tag: newTag });
+  }
+
+  async function handleToggleComplete(blockIdx: number, setIdx: number) {
+    const set = exerciseBlocks[blockIdx]?.sets[setIdx];
+    if (!set) return;
+    const newCompleted = !set.is_completed;
+
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      block.sets[setIdx] = { ...block.sets[setIdx], is_completed: newCompleted };
+      next[blockIdx] = block;
+      return next;
+    });
+
+    await updateWorkoutSet(set.id, {
+      is_completed: newCompleted,
+      weight: set.weight === '' ? null : Number(set.weight),
+      reps: set.reps === '' ? null : Number(set.reps),
+    });
+
+    if (newCompleted) {
+      // Haptic feedback
+      try { Vibration.vibrate(50); } catch {}
+      const block = exerciseBlocks[blockIdx];
+      startRestTimer(block.exercise.training_goal, block.exercise.name);
+    }
+  }
+
+  async function handleAddSet(blockIdx: number) {
+    const block = exerciseBlocks[blockIdx];
+    const workout = workoutRef.current;
+    if (!workout) return;
+
+    const newSetNumber = block.sets.length + 1;
+    const previousSets = await getPreviousSets(block.exercise.id);
+    const ws = await addWorkoutSet({
+      workout_id: workout.id,
+      exercise_id: block.exercise.id,
+      set_number: newSetNumber,
+      reps: null,
+      weight: null,
+      tag: 'working',
+      rpe: null,
+      is_completed: false,
+      notes: null,
+    });
+
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const b = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      b.sets.push({
+        id: ws.id,
+        exercise_id: block.exercise.id,
+        set_number: newSetNumber,
+        weight: '',
+        reps: '',
+        tag: 'working',
+        is_completed: false,
+        previous: previousSets[newSetNumber - 1] ?? null,
+      });
+      next[blockIdx] = b;
+      return next;
+    });
+  }
+
+  async function handleDeleteSet(blockIdx: number, setIdx: number) {
+    const block = exerciseBlocks[blockIdx];
+    const set = block.sets[setIdx];
+    if (!set) return;
+
+    // Don't allow deleting the last set
+    if (block.sets.length <= 1) return;
+
+    await deleteWorkoutSet(set.id);
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const b = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      b.sets.splice(setIdx, 1);
+      // Renumber
+      b.sets.forEach((s, i) => { s.set_number = i + 1; });
+      next[blockIdx] = b;
+      return next;
+    });
+  }
+
+  function handleToggleNotes(blockIdx: number) {
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      next[blockIdx] = { ...next[blockIdx], notesExpanded: !next[blockIdx].notesExpanded };
+      return next;
+    });
+  }
+
+  // ─── Finish workout ───
+
+  function handleFinish() {
+    setShowFinishModal(true);
+  }
+
+  async function confirmFinish() {
+    setShowFinishModal(false);
+    const workout = workoutRef.current;
+    if (!workout) return;
+
+    let totalSets = 0;
+    let totalVolume = 0;
+    let exerciseCount = exerciseBlocks.length;
+    for (const block of exerciseBlocks) {
+      for (const s of block.sets) {
+        if (s.is_completed) {
+          totalSets++;
+          const w = s.weight === '' ? 0 : Number(s.weight);
+          const r = s.reps === '' ? 0 : Number(s.reps);
+          totalVolume += w * r;
+        }
+      }
+    }
+
+    const diff = Math.floor((Date.now() - new Date(workout.started_at).getTime()) / 1000);
+    const m = Math.floor(diff / 60);
+    const s = diff % 60;
+    const durationStr = `${m}m ${s}s`;
+
+    await finishWorkout(workout.id);
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    dismissRest();
+
+    // Celebration vibration
+    try { Vibration.vibrate([0, 100, 50, 100, 50, 200]); } catch {}
+
+    setSummaryStats({
+      exercises: exerciseCount,
+      sets: totalSets,
+      volume: totalVolume,
+      duration: durationStr,
+    });
+    setShowSummary(true);
+  }
+
+  function handleDismissSummary() {
+    setShowSummary(false);
+    setActiveWorkout(null);
+    workoutRef.current = null;
+    setExerciseBlocks([]);
+    loadState();
+  }
+
+  // ─── Cleanup ───
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (restRef.current) clearInterval(restRef.current);
+    };
+  }, []);
+
+  // ─── Render ───
+
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  if (showSummary) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.summaryContainer}>
+          <Ionicons name="checkmark-circle" size={64} color={colors.success} style={{ alignSelf: 'center', marginBottom: spacing.md }} />
+          <Text style={styles.summaryTitle}>Workout Complete!</Text>
+          <View style={styles.summaryCard}>
+            <SummaryStat label="Duration" value={summaryStats.duration} icon="time-outline" />
+            <SummaryStat label="Exercises" value={String(summaryStats.exercises)} icon="barbell-outline" />
+            <SummaryStat label="Sets" value={String(summaryStats.sets)} icon="layers-outline" />
+            <SummaryStat label="Volume" value={`${summaryStats.volume.toLocaleString()} lb`} icon="trending-up-outline" />
+          </View>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleDismissSummary}>
+            <Text style={styles.primaryBtnText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (!activeWorkout) {
+    return <NoActiveWorkout templates={templates} onStartTemplate={handleStartFromTemplate} onStartEmpty={handleStartEmpty} />;
+  }
+
+  const completedSetsCount = exerciseBlocks.reduce((sum, b) => sum + b.sets.filter(s => s.is_completed).length, 0);
+  const totalSetsCount = exerciseBlocks.reduce((sum, b) => sum + b.sets.length, 0);
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.headerTitle}>
+            {activeWorkout.template_name ?? 'Workout'}
+          </Text>
+          <View style={styles.timerRow}>
+            <Ionicons name="time-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
+            <Text style={styles.headerTimer}>{elapsed}</Text>
+            <Text style={styles.headerProgress}> · {completedSetsCount}/{totalSetsCount} sets</Text>
+          </View>
+        </View>
+        <TouchableOpacity style={styles.finishBtn} onPress={handleFinish}>
+          <Ionicons name="checkmark" size={16} color={colors.white} style={{ marginRight: 4 }} />
+          <Text style={styles.finishBtnText}>Finish</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag">
+        {exerciseBlocks.map((block, blockIdx) => (
+          <View key={block.exercise.id} style={styles.exerciseCard}>
+            <View style={styles.exerciseNameRow}>
+              <Text style={styles.exerciseName}>{block.exercise.name}</Text>
+            </View>
+
+            {block.lastTime && (
+              <Text style={styles.lastTimeText}>{block.lastTime}</Text>
+            )}
+
+            {/* Set header row */}
+            <View style={styles.setHeaderRow}>
+              <Text style={[styles.setHeaderCell, styles.setNumCol]}>SET</Text>
+              <Text style={[styles.setHeaderCell, styles.colPrev]}>PREVIOUS</Text>
+              <Text style={[styles.setHeaderCell, styles.colFlex]}>LBS</Text>
+              <Text style={[styles.setHeaderCell, styles.colFlex]}>REPS</Text>
+              <Text style={[styles.setHeaderCell, styles.checkCol]} />
+            </View>
+
+            {/* Set rows */}
+            {block.sets.map((set, setIdx) => {
+              const tagLabel = set.tag === 'warmup' ? 'W' : set.tag === 'failure' ? 'F' : set.tag === 'drop' ? 'D' : null;
+              const tagColor = set.tag === 'warmup' ? colors.warning : set.tag === 'failure' ? colors.error : set.tag === 'drop' ? colors.primary : undefined;
+              const prevText = set.previous
+                ? `${set.previous.weight}×${set.previous.reps}`
+                : '—';
+              return (
+              <View
+                key={set.id}
+                style={[
+                  styles.setRow,
+                  set.is_completed && styles.setRowCompleted,
+                ]}
+              >
+                <TouchableOpacity
+                  style={styles.setNumCol}
+                  onPress={() => handleCycleTag(blockIdx, setIdx)}
+                  onLongPress={() => handleDeleteSet(blockIdx, setIdx)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  {tagLabel ? (
+                    <View style={[styles.setNumBadge, { backgroundColor: tagColor }]}>
+                      <Text style={styles.setNumBadgeText}>{tagLabel}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.setNum}>
+                      {set.set_number}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
+                  {prevText}
+                </Text>
+                <TextInput
+                  style={[styles.setInput, styles.colFlex]}
+                  keyboardType="numeric"
+                  value={set.weight}
+                  onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'weight', v)}
+                  placeholder={set.previous ? String(set.previous.weight) : ''}
+                  placeholderTextColor={colors.textMuted}
+                />
+                <TextInput
+                  style={[styles.setInput, styles.colFlex]}
+                  keyboardType="numeric"
+                  value={set.reps}
+                  onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'reps', v)}
+                  placeholder={set.previous ? String(set.previous.reps) : ''}
+                  placeholderTextColor={colors.textMuted}
+                />
+                <TouchableOpacity
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: set.is_completed }}
+                  style={[styles.checkBox, styles.checkCol, set.is_completed && styles.checkBoxDone]}
+                  onPress={() => handleToggleComplete(blockIdx, setIdx)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  {set.is_completed && <Ionicons name="checkmark" size={18} color={colors.white} />}
+                </TouchableOpacity>
+              </View>
+              );
+            })}
+
+            {/* Add set + notes */}
+            <View style={styles.exerciseActions}>
+              <TouchableOpacity style={styles.addSetBtn} onPress={() => handleAddSet(blockIdx)}>
+                <Ionicons name="add" size={16} color={colors.primary} />
+                <Text style={styles.addSetText}>Add Set</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleToggleNotes(blockIdx)}>
+                <Text style={styles.notesToggle}>
+                  {block.notesExpanded ? 'Hide Notes' : 'Notes'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {block.notesExpanded && (
+              <TextInput
+                style={styles.notesInput}
+                multiline
+                value={block.notes}
+                onChangeText={(v) => {
+                  setExerciseBlocks((prev) => {
+                    const next = [...prev];
+                    next[blockIdx] = { ...next[blockIdx], notes: v };
+                    return next;
+                  });
+                }}
+                placeholder="Exercise notes..."
+                placeholderTextColor={colors.textMuted}
+              />
+            )}
+          </View>
+        ))}
+
+        {/* Add Exercise button */}
+        <TouchableOpacity style={styles.addExerciseBtn} onPress={handleOpenAddExercise} activeOpacity={0.7}>
+          <Ionicons name="add-circle-outline" size={20} color={colors.primary} style={{ marginRight: spacing.sm }} />
+          <Text style={styles.addExerciseBtnText}>Add Exercise</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: restSeconds > 0 ? 120 : 40 }} />
+      </ScrollView>
+
+      {/* Rest timer bar */}
+      {restSeconds > 0 && (
+        <View style={styles.restBar}>
+          <View style={styles.restBarHeader}>
+            <Text style={styles.restBarLabel}>Rest — {restExerciseName}</Text>
+            <Text style={styles.restBarTime}>
+              {Math.floor(restSeconds / 60)}:{String(restSeconds % 60).padStart(2, '0')}
+            </Text>
+          </View>
+          <View style={styles.restBarInner}>
+            <View
+              style={[
+                styles.restBarFill,
+                { width: `${(restSeconds / restTotal) * 100}%` },
+              ]}
+            />
+          </View>
+          <View style={styles.restBarActions}>
+            <TouchableOpacity style={styles.restAdjustBtn} onPress={() => adjustRestTimer(-15)}>
+              <Text style={styles.restAdjustText}>-15s</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.restAdjustBtn} onPress={() => adjustRestTimer(15)}>
+              <Text style={styles.restAdjustText}>+15s</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.restSkipBtn} onPress={dismissRest}>
+              <Text style={styles.restSkipText}>Skip</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Add exercise modal */}
+      <Modal visible={showAddExercise} transparent animationType="slide">
+        <View style={styles.addExerciseModal}>
+          <View style={styles.addExerciseModalHeader}>
+            <Text style={styles.addExerciseModalTitle}>Add Exercise</Text>
+            <TouchableOpacity onPress={() => setShowAddExercise(false)}>
+              <Ionicons name="close" size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.addExerciseSearchContainer}>
+            <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
+            <TextInput
+              style={styles.addExerciseSearchInput}
+              value={exerciseSearch}
+              onChangeText={setExerciseSearch}
+              placeholder="Search exercises..."
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+            />
+          </View>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+            {availableExercises
+              .filter(e => e.name.toLowerCase().includes(exerciseSearch.toLowerCase()))
+              .map(e => (
+                <TouchableOpacity
+                  key={e.id}
+                  style={styles.addExerciseItem}
+                  onPress={() => handleAddExerciseToWorkout(e)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.addExerciseItemName}>{e.name}</Text>
+                  <Text style={styles.addExerciseItemMeta}>
+                    {e.type} · {e.muscle_groups.join(', ') || 'No muscles set'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Finish confirmation modal */}
+      <Modal visible={showFinishModal} transparent animationType="fade">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowFinishModal(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Finish Workout</Text>
+            <Text style={styles.modalSub}>
+              {completedSetsCount} of {totalSetsCount} sets completed. Finish this workout?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => setShowFinishModal(false)} style={styles.modalCancelBtn}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmFinish} style={styles.modalFinishBtn}>
+                <Text style={styles.modalFinishText}>Finish</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+}
+
+// ─── Sub-components ───
+
+function NoActiveWorkout({
+  templates,
+  onStartTemplate,
+  onStartEmpty,
+}: {
+  templates: Template[];
+  onStartTemplate: (t: Template) => void;
+  onStartEmpty: () => void;
+}) {
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.noActiveContent}>
+        <View style={styles.heroSection}>
+          <Ionicons name="barbell-outline" size={48} color={colors.primary} />
+          <Text style={styles.heroTitle}>Start Workout</Text>
+          <Text style={styles.heroSub}>Choose a template or start from scratch.</Text>
+        </View>
+
+        <TouchableOpacity style={styles.emptyBtn} onPress={onStartEmpty}>
+          <Ionicons name="flash-outline" size={20} color={colors.white} style={{ marginRight: spacing.sm }} />
+          <Text style={styles.emptyBtnText}>Start Empty Workout</Text>
+        </TouchableOpacity>
+
+        {templates.length > 0 && (
+          <>
+            <Text style={styles.templateHeader}>TEMPLATES</Text>
+            {templates.map((t) => (
+              <TouchableOpacity
+                key={t.id}
+                style={styles.templateCard}
+                onPress={() => onStartTemplate(t)}
+              >
+                <View style={styles.templateCardLeft} />
+                <View style={styles.templateCardBody}>
+                  <Text style={styles.templateName}>{t.name}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))}
+          </>
+        )}
+
+        {templates.length === 0 && (
+          <Text style={styles.noTemplates}>
+            No templates yet. Create one in the Templates tab.
+          </Text>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+function SummaryStat({ label, value, icon }: { label: string; value: string; icon?: keyof typeof Ionicons.glyphMap }) {
+  return (
+    <View style={styles.summaryStatRow}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {icon && <Ionicons name={icon} size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />}
+        <Text style={styles.summaryStatLabel}>{label}</Text>
+      </View>
+      <Text style={styles.summaryStatValue}>{value}</Text>
+    </View>
+  );
+}
+
+// ─── Styles ───
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  centered: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.background,
+  },
+  headerTitle: {
+    color: colors.text,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+  },
+  timerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  headerTimer: {
+    color: colors.primary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  headerProgress: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+  },
+  finishBtn: {
+    backgroundColor: colors.success,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.full,
+  },
+  finishBtnText: {
+    color: colors.white,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+
+  // ScrollView
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: spacing.md,
+    maxWidth: 500,
+    alignSelf: 'center' as any,
+    width: '100%' as any,
+  },
+
+  // Exercise card
+  exerciseCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    marginBottom: spacing.md,
+  },
+  exerciseNameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  exerciseName: {
+    color: colors.text,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    flex: 1,
+  },
+  tipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryDim + '25',
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    gap: 4,
+  },
+  tipBtnText: {
+    color: colors.primaryLight,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  lastTimeText: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    paddingHorizontal: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  // Set header
+  setHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  setHeaderCell: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: fontWeight.semibold,
+    textAlign: 'center',
+    letterSpacing: 1,
+    textTransform: 'uppercase' as any,
+  },
+  setNumCol: { width: 36, alignItems: 'center' as any, justifyContent: 'center' as any },
+  colPrev: { flex: 1, marginHorizontal: 4 },
+  colFlex: { flex: 1, marginHorizontal: 4 },
+  checkCol: { width: 44, alignItems: 'center' as any },
+
+  // Set row
+  setRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+  },
+  setRowCompleted: {
+    backgroundColor: 'rgba(82, 199, 124, 0.08)',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.success,
+  },
+  setNum: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    textAlign: 'center',
+  },
+  setNumBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center' as any,
+    justifyContent: 'center' as any,
+  },
+  setNumBadgeText: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+  },
+  previousCol: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+  },
+  setInput: {
+    backgroundColor: colors.surfaceLight,
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+    borderRadius: borderRadius.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    textAlign: 'center',
+  },
+
+  // Checkbox
+  checkBox: {
+    width: 30,
+    height: 30,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkBoxDone: {
+    backgroundColor: colors.success,
+    borderColor: colors.success,
+  },
+
+  // Exercise actions
+  exerciseActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    gap: spacing.lg,
+  },
+  addSetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  addSetText: {
+    color: colors.primary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    marginLeft: 4,
+  },
+  notesToggle: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+  },
+  notesInput: {
+    backgroundColor: colors.surfaceLight,
+    color: colors.text,
+    fontSize: fontSize.sm,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+    minHeight: 48,
+    textAlignVertical: 'top',
+  },
+
+  // Add exercise button
+  addExerciseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+    marginBottom: spacing.md,
+  },
+  addExerciseBtnText: {
+    color: colors.primary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+
+  // Rest bar
+  restBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    padding: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  restBarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  restBarLabel: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+  },
+  restBarTime: {
+    color: colors.text,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+  },
+  restBarInner: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.surfaceLight,
+    overflow: 'hidden',
+    marginBottom: spacing.sm,
+  },
+  restBarFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 3,
+  },
+  restBarActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.md,
+  },
+  restAdjustBtn: {
+    backgroundColor: colors.surfaceLight,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  restAdjustText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  restSkipBtn: {
+    backgroundColor: colors.primaryDim + '30',
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  restSkipText: {
+    color: colors.primaryLight,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+
+  // Tip section
+  tipSection: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+
+  // No active workout
+  noActiveContent: {
+    padding: spacing.md,
+    paddingTop: spacing.xl,
+  },
+  heroSection: {
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.bold,
+    marginTop: spacing.md,
+  },
+  heroSub: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    marginTop: spacing.xs,
+  },
+  emptyBtn: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: spacing.xl,
+  },
+  emptyBtnText: {
+    color: colors.white,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  templateHeader: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+    letterSpacing: 1.5,
+    marginBottom: spacing.sm,
+  },
+  templateCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  templateCardLeft: {
+    width: 3,
+    alignSelf: 'stretch',
+    backgroundColor: colors.primaryDim,
+  },
+  templateCardBody: {
+    flex: 1,
+    padding: spacing.md,
+  },
+  templateName: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  noTemplates: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+    marginTop: spacing.lg,
+  },
+  primaryBtn: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+  },
+  primaryBtnText: {
+    color: colors.white,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+  },
+
+  // Summary
+  summaryContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  summaryTitle: {
+    color: colors.text,
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.bold,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  summaryCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  summaryStatRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  summaryStatLabel: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+  },
+  summaryStatValue: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+  },
+  aiCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.primaryDim,
+  },
+  aiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  aiLabel: {
+    color: colors.primaryLight,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    marginLeft: spacing.sm,
+  },
+  aiText: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    lineHeight: 22,
+    flex: 1,
+  },
+
+  // Modals
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    width: '85%',
+    maxWidth: 340,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.sm,
+  },
+  modalSub: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    marginBottom: spacing.lg,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+  },
+  modalCancelBtn: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+  },
+  modalCancelText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  modalFinishBtn: {
+    backgroundColor: colors.error,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.md,
+  },
+  modalFinishText: {
+    color: colors.white,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+
+  // Add exercise modal
+  addExerciseModal: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingTop: spacing.xxl,
+  },
+  addExerciseModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  addExerciseModalTitle: {
+    color: colors.text,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+  },
+  addExerciseSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    margin: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  addExerciseSearchInput: {
+    flex: 1,
+    color: colors.text,
+    fontSize: fontSize.md,
+  },
+  addExerciseItem: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  addExerciseItemName: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  addExerciseItemMeta: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    marginTop: 2,
+  },
+});
