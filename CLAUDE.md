@@ -1,6 +1,6 @@
 # workout-enhanced
 
-Expo React Native workout tracking app with SQLite local storage.
+Expo React Native workout tracking app with SQLite local storage and Supabase cloud sync.
 
 ## Architecture
 - **Navigation**: Bottom tab navigator with a native stack navigator nested inside the Templates tab for list -> detail -> exercise picker flow.
@@ -39,7 +39,7 @@ TemplatesStackParamList is exported from src/navigation/TabNavigator.tsx for typ
 - Expo (React Native) with TypeScript
 - @react-navigation/bottom-tabs + @react-navigation/native-stack
 - expo-sqlite for local-first data
-- @supabase/supabase-js (configured, pending credentials)
+- @supabase/supabase-js with sync service (src/services/sync.ts) for push/pull
 - Supabase migration in supabase/migrations/001_initial.sql
 
 ## Building & Running
