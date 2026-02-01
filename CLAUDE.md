@@ -11,7 +11,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 ## Screens
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus.
 - **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count, navigate to exercise picker.
-- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Inline form to create new exercises with type/muscle groups/training goal pickers, description field, validation errors, radio-style training goal selector with descriptions.
+- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type/muscle groups pickers and description field. Training goal defaults to hypertrophy (managed via MCP).
 
 ## Navigation Types
 TemplatesStackParamList is exported from src/navigation/TabNavigator.tsx for type-safe navigation within the Templates stack.
@@ -19,7 +19,7 @@ TemplatesStackParamList is exported from src/navigation/TabNavigator.tsx for typ
 ## Workout Screen
 - **WorkoutScreen** (`src/screens/WorkoutScreen.tsx`) handles both idle and active states inline (no separate ActiveWorkoutScreen file).
 - Idle state: "Start Empty Workout" button + template list from `getAllTemplates()`. Tap template to start workout from it.
-- Active state: header with template name + elapsed timer (mm:ss) + sets progress counter (X/Y sets) + Finish button, ScrollView of exercise blocks.
+- Active state: header with cancel (X) button + template name + elapsed timer (mm:ss) + sets progress counter (X/Y sets) + Finish button, ScrollView of exercise blocks. Cancel button shows Alert confirmation then deletes workout and returns to idle.
 - Each exercise block: name, PREVIOUS column (per-set data from last workout), set rows with flex-based layout (set number, previous weight×reps, weight input with placeholder from previous, reps input with placeholder from previous, completion checkbox), "Add Set" button, collapsible notes.
 - Tags: tap set number to cycle (working → warmup W → failure F → drop D). Tagged sets show colored badge instead of number.
 - Long-press set number to delete set (except last set).
@@ -35,7 +35,7 @@ TemplatesStackParamList is exported from src/navigation/TabNavigator.tsx for typ
 
 ## History & Profile
 - **HistoryScreen**: FlatList of completed workouts (date, template name, duration, volume). Tap to expand sets grouped by exercise.
-- **ProfileScreen**: Stats dashboard (total workouts, this month, week volume, avg duration, streak) + functional settings. Rest Timer Defaults setting opens modal with +/- 15s adjusters per training goal. Units setting (lb).
+- **ProfileScreen**: Stats dashboard (total workouts, this month, week volume, avg duration, streak). No settings section.
 
 ## MCP AI Coach
 Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching.
@@ -54,8 +54,13 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - `pullUpcomingWorkout()` — pulls latest upcoming workout into local SQLite
 - Sync runs on app startup (App.tsx) and on workout finish
 
+## Layout
+- All screens wrapped in SafeAreaView from react-native-safe-area-context (prevents content behind notch/home indicator).
+- App.tsx wraps NavigationContainer in SafeAreaProvider.
+
 ## Tech Stack
 - Expo (React Native) with TypeScript
+- react-native-safe-area-context for safe area handling
 - @react-navigation/bottom-tabs + @react-navigation/native-stack
 - expo-sqlite for local-first data
 - @supabase/supabase-js with sync service (src/services/sync.ts) for push/pull
