@@ -447,6 +447,9 @@ export default function WorkoutScreen() {
     field: 'weight' | 'reps',
     value: string,
   ) {
+    const set = exerciseBlocks[blockIdx]?.sets[setIdx];
+    if (!set) return;
+
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
@@ -454,11 +457,9 @@ export default function WorkoutScreen() {
       next[blockIdx] = block;
       return next;
     });
-    const set = exerciseBlocks[blockIdx]?.sets[setIdx];
-    if (set) {
-      const numVal = value === '' ? null : Number(value);
-      await updateWorkoutSet(set.id, { [field]: numVal });
-    }
+
+    const numVal = value === '' ? null : Number(value);
+    await updateWorkoutSet(set.id, { [field]: numVal });
   }
 
   async function handleCycleTag(blockIdx: number, setIdx: number) {
