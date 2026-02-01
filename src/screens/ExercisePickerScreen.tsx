@@ -9,7 +9,7 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-n
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getAllExercises, createExercise, addExerciseToTemplate } from '../services/database';
-import type { Exercise, ExerciseType, TrainingGoal } from '../types/database';
+import type { Exercise, ExerciseType } from '../types/database';
 
 type RouteProp = NativeStackScreenProps<TemplatesStackParamList, 'ExercisePicker'>['route'];
 type Nav = NativeStackNavigationProp<TemplatesStackParamList, 'ExercisePicker'>;
@@ -19,12 +19,6 @@ const EXERCISE_TYPES: { value: ExerciseType; label: string; icon: keyof typeof I
   { value: 'bodyweight', label: 'Bodyweight', icon: 'body-outline' },
   { value: 'machine', label: 'Machine', icon: 'cog-outline' },
   { value: 'cable', label: 'Cable', icon: 'git-pull-request-outline' },
-];
-
-const TRAINING_GOALS: { value: TrainingGoal; label: string; description: string }[] = [
-  { value: 'strength', label: 'Strength', description: 'Heavy weight, low reps (1-5)' },
-  { value: 'hypertrophy', label: 'Hypertrophy', description: 'Moderate weight, 8-12 reps' },
-  { value: 'endurance', label: 'Endurance', description: 'Light weight, 15+ reps' },
 ];
 
 const typeBadgeColor = (type: ExerciseType) => {
@@ -49,7 +43,6 @@ export default function ExercisePickerScreen() {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<ExerciseType>('weighted');
   const [newMuscles, setNewMuscles] = useState('');
-  const [newGoal, setNewGoal] = useState<TrainingGoal>('hypertrophy');
   const [newDescription, setNewDescription] = useState('');
   const [validationError, setValidationError] = useState('');
 
@@ -77,7 +70,6 @@ export default function ExercisePickerScreen() {
     setNewName('');
     setNewType('weighted');
     setNewMuscles('');
-    setNewGoal('hypertrophy');
     setNewDescription('');
     setValidationError('');
   };
@@ -96,7 +88,7 @@ export default function ExercisePickerScreen() {
       name: newName.trim(),
       type: newType,
       muscle_groups: muscleGroups,
-      training_goal: newGoal,
+      training_goal: 'hypertrophy',
       description: newDescription.trim(),
     });
     await addExerciseToTemplate(templateId, exercise.id);
@@ -116,17 +108,17 @@ export default function ExercisePickerScreen() {
         {item.muscle_groups.length > 0 && (
           <Text style={styles.muscles}>{item.muscle_groups.join(', ')}</Text>
         )}
-        {item.training_goal && (
-          <Text style={styles.goalHint}>{item.training_goal}</Text>
-        )}
       </View>
     </TouchableOpacity>
   );
 
-  const selectedGoalInfo = TRAINING_GOALS.find(g => g.value === newGoal);
-
   const renderCreateForm = () => (
-    <View style={styles.createForm}>
+    <ScrollView
+      style={styles.createFormScroll}
+      contentContainerStyle={styles.createForm}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+    >
       <View style={styles.createFormHeader}>
         <View style={styles.createFormTitleRow}>
           <Ionicons name="add-circle" size={20} color={colors.primary} />
@@ -177,25 +169,6 @@ export default function ExercisePickerScreen() {
         placeholderTextColor={colors.textMuted}
       />
 
-      <Text style={styles.label}>Training Goal</Text>
-      <View style={styles.goalList}>
-        {TRAINING_GOALS.map((g) => (
-          <TouchableOpacity
-            key={g.value}
-            style={[styles.goalOption, newGoal === g.value && styles.goalOptionActive]}
-            onPress={() => setNewGoal(g.value)}
-          >
-            <View style={styles.goalOptionHeader}>
-              <View style={[styles.radioOuter, newGoal === g.value && styles.radioOuterActive]}>
-                {newGoal === g.value && <View style={styles.radioInner} />}
-              </View>
-              <Text style={[styles.goalLabel, newGoal === g.value && styles.goalLabelActive]}>{g.label}</Text>
-            </View>
-            <Text style={styles.goalDesc}>{g.description}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
       <Text style={styles.label}>Description (optional)</Text>
       <TextInput
         style={[styles.input, styles.textArea]}
@@ -215,7 +188,7 @@ export default function ExercisePickerScreen() {
       <TouchableOpacity style={styles.cancelBtn} onPress={() => { resetForm(); setShowCreate(false); }} activeOpacity={0.8}>
         <Text style={styles.cancelBtnText}>Cancel</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 
   return (
@@ -307,13 +280,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
-  createForm: {
+  createFormScroll: {
+    maxHeight: 400,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: borderRadius.lg,
     marginHorizontal: spacing.md,
     marginBottom: spacing.md,
+  },
+  createForm: {
     padding: spacing.md,
   },
   createFormHeader: {
@@ -331,20 +307,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
-  },
-  aiParsedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primaryDim + '30',
-    borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xxs,
-    gap: 4,
-  },
-  aiParsedText: {
-    color: colors.primaryLight,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
   },
   label: {
     color: colors.textSecondary,
@@ -397,74 +359,6 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: colors.white,
     fontWeight: fontWeight.semibold,
-  },
-  goalList: {
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  goalOption: {
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.md,
-    padding: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  goalOptionActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryDim + '15',
-  },
-  goalOptionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: colors.textMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOuterActive: {
-    borderColor: colors.primary,
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-  goalLabel: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  goalLabelActive: {
-    color: colors.primaryLight,
-  },
-  goalDesc: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    marginTop: 2,
-    marginLeft: 26,
-  },
-  aiBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    width: 48,
-    alignItems: 'center' as any,
-    justifyContent: 'center' as any,
-  },
-  aiBtnDisabled: {
-    opacity: 0.5,
-  },
-  aiHint: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    marginTop: spacing.xxs,
   },
   saveBtn: {
     backgroundColor: colors.primary,
@@ -535,12 +429,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: fontSize.sm,
     marginTop: spacing.xs,
-  },
-  goalHint: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    marginTop: 2,
-    fontStyle: 'italic',
   },
   emptyState: {
     alignItems: 'center',
