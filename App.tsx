@@ -1,10 +1,9 @@
-import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import TabNavigator from './src/navigation/TabNavigator';
+import { AuthProvider } from './src/contexts/AuthContext';
+import RootNavigator from './src/navigation/RootNavigator';
 import { colors } from './src/theme';
-import { syncToSupabase, pullUpcomingWorkout } from './src/services/sync';
 
 const navTheme = {
   ...DefaultTheme,
@@ -21,18 +20,14 @@ const navTheme = {
 };
 
 export default function App() {
-  useEffect(() => {
-    syncToSupabase()
-      .then(() => pullUpcomingWorkout())
-      .catch(console.error);
-  }, []);
-
   return (
     <SafeAreaProvider>
-      <NavigationContainer theme={navTheme}>
-        <TabNavigator />
-        <StatusBar style="light" />
-      </NavigationContainer>
+      <AuthProvider>
+        <NavigationContainer theme={navTheme}>
+          <RootNavigator />
+          <StatusBar style="light" />
+        </NavigationContainer>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }
