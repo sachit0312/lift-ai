@@ -5,11 +5,15 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../services/supabase';
 import { getWorkoutHistory, getWorkoutSets } from '../services/database';
 
 interface Stats {
@@ -21,6 +25,7 @@ interface Stats {
 }
 
 export default function ProfileScreen() {
+  const { user } = useAuth();
   const [stats, setStats] = useState<Stats>({
     totalWorkouts: 0,
     thisMonth: 0,
@@ -152,6 +157,13 @@ export default function ProfileScreen() {
     { label: 'Streak', value: stats.streak > 0 ? `${stats.streak} day${stats.streak > 1 ? 's' : ''}` : '—', icon: 'flame-outline', color: colors.error },
   ];
 
+  const handleLogout = () => {
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log Out', style: 'destructive', onPress: () => supabase.auth.signOut() },
+    ]);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -169,7 +181,7 @@ export default function ProfileScreen() {
           <Ionicons name="person" size={36} color={colors.textMuted} />
         </View>
         <Text style={styles.title}>Profile</Text>
-        <Text style={styles.subtitle}>Athlete</Text>
+        <Text style={styles.subtitle}>{user?.email ?? 'Athlete'}</Text>
       </View>
 
       <View style={styles.statsGrid}>
@@ -181,6 +193,11 @@ export default function ProfileScreen() {
           </View>
         ))}
       </View>
+
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Ionicons name="log-out-outline" size={20} color={colors.error} />
+        <Text style={styles.logoutText}>Log Out</Text>
+      </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -250,5 +267,18 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    marginTop: spacing.lg,
+  },
+  logoutText: {
+    color: colors.error,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
   },
 });
