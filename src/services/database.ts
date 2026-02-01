@@ -385,6 +385,20 @@ export async function getUpcomingWorkoutForToday(): Promise<{
   return { workout, exercises };
 }
 
+// ─── Clear All ───
+
+export async function clearAllLocalData(): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM upcoming_workout_sets');
+  await database.runAsync('DELETE FROM upcoming_workout_exercises');
+  await database.runAsync('DELETE FROM upcoming_workouts');
+  await database.runAsync('DELETE FROM workout_sets');
+  await database.runAsync('DELETE FROM workouts');
+  await database.runAsync('DELETE FROM template_exercises');
+  await database.runAsync('DELETE FROM templates');
+  await database.runAsync('DELETE FROM exercises');
+}
+
 // ─── Helpers ───
 
 function parseExercise(r: any): Exercise {

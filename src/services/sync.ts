@@ -3,6 +3,9 @@ import { getDb } from './database';
 
 export async function syncToSupabase(): Promise<void> {
   try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
     const db = await getDb();
 
     // Exercises — select specific columns, parse muscle_groups
@@ -10,6 +13,7 @@ export async function syncToSupabase(): Promise<void> {
     if (exercises.length > 0) {
       const parsed = exercises.map((e) => ({
         id: e.id,
+        user_id: session.user.id,
         name: e.name,
         type: e.type,
         muscle_groups: JSON.parse(e.muscle_groups || '[]'),
@@ -23,7 +27,8 @@ export async function syncToSupabase(): Promise<void> {
     // Templates — select specific columns
     const templates = await db.getAllAsync<any>('SELECT id, name FROM templates');
     if (templates.length > 0) {
-      const { error } = await supabase.from('templates').upsert(templates, { onConflict: 'id' });
+      const mapped = templates.map((t) => ({ ...t, user_id: session.user.id }));
+      const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
       if (error) console.error('Sync templates error:', error);
     }
 
@@ -37,7 +42,8 @@ export async function syncToSupabase(): Promise<void> {
     // Workouts (only finished) — select specific columns
     const workouts = await db.getAllAsync<any>('SELECT id, template_id, started_at, finished_at, ai_summary, notes FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
-      const { error } = await supabase.from('workouts').upsert(workouts, { onConflict: 'id' });
+      const mappedWorkouts = workouts.map((w) => ({ ...w, user_id: session.user.id }));
+      const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
       if (error) console.error('Sync workouts error:', error);
     }
 
@@ -65,6 +71,9 @@ export async function syncToSupabase(): Promise<void> {
 
 export async function pullUpcomingWorkout(): Promise<void> {
   try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
     const db = await getDb();
 
     // Fetch latest upcoming workout from Supabase
