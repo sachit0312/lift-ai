@@ -9,6 +9,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **Types**: All DB types in src/types/database.ts.
 
 ## Screens
+- **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser. Dark themed, uses AuthStackParamList. Navigates to Signup. Loading states disable buttons during auth.
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus.
 - **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count, navigate to exercise picker.
 - **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type/muscle groups pickers and description field. Training goal defaults to hypertrophy (managed via MCP).
