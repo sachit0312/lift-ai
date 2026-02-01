@@ -76,8 +76,6 @@ export default function TabNavigator() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          paddingBottom: 4,
-          height: 56,
         },
         tabBarLabelStyle: {
           fontSize: fontSize.xs,

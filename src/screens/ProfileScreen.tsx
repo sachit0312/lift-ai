@@ -9,6 +9,7 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
@@ -187,17 +188,15 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <SafeAreaView style={styles.centered}>
         <ActivityIndicator color={colors.primary} size="large" />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-    >
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
       {/* Profile header */}
       <View style={styles.profileHeader}>
         <View style={styles.avatar}>
@@ -276,7 +275,8 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 

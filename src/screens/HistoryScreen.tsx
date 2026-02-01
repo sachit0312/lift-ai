@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
@@ -195,14 +196,14 @@ export default function HistoryScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <SafeAreaView style={styles.centered}>
         <ActivityIndicator color={colors.primary} size="large" />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.titleSection}>
         <Text style={styles.title}>History</Text>
         <Text style={styles.subtitle}>Your workout journey</Text>
@@ -224,7 +225,7 @@ export default function HistoryScreen() {
           </View>
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 

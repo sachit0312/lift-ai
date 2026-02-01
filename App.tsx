@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import TabNavigator from './src/navigation/TabNavigator';
 import { colors } from './src/theme';
 import { syncToSupabase, pullUpcomingWorkout } from './src/services/sync';
@@ -27,9 +28,11 @@ export default function App() {
   }, []);
 
   return (
-    <NavigationContainer theme={navTheme}>
-      <TabNavigator />
-      <StatusBar style="light" />
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer theme={navTheme}>
+        <TabNavigator />
+        <StatusBar style="light" />
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }

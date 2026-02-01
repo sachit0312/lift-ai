@@ -10,6 +10,7 @@ import {
   Modal,
   Vibration,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
@@ -635,15 +636,15 @@ export default function WorkoutScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <SafeAreaView style={styles.centered}>
         <ActivityIndicator color={colors.primary} size="large" />
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (showSummary) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.summaryContainer}>
           <Ionicons name="checkmark-circle" size={64} color={colors.success} style={{ alignSelf: 'center', marginBottom: spacing.md }} />
           <Text style={styles.summaryTitle}>Workout Complete!</Text>
@@ -657,7 +658,7 @@ export default function WorkoutScreen() {
             <Text style={styles.primaryBtnText}>Done</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -669,7 +670,7 @@ export default function WorkoutScreen() {
   const totalSetsCount = exerciseBlocks.reduce((sum, b) => sum + b.sets.length, 0);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -913,7 +914,7 @@ export default function WorkoutScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -933,7 +934,7 @@ function NoActiveWorkout({
   onStartUpcoming: () => void;
 }) {
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.noActiveContent}>
         <View style={styles.heroSection}>
           <Ionicons name="barbell-outline" size={48} color={colors.primary} />
@@ -987,7 +988,7 @@ function NoActiveWorkout({
           </Text>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -1023,7 +1024,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.xl,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
     backgroundColor: colors.background,
   },
