@@ -10,7 +10,7 @@ Expo React Native workout tracking app with SQLite local storage.
 
 ## Screens
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus.
-- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with defaults (sets/reps/weight), navigate to exercise picker.
+- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count, navigate to exercise picker.
 - **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Inline form to create new exercises with type/muscle groups/training goal pickers, description field, validation errors, radio-style training goal selector with descriptions.
 
 ## Navigation Types

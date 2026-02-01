@@ -27,8 +27,6 @@ export interface TemplateExercise {
   exercise_id: string;
   order: number;
   default_sets: number;
-  default_reps: number;
-  default_weight: number;
   exercise?: Exercise;
 }
 

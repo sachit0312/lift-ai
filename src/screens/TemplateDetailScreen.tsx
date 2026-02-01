@@ -86,43 +86,35 @@ export default function TemplateDetailScreen() {
   const handleEditDefaults = (item: TemplateExercise) => {
     if (Platform.OS === 'ios') {
       Alert.prompt(
-        'Edit Defaults',
-        `Sets x Reps x Weight\nCurrent: ${item.default_sets}x${item.default_reps} @ ${item.default_weight}lbs\nFormat: sets,reps,weight`,
+        'Edit Sets',
+        `Current: ${item.default_sets} sets`,
         (input) => {
           if (!input) return;
-          const parts = input.split(',').map((s) => parseFloat(s.trim()));
-          if (parts.length >= 3 && parts.every((n) => !isNaN(n))) {
-            updateTemplateExerciseDefaults(item.id, {
-              sets: parts[0],
-              reps: parts[1],
-              weight: parts[2],
-            }).then(loadExercises);
+          const sets = parseInt(input.trim(), 10);
+          if (!isNaN(sets) && sets > 0) {
+            updateTemplateExerciseDefaults(item.id, { sets }).then(loadExercises);
           } else {
-            Alert.alert('Invalid', 'Enter as: sets,reps,weight (e.g. 4,8,135)');
+            Alert.alert('Invalid', 'Enter a number of sets (e.g. 4)');
           }
         },
         'plain-text',
-        `${item.default_sets},${item.default_reps},${item.default_weight}`,
+        `${item.default_sets}`,
       );
     } else {
       setEditingItem(item);
-      setDefaultsValue(`${item.default_sets},${item.default_reps},${item.default_weight}`);
+      setDefaultsValue(`${item.default_sets}`);
       setShowDefaultsModal(true);
     }
   };
 
   const handleDefaultsConfirm = () => {
     if (!editingItem) return;
-    const parts = defaultsValue.split(',').map((s) => parseFloat(s.trim()));
-    if (parts.length >= 3 && parts.every((n) => !isNaN(n))) {
+    const sets = parseInt(defaultsValue.trim(), 10);
+    if (!isNaN(sets) && sets > 0) {
       setShowDefaultsModal(false);
-      updateTemplateExerciseDefaults(editingItem.id, {
-        sets: parts[0],
-        reps: parts[1],
-        weight: parts[2],
-      }).then(loadExercises);
+      updateTemplateExerciseDefaults(editingItem.id, { sets }).then(loadExercises);
     } else {
-      Alert.alert('Invalid', 'Enter as: sets,reps,weight (e.g. 4,8,135)');
+      Alert.alert('Invalid', 'Enter a number of sets (e.g. 4)');
     }
   };
 
@@ -143,7 +135,7 @@ export default function TemplateDetailScreen() {
       <TouchableOpacity style={styles.cardBody} onPress={() => handleEditDefaults(item)} activeOpacity={0.7}>
         <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
         <Text style={styles.defaults}>
-          {item.default_sets} sets x {item.default_reps} reps @ {item.default_weight} lbs
+          {item.default_sets} sets
         </Text>
         {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
           <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
@@ -222,12 +214,13 @@ export default function TemplateDetailScreen() {
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowDefaultsModal(false)}>
             <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
               <Text style={styles.modalTitle}>Edit Defaults</Text>
-              <Text style={styles.modalSub}>Format: sets, reps, weight</Text>
+              <Text style={styles.modalSub}>Number of sets</Text>
               <TextInput
                 style={styles.modalInput}
                 value={defaultsValue}
                 onChangeText={setDefaultsValue}
-                placeholder="e.g. 4,8,135"
+                placeholder="e.g. 4"
+                keyboardType="number-pad"
                 placeholderTextColor={colors.textMuted}
                 autoFocus
                 onSubmitEditing={handleDefaultsConfirm}
