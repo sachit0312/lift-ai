@@ -1,0 +1,387 @@
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../services/database';
+import type { Workout, WorkoutSet, Exercise } from '../types/database';
+
+interface WorkoutWithVolume extends Workout {
+  totalVolume: number;
+  duration: string;
+}
+
+interface GroupedSets {
+  exerciseName: string;
+  sets: WorkoutSet[];
+}
+
+function formatDuration(startedAt: string, finishedAt: string | null): string {
+  if (!finishedAt) return '--';
+  const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h}h ${m}m`;
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  const days = Math.floor(diff / 86400000);
+
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
+
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+  });
+}
+
+export default function HistoryScreen() {
+  const [workouts, setWorkouts] = useState<WorkoutWithVolume[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedSets, setExpandedSets] = useState<GroupedSets[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [exerciseMap, setExerciseMap] = useState<Record<string, Exercise>>({});
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        setLoading(true);
+        try {
+          const [history, exercises] = await Promise.all([
+            getWorkoutHistory(),
+            getAllExercises(),
+          ]);
+
+          const map: Record<string, Exercise> = {};
+          for (const e of exercises) map[e.id] = e;
+          if (!cancelled) setExerciseMap(map);
+
+          const enriched: WorkoutWithVolume[] = await Promise.all(
+            history.map(async (w) => {
+              const sets = await getWorkoutSets(w.id);
+              const totalVolume = sets
+                .filter((s) => s.is_completed)
+                .reduce((sum, s) => sum + (s.weight ?? 0) * (s.reps ?? 0), 0);
+              return {
+                ...w,
+                totalVolume,
+                duration: formatDuration(w.started_at, w.finished_at),
+              };
+            }),
+          );
+          if (!cancelled) setWorkouts(enriched);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
+  const handleExpand = useCallback(
+    async (workoutId: string) => {
+      if (expandedId === workoutId) {
+        setExpandedId(null);
+        setExpandedSets([]);
+        return;
+      }
+      const sets = await getWorkoutSets(workoutId);
+      const grouped: Record<string, WorkoutSet[]> = {};
+      const order: string[] = [];
+      for (const s of sets) {
+        if (!grouped[s.exercise_id]) {
+          grouped[s.exercise_id] = [];
+          order.push(s.exercise_id);
+        }
+        grouped[s.exercise_id].push(s);
+      }
+      setExpandedSets(
+        order.map((eid) => ({
+          exerciseName: exerciseMap[eid]?.name ?? 'Unknown Exercise',
+          sets: grouped[eid],
+        })),
+      );
+      setExpandedId(workoutId);
+    },
+    [expandedId, exerciseMap],
+  );
+
+  const renderWorkout = ({ item }: { item: WorkoutWithVolume }) => {
+    const isExpanded = expandedId === item.id;
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.7}
+        onPress={() => handleExpand(item.id)}
+      >
+        <View style={styles.cardAccent} />
+        <View style={styles.cardInner}>
+          <View style={styles.cardHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.workoutName}>
+                {item.template_name || 'Free Workout'}
+              </Text>
+              <View style={styles.dateRow}>
+                <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                <Text style={styles.dateText}>{formatDate(item.started_at)}</Text>
+              </View>
+            </View>
+            <View style={styles.statPills}>
+              <View style={styles.pill}>
+                <Ionicons name="time-outline" size={12} color={colors.primaryLight} />
+                <Text style={styles.pillText}>{item.duration}</Text>
+              </View>
+              <View style={styles.pill}>
+                <Ionicons name="barbell-outline" size={12} color={colors.success} />
+                <Text style={styles.pillText}>
+                  {item.totalVolume >= 1000
+                    ? `${(item.totalVolume / 1000).toFixed(1)}k lb`
+                    : `${item.totalVolume} lb`}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {isExpanded && expandedSets.length > 0 && (
+            <View style={styles.expandedSection}>
+              {expandedSets.map((group, gi) => (
+                <View key={gi} style={styles.exerciseGroup}>
+                  <Text style={styles.exerciseGroupName}>{group.exerciseName}</Text>
+                  {group.sets.map((s) => (
+                    <View key={s.id} style={styles.setRow}>
+                      <View style={[styles.setDot, { backgroundColor: s.is_completed ? colors.success : colors.textMuted }]} />
+                      <Text style={styles.setText}>
+                        Set {s.set_number}: {s.weight ?? 0}lb x {s.reps ?? 0}{' '}
+                        <Text style={styles.setTag}>({s.tag})</Text>
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+              {item.ai_summary ? (
+                <View style={styles.aiSummary}>
+                  <Ionicons name="sparkles" size={12} color={colors.primaryLight} style={{ marginRight: 6 }} />
+                  <Text style={styles.aiSummaryText}>{item.ai_summary}</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          <View style={styles.expandHint}>
+            <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.titleSection}>
+        <Text style={styles.title}>History</Text>
+        <Text style={styles.subtitle}>Your workout journey</Text>
+      </View>
+      <FlatList
+        data={workouts}
+        keyExtractor={(w) => w.id}
+        renderItem={renderWorkout}
+        contentContainerStyle={
+          workouts.length === 0 ? styles.emptyContainer : styles.list
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="barbell-outline" size={64} color={colors.textMuted} />
+            <Text style={styles.emptyText}>No Workouts Yet</Text>
+            <Text style={styles.emptySubtext}>
+              Complete your first workout to see it here.
+            </Text>
+          </View>
+        }
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  centered: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleSection: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.md,
+  },
+  title: {
+    color: colors.text,
+    fontSize: fontSize.title,
+    fontWeight: fontWeight.bold,
+  },
+  subtitle: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    marginTop: spacing.xxs,
+  },
+  list: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.xxl,
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  cardAccent: {
+    width: 3,
+    backgroundColor: colors.primaryDim,
+  },
+  cardInner: {
+    flex: 1,
+    padding: spacing.md,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  workoutName: {
+    color: colors.text,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+  },
+  dateText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+  },
+  statPills: {
+    flexDirection: 'column',
+    gap: spacing.xs,
+    marginLeft: spacing.sm,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceLight,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    gap: 4,
+  },
+  pillText: {
+    color: colors.text,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  expandedSection: {
+    marginTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.md,
+  },
+  exerciseGroup: {
+    marginBottom: spacing.sm,
+  },
+  exerciseGroupName: {
+    color: colors.primary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.xs,
+  },
+  setRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.sm,
+    marginBottom: 3,
+  },
+  setDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: spacing.sm,
+  },
+  setText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+  },
+  setTag: {
+    color: colors.textMuted,
+  },
+  aiSummary: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  aiSummaryText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    lineHeight: 18,
+    flex: 1,
+    fontStyle: 'italic',
+  },
+  expandHint: {
+    alignItems: 'center',
+    marginTop: spacing.xs,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  emptyText: {
+    color: colors.text,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    marginTop: spacing.lg,
+  },
+  emptySubtext: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+});
