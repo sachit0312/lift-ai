@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import TabNavigator from './src/navigation/TabNavigator';
 import { colors } from './src/theme';
+import { syncToSupabase, pullUpcomingWorkout } from './src/services/sync';
 
 const navTheme = {
   ...DefaultTheme,
@@ -18,6 +20,12 @@ const navTheme = {
 };
 
 export default function App() {
+  useEffect(() => {
+    syncToSupabase()
+      .then(() => pullUpcomingWorkout())
+      .catch(console.error);
+  }, []);
+
   return (
     <NavigationContainer theme={navTheme}>
       <TabNavigator />
