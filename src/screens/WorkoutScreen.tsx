@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Vibration,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,7 @@ import {
   getWorkoutSets,
   updateWorkoutSet,
   deleteWorkoutSet,
+  deleteWorkout,
   getExerciseHistory,
   getExerciseById,
   getAllExercises,
@@ -567,6 +569,35 @@ export default function WorkoutScreen() {
     });
   }
 
+  // ─── Cancel workout ───
+
+  function handleCancelWorkout() {
+    Alert.alert(
+      'Cancel Workout',
+      'Discard this workout? All progress will be lost.',
+      [
+        { text: 'Keep Going', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: async () => {
+            const workout = workoutRef.current;
+            if (workout) {
+              await deleteWorkout(workout.id);
+            }
+            if (timerRef.current) clearInterval(timerRef.current);
+            dismissRest();
+            setActiveWorkout(null);
+            workoutRef.current = null;
+            setExerciseBlocks([]);
+            setUpcomingTargets(null);
+            loadState();
+          },
+        },
+      ],
+    );
+  }
+
   // ─── Finish workout ───
 
   function handleFinish() {
@@ -673,7 +704,10 @@ export default function WorkoutScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
+        <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="close" size={24} color={colors.textMuted} />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: spacing.sm }}>
           <Text style={styles.headerTitle}>
             {activeWorkout.template_name ?? 'Workout'}
           </Text>
@@ -1026,6 +1060,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
     backgroundColor: colors.background,
   },
   headerTitle: {
