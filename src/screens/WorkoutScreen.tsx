@@ -82,6 +82,7 @@ const REST_SECONDS: Record<TrainingGoal, number> = {
 export default function WorkoutScreen() {
   const [loading, setLoading] = useState(true);
   const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
+  const [templateName, setTemplateName] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
 
   // Active workout state
@@ -118,6 +119,7 @@ export default function WorkoutScreen() {
       setActiveWorkout(active);
       workoutRef.current = active;
       if (active) {
+        setTemplateName((active as any).template_name ?? null);
         await loadActiveWorkout(active);
       } else {
         const t = await getAllTemplates();
@@ -305,7 +307,7 @@ export default function WorkoutScreen() {
         });
       }
 
-      workout.template_name = template.name;
+      setTemplateName(template.name);
       setActiveWorkout(workout);
       workoutRef.current = workout;
       setExerciseBlocks(blocks);
@@ -590,6 +592,7 @@ export default function WorkoutScreen() {
             dismissRest();
             setActiveWorkout(null);
             workoutRef.current = null;
+            setTemplateName(null);
             setExerciseBlocks([]);
             setUpcomingTargets(null);
             loadState();
@@ -651,6 +654,7 @@ export default function WorkoutScreen() {
     setShowSummary(false);
     setActiveWorkout(null);
     workoutRef.current = null;
+    setTemplateName(null);
     setExerciseBlocks([]);
     loadState();
   }
@@ -710,7 +714,7 @@ export default function WorkoutScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: spacing.sm }}>
           <Text style={styles.headerTitle}>
-            {activeWorkout.template_name ?? 'Workout'}
+            {templateName ?? 'Workout'}
           </Text>
           <View style={styles.timerRow}>
             <Ionicons name="time-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
