@@ -120,7 +120,7 @@ export default function WorkoutScreen() {
         const t = await getAllTemplates();
         setTemplates(t);
         // Pull upcoming workout from Supabase then load from local DB
-        pullUpcomingWorkout().catch(console.error);
+        await pullUpcomingWorkout().catch(console.error);
         const upcoming = await getUpcomingWorkoutForToday();
         setUpcomingWorkout(upcoming);
       }

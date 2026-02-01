@@ -5,42 +5,55 @@ export async function syncToSupabase(): Promise<void> {
   try {
     const db = await getDb();
 
-    // Exercises — parse muscle_groups from JSON string to array
-    const exercises = await db.getAllAsync<any>('SELECT * FROM exercises');
+    // Exercises — select specific columns, parse muscle_groups
+    const exercises = await db.getAllAsync<any>('SELECT id, name, type, muscle_groups, training_goal, description FROM exercises');
     if (exercises.length > 0) {
       const parsed = exercises.map((e) => ({
-        ...e,
+        id: e.id,
+        name: e.name,
+        type: e.type,
         muscle_groups: JSON.parse(e.muscle_groups || '[]'),
+        training_goal: e.training_goal,
+        description: e.description,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
       if (error) console.error('Sync exercises error:', error);
     }
 
-    // Templates
-    const templates = await db.getAllAsync<any>('SELECT * FROM templates');
+    // Templates — select specific columns
+    const templates = await db.getAllAsync<any>('SELECT id, name FROM templates');
     if (templates.length > 0) {
       const { error } = await supabase.from('templates').upsert(templates, { onConflict: 'id' });
       if (error) console.error('Sync templates error:', error);
     }
 
-    // Template exercises
-    const templateExercises = await db.getAllAsync<any>('SELECT * FROM template_exercises');
+    // Template exercises — select specific columns
+    const templateExercises = await db.getAllAsync<any>('SELECT id, template_id, exercise_id, sort_order, default_sets FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
       if (error) console.error('Sync template_exercises error:', error);
     }
 
-    // Workouts (only finished)
-    const workouts = await db.getAllAsync<any>('SELECT * FROM workouts WHERE finished_at IS NOT NULL');
+    // Workouts (only finished) — select specific columns
+    const workouts = await db.getAllAsync<any>('SELECT id, template_id, started_at, finished_at, ai_summary, notes FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
       const { error } = await supabase.from('workouts').upsert(workouts, { onConflict: 'id' });
       if (error) console.error('Sync workouts error:', error);
     }
 
-    // Workout sets
-    const workoutSets = await db.getAllAsync<any>('SELECT * FROM workout_sets');
+    // Workout sets — only for finished workouts, convert is_completed to boolean
+    const workoutSets = await db.getAllAsync<any>(
+      `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.is_completed
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL`
+    );
     if (workoutSets.length > 0) {
-      const { error } = await supabase.from('workout_sets').upsert(workoutSets, { onConflict: 'id' });
+      const mapped = workoutSets.map((s) => ({
+        ...s,
+        is_completed: !!s.is_completed,
+      }));
+      const { error } = await supabase.from('workout_sets').upsert(mapped, { onConflict: 'id' });
       if (error) console.error('Sync workout_sets error:', error);
     }
 
