@@ -3,19 +3,22 @@
 Expo React Native workout tracking app with SQLite local storage and Supabase cloud sync.
 
 ## Architecture
-- **Navigation**: Bottom tab navigator with a native stack navigator nested inside the Templates tab for list -> detail -> exercise picker flow.
+- **Navigation**: RootNavigator (`src/navigation/RootNavigator.tsx`) conditionally renders AuthStack (Login/Signup) or TabNavigator based on session state. TabNavigator has bottom tabs with a native stack nested inside Templates tab for list -> detail -> exercise picker flow.
+- **Authentication**: AuthContext (`src/contexts/AuthContext.tsx`) manages session via `supabase.auth.onAuthStateChange`. On `SIGNED_IN`, clears local SQLite and pulls upcoming workout from Supabase.
 - **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises, templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets.
 - **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius).
 - **Types**: All DB types in src/types/database.ts.
 
 ## Screens
-- **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser. Dark themed, uses AuthStackParamList. Navigates to Signup. Loading states disable buttons during auth.
+- **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser/expo-auth-session. Dark themed with barbell icon. Navigates to Signup.
+- **SignupScreen** (`src/screens/SignupScreen.tsx`): Email/password registration with confirm password validation. Navigates to Login.
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus.
 - **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count, navigate to exercise picker.
 - **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type/muscle groups pickers and description field. Training goal defaults to hypertrophy (managed via MCP).
 
 ## Navigation Types
-TemplatesStackParamList is exported from src/navigation/TabNavigator.tsx for type-safe navigation within the Templates stack.
+- AuthStackParamList exported from `src/navigation/RootNavigator.tsx` (Login, Signup).
+- TemplatesStackParamList exported from `src/navigation/TabNavigator.tsx` for type-safe navigation within the Templates stack.
 
 ## Workout Screen
 - **WorkoutScreen** (`src/screens/WorkoutScreen.tsx`) handles both idle and active states inline (no separate ActiveWorkoutScreen file).
@@ -37,7 +40,7 @@ TemplatesStackParamList is exported from src/navigation/TabNavigator.tsx for typ
 
 ## History & Profile
 - **HistoryScreen**: FlatList of completed workouts (date, template name, duration, volume). Tap to expand sets grouped by exercise.
-- **ProfileScreen**: Stats dashboard (total workouts, this month, week volume, avg duration, streak). No settings section.
+- **ProfileScreen**: Stats dashboard (total workouts, this month, week volume, avg duration, streak). Shows user email. Logout button with confirmation alert.
 
 ## MCP AI Coach
 Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching.
@@ -52,16 +55,21 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Write: create_exercise, add_exercise_to_template, remove_exercise_from_template, create_upcoming_workout
 
 **Supabase Sync** (`src/services/sync.ts`):
-- `syncToSupabase()` — pushes exercises, templates, finished workouts + sets to Supabase
-- `pullUpcomingWorkout()` — pulls latest upcoming workout into local SQLite
-- Sync runs on app startup (App.tsx) and on workout finish
+- `syncToSupabase()` — pushes exercises, templates, finished workouts + sets to Supabase (auth-guarded, adds user_id)
+- `pullUpcomingWorkout()` — pulls latest upcoming workout into local SQLite (auth-guarded)
+- `clearAllLocalData()` in database.ts — deletes all rows from all tables in dependency order
+- Sync runs on login (via AuthContext SIGNED_IN event) and on workout finish
 
 ## Auth
 - `src/contexts/AuthContext.tsx` — AuthProvider with session management via Supabase. Exposes `useAuth()` hook returning `{ session, user, loading }`. On `SIGNED_IN`, clears local data and pulls upcoming workout.
+- Email/password auth via `supabase.auth.signInWithPassword` / `supabase.auth.signUp`
+- Google OAuth via expo-web-browser + expo-auth-session (extracts tokens from redirect URL fragment)
+- Session persisted in expo-secure-store, auto-refreshed
+- **Google OAuth setup required**: Enable Google provider in Supabase dashboard, set Client ID/Secret from Google Cloud Console, add Expo redirect URI to allowed URLs
 
 ## Layout
 - All screens wrapped in SafeAreaView from react-native-safe-area-context (prevents content behind notch/home indicator).
-- App.tsx wraps NavigationContainer in SafeAreaProvider.
+- App.tsx wraps NavigationContainer in AuthProvider inside SafeAreaProvider.
 
 ## Tech Stack
 - Expo (React Native) with TypeScript
@@ -69,6 +77,7 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - @react-navigation/bottom-tabs + @react-navigation/native-stack
 - expo-sqlite for local-first data
 - @supabase/supabase-js with sync service (src/services/sync.ts) for push/pull
+- expo-web-browser + expo-auth-session for Google OAuth
 - Supabase migrations in supabase/migrations/
 
 ## Building & Running
