@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { syncToSupabase, pullUpcomingWorkout } from '../services/sync';
+import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
 import {
   getUpcomingWorkoutForToday,
@@ -118,6 +119,7 @@ export default function WorkoutScreen() {
   const [newExMuscles, setNewExMuscles] = useState<string[]>([]);
   const [newExDescription, setNewExDescription] = useState('');
   const [newExValidation, setNewExValidation] = useState('');
+  const [historyExercise, setHistoryExercise] = useState<Exercise | null>(null);
   const [upcomingWorkout, setUpcomingWorkout] = useState<Awaited<ReturnType<typeof getUpcomingWorkoutForToday>>>(null);
   const [upcomingTargets, setUpcomingTargets] = useState<(UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null>(null);
 
@@ -747,7 +749,9 @@ export default function WorkoutScreen() {
         {exerciseBlocks.map((block, blockIdx) => (
           <View key={`${block.exercise.id}-${blockIdx}`} style={styles.exerciseCard}>
             <View style={styles.exerciseNameRow}>
-              <Text style={styles.exerciseName}>{block.exercise.name}</Text>
+              <TouchableOpacity onPress={() => setHistoryExercise(block.exercise)}>
+                <Text style={styles.exerciseName}>{block.exercise.name}</Text>
+              </TouchableOpacity>
             </View>
 
             {block.lastTime && (
@@ -1039,6 +1043,12 @@ export default function WorkoutScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <ExerciseHistoryModal
+        visible={!!historyExercise}
+        exercise={historyExercise}
+        onClose={() => setHistoryExercise(null)}
+      />
     </SafeAreaView>
   );
 }

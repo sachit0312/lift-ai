@@ -13,6 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../services/database';
 import { formatDuration, formatDate, formatVolume } from '../utils/format';
+import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { Workout, WorkoutSet, Exercise } from '../types/database';
 
 interface WorkoutWithVolume extends Workout {
@@ -21,6 +22,7 @@ interface WorkoutWithVolume extends Workout {
 }
 
 interface GroupedSets {
+  exerciseId: string;
   exerciseName: string;
   sets: WorkoutSet[];
 }
@@ -31,6 +33,7 @@ export default function HistoryScreen() {
   const [expandedSets, setExpandedSets] = useState<GroupedSets[]>([]);
   const [loading, setLoading] = useState(true);
   const [exerciseMap, setExerciseMap] = useState<Record<string, Exercise>>({});
+  const [historyModalExercise, setHistoryModalExercise] = useState<Exercise | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -90,6 +93,7 @@ export default function HistoryScreen() {
       }
       setExpandedSets(
         order.map((eid) => ({
+          exerciseId: eid,
           exerciseName: exerciseMap[eid]?.name ?? 'Unknown Exercise',
           sets: grouped[eid],
         })),
@@ -137,7 +141,12 @@ export default function HistoryScreen() {
             <View style={styles.expandedSection}>
               {expandedSets.map((group, gi) => (
                 <View key={gi} style={styles.exerciseGroup}>
-                  <Text style={styles.exerciseGroupName}>{group.exerciseName}</Text>
+                  <TouchableOpacity onPress={() => {
+                    const ex = exerciseMap[group.exerciseId];
+                    if (ex) setHistoryModalExercise(ex);
+                  }}>
+                    <Text style={styles.exerciseGroupName}>{group.exerciseName}</Text>
+                  </TouchableOpacity>
                   {group.sets.map((s) => {
                     const tagLabel = s.tag === 'warmup' ? 'W' : s.tag === 'failure' ? 'F' : s.tag === 'drop' ? 'D' : null;
                     const tagColor = s.tag === 'warmup' ? colors.warning : s.tag === 'failure' ? colors.error : s.tag === 'drop' ? colors.primary : undefined;
@@ -204,6 +213,11 @@ export default function HistoryScreen() {
             </Text>
           </View>
         }
+      />
+      <ExerciseHistoryModal
+        visible={!!historyModalExercise}
+        exercise={historyModalExercise}
+        onClose={() => setHistoryModalExercise(null)}
       />
     </SafeAreaView>
   );

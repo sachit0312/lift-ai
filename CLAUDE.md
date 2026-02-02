@@ -39,8 +39,11 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - Keyboard dismisses on scroll (`keyboardDismissMode="on-drag"`).
 
 ## History & Profile
-- **HistoryScreen**: FlatList of completed workouts (date, template name, duration, volume). Tap to expand sets grouped by exercise.
+- **HistoryScreen**: FlatList of completed workouts (date, template name, duration, volume). Tap to expand sets grouped by exercise. Tap exercise name in expanded view to open ExerciseHistoryModal.
 - **ProfileScreen**: Stats dashboard (total workouts, this month, PRs this week via Epley formula, streak). Shows user email. Logout button with confirmation alert.
+
+## Components
+- **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with estimated 1RM progression chart (react-native-chart-kit LineChart), PR banner (best estimated 1RM with date), and recent performances (last 3 sessions with completed sets). Accessible from HistoryScreen (tap exercise name) and WorkoutScreen (tap exercise name during active workout). Uses Epley formula: weight * (1 + reps/30).
 
 ## MCP AI Coach
 Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching.
