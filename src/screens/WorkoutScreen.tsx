@@ -119,13 +119,20 @@ export default function WorkoutScreen() {
       setActiveWorkout(active);
       workoutRef.current = active;
       if (active) {
-        setTemplateName((active as any).template_name ?? null);
+        setTemplateName(active.template_name ?? null);
         await loadActiveWorkout(active);
       } else {
         const t = await getAllTemplates();
         setTemplates(t);
-        // Pull upcoming workout from Supabase then load from local DB
-        await pullUpcomingWorkout().catch(console.error);
+        // Pull upcoming workout from Supabase (with timeout so it can't hang)
+        try {
+          await Promise.race([
+            pullUpcomingWorkout(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+          ]);
+        } catch (e) {
+          console.error('pullUpcomingWorkout failed or timed out', e);
+        }
         const upcoming = await getUpcomingWorkoutForToday();
         setUpcomingWorkout(upcoming);
       }
@@ -159,6 +166,7 @@ export default function WorkoutScreen() {
 
       const lastTime = await formatLastTime(exId);
       const previousSets = await getPreviousSets(exId);
+      const restoredNotes = wSets[0]?.notes ?? '';
 
       blocks.push({
         exercise,
@@ -173,8 +181,8 @@ export default function WorkoutScreen() {
           previous: previousSets[idx] ?? null,
         })),
         lastTime,
-        notesExpanded: false,
-        notes: '',
+        notesExpanded: restoredNotes.length > 0,
+        notes: restoredNotes,
       });
     }
 
@@ -261,7 +269,51 @@ export default function WorkoutScreen() {
     setRestSeconds(0);
   }
 
-  // ─── Start workout from template ───
+  // ─── Build exercise blocks helper ───
+
+  async function buildExerciseBlock(
+    workoutId: string,
+    exercise: Exercise,
+    setCount: number,
+  ): Promise<ExerciseBlock> {
+    const previousSets = await getPreviousSets(exercise.id);
+    const sets: LocalSet[] = [];
+    for (let i = 1; i <= setCount; i++) {
+      const ws = await addWorkoutSet({
+        workout_id: workoutId,
+        exercise_id: exercise.id,
+        set_number: i,
+        reps: null,
+        weight: null,
+        tag: 'working',
+        rpe: null,
+        is_completed: false,
+        notes: null,
+      });
+      sets.push({
+        id: ws.id,
+        exercise_id: exercise.id,
+        set_number: i,
+        weight: '',
+        reps: '',
+        tag: 'working',
+        is_completed: false,
+        previous: previousSets[i - 1] ?? null,
+      });
+    }
+    const lastTime = await formatLastTime(exercise.id);
+    return { exercise, sets, lastTime, notesExpanded: false, notes: '' };
+  }
+
+  function activateWorkout(workout: Workout, blocks: ExerciseBlock[], name: string | null = null) {
+    setTemplateName(name);
+    setActiveWorkout(workout);
+    workoutRef.current = workout;
+    setExerciseBlocks(blocks);
+    startElapsedTimer(workout.started_at);
+  }
+
+  // ─── Start workout handlers ───
 
   async function handleStartFromTemplate(template: Template) {
     try {
@@ -272,46 +324,10 @@ export default function WorkoutScreen() {
       const blocks: ExerciseBlock[] = [];
       for (const te of templateExercises) {
         if (!te.exercise) continue;
-        const previousSets = await getPreviousSets(te.exercise_id);
-        const sets: LocalSet[] = [];
-        for (let i = 1; i <= te.default_sets; i++) {
-          const ws = await addWorkoutSet({
-            workout_id: workout.id,
-            exercise_id: te.exercise_id,
-            set_number: i,
-            reps: null,
-            weight: null,
-            tag: 'working',
-            rpe: null,
-            is_completed: false,
-            notes: null,
-          });
-          sets.push({
-            id: ws.id,
-            exercise_id: te.exercise_id,
-            set_number: i,
-            weight: '',
-            reps: '',
-            tag: 'working',
-            is_completed: false,
-            previous: previousSets[i - 1] ?? null,
-          });
-        }
-        const lastTime = await formatLastTime(te.exercise_id);
-        blocks.push({
-          exercise: te.exercise,
-          sets,
-          lastTime,
-          notesExpanded: false,
-          notes: '',
-        });
+        blocks.push(await buildExerciseBlock(workout.id, te.exercise, te.default_sets));
       }
 
-      setTemplateName(template.name);
-      setActiveWorkout(workout);
-      workoutRef.current = workout;
-      setExerciseBlocks(blocks);
-      startElapsedTimer(workout.started_at);
+      activateWorkout(workout, blocks, template.name);
     } catch (e) {
       console.error('Failed to start workout', e);
     } finally {
@@ -323,10 +339,7 @@ export default function WorkoutScreen() {
     try {
       setLoading(true);
       const workout = await startWorkout(null);
-      setActiveWorkout(workout);
-      workoutRef.current = workout;
-      setExerciseBlocks([]);
-      startElapsedTimer(workout.started_at);
+      activateWorkout(workout, []);
     } catch (e) {
       console.error('Failed to start empty workout', e);
     } finally {
@@ -343,49 +356,12 @@ export default function WorkoutScreen() {
 
       for (const upEx of upcomingWorkout.exercises) {
         if (!upEx.exercise) continue;
-        const previousSets = await getPreviousSets(upEx.exercise_id);
-        const sets: LocalSet[] = [];
-        const targetSets = upEx.sets ?? [];
-
-        for (let i = 1; i <= Math.max(targetSets.length, 1); i++) {
-          const ws = await addWorkoutSet({
-            workout_id: workout.id,
-            exercise_id: upEx.exercise_id,
-            set_number: i,
-            reps: null,
-            weight: null,
-            tag: 'working',
-            rpe: null,
-            is_completed: false,
-            notes: null,
-          });
-          sets.push({
-            id: ws.id,
-            exercise_id: upEx.exercise_id,
-            set_number: i,
-            weight: '',
-            reps: '',
-            tag: 'working',
-            is_completed: false,
-            previous: previousSets[i - 1] ?? null,
-          });
-        }
-
-        const lastTime = await formatLastTime(upEx.exercise_id);
-        blocks.push({
-          exercise: upEx.exercise,
-          sets,
-          lastTime,
-          notesExpanded: false,
-          notes: '',
-        });
+        const setCount = Math.max((upEx.sets ?? []).length, 1);
+        blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount));
       }
 
       setUpcomingTargets(upcomingWorkout.exercises);
-      setActiveWorkout(workout);
-      workoutRef.current = workout;
-      setExerciseBlocks(blocks);
-      startElapsedTimer(workout.started_at);
+      activateWorkout(workout, blocks);
     } catch (e) {
       console.error('Failed to start upcoming workout', e);
     } finally {
@@ -441,7 +417,17 @@ export default function WorkoutScreen() {
     setExerciseBlocks((prev) => [...prev, newBlock]);
   }
 
-  // ─── Set manipulation ───
+  // ─── Set manipulation helpers ───
+
+  function updateBlockSet(blockIdx: number, setIdx: number, updates: Partial<LocalSet>) {
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      block.sets[setIdx] = { ...block.sets[setIdx], ...updates };
+      next[blockIdx] = block;
+      return next;
+    });
+  }
 
   async function handleSetChange(
     blockIdx: number,
@@ -452,13 +438,7 @@ export default function WorkoutScreen() {
     const set = exerciseBlocks[blockIdx]?.sets[setIdx];
     if (!set) return;
 
-    setExerciseBlocks((prev) => {
-      const next = [...prev];
-      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      block.sets[setIdx] = { ...block.sets[setIdx], [field]: value };
-      next[blockIdx] = block;
-      return next;
-    });
+    updateBlockSet(blockIdx, setIdx, { [field]: value });
 
     const numVal = value === '' ? null : Number(value);
     await updateWorkoutSet(set.id, { [field]: numVal });
@@ -470,13 +450,7 @@ export default function WorkoutScreen() {
     const tags: SetTag[] = ['working', 'warmup', 'failure', 'drop'];
     const idx = tags.indexOf(set.tag);
     const newTag = tags[(idx + 1) % tags.length];
-    setExerciseBlocks((prev) => {
-      const next = [...prev];
-      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      block.sets[setIdx] = { ...block.sets[setIdx], tag: newTag };
-      next[blockIdx] = block;
-      return next;
-    });
+    updateBlockSet(blockIdx, setIdx, { tag: newTag });
     await updateWorkoutSet(set.id, { tag: newTag });
   }
 
@@ -485,13 +459,7 @@ export default function WorkoutScreen() {
     if (!set) return;
     const newCompleted = !set.is_completed;
 
-    setExerciseBlocks((prev) => {
-      const next = [...prev];
-      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      block.sets[setIdx] = { ...block.sets[setIdx], is_completed: newCompleted };
-      next[blockIdx] = block;
-      return next;
-    });
+    updateBlockSet(blockIdx, setIdx, { is_completed: newCompleted });
 
     await updateWorkoutSet(set.id, {
       is_completed: newCompleted,
@@ -719,18 +687,18 @@ export default function WorkoutScreen() {
           <View style={styles.timerRow}>
             <Ionicons name="time-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
             <Text style={styles.headerTimer}>{elapsed}</Text>
-            <Text style={styles.headerProgress}> · {completedSetsCount}/{totalSetsCount} sets</Text>
+            <Text style={styles.headerProgress} testID="sets-progress"> · {completedSetsCount}/{totalSetsCount} sets</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.finishBtn} onPress={handleFinish}>
+        <TouchableOpacity style={styles.finishBtn} onPress={handleFinish} testID="finish-workout-btn">
           <Ionicons name="checkmark" size={16} color={colors.white} style={{ marginRight: 4 }} />
           <Text style={styles.finishBtnText}>Finish</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag">
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="always">
         {exerciseBlocks.map((block, blockIdx) => (
-          <View key={block.exercise.id} style={styles.exerciseCard}>
+          <View key={`${block.exercise.id}-${blockIdx}`} style={styles.exerciseCard}>
             <View style={styles.exerciseNameRow}>
               <Text style={styles.exerciseName}>{block.exercise.name}</Text>
             </View>
@@ -783,16 +751,7 @@ export default function WorkoutScreen() {
                 <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
                   {prevText}
                 </Text>
-                {upcomingTargets && (() => {
-                  const target = upcomingTargets
-                    .find(e => e.exercise_id === block.exercise.id)
-                    ?.sets?.find(s => s.set_number === set.set_number);
-                  return (
-                    <Text style={[styles.targetCol, styles.colTarget]} numberOfLines={1}>
-                      {target ? `${target.target_weight}×${target.target_reps}` : '—'}
-                    </Text>
-                  );
-                })()}
+                {upcomingTargets && <TargetCell upcomingTargets={upcomingTargets} exerciseId={block.exercise.id} setNumber={set.set_number} />}
                 <TextInput
                   style={[styles.setInput, styles.colFlex]}
                   keyboardType="numeric"
@@ -800,6 +759,7 @@ export default function WorkoutScreen() {
                   onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'weight', v)}
                   placeholder={set.previous ? String(set.previous.weight) : ''}
                   placeholderTextColor={colors.textMuted}
+                  testID={`weight-${blockIdx}-${setIdx}`}
                 />
                 <TextInput
                   style={[styles.setInput, styles.colFlex]}
@@ -808,15 +768,18 @@ export default function WorkoutScreen() {
                   onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'reps', v)}
                   placeholder={set.previous ? String(set.previous.reps) : ''}
                   placeholderTextColor={colors.textMuted}
+                  testID={`reps-${blockIdx}-${setIdx}`}
                 />
                 <TouchableOpacity
+                  style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
+                  onPress={() => handleToggleComplete(blockIdx, setIdx)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: set.is_completed }}
-                  style={[styles.checkBox, styles.checkCol, set.is_completed && styles.checkBoxDone]}
-                  onPress={() => handleToggleComplete(blockIdx, setIdx)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  testID={`check-${blockIdx}-${setIdx}`}
                 >
-                  {set.is_completed && <Ionicons name="checkmark" size={18} color={colors.white} />}
+                  {set.is_completed && (
+                    <Ionicons name="checkmark" size={18} color={colors.white} />
+                  )}
                 </TouchableOpacity>
               </View>
               );
@@ -846,6 +809,11 @@ export default function WorkoutScreen() {
                     next[blockIdx] = { ...next[blockIdx], notes: v };
                     return next;
                   });
+                  // Persist notes on the first set of this exercise block
+                  const firstSet = exerciseBlocks[blockIdx]?.sets[0];
+                  if (firstSet) {
+                    updateWorkoutSet(firstSet.id, { notes: v });
+                  }
                 }}
                 placeholder="Exercise notes..."
                 placeholderTextColor={colors.textMuted}
@@ -855,12 +823,12 @@ export default function WorkoutScreen() {
         ))}
 
         {/* Add Exercise button */}
-        <TouchableOpacity style={styles.addExerciseBtn} onPress={handleOpenAddExercise} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.addExerciseBtn} onPress={handleOpenAddExercise} activeOpacity={0.7} testID="add-exercise-btn">
           <Ionicons name="add-circle-outline" size={20} color={colors.primary} style={{ marginRight: spacing.sm }} />
           <Text style={styles.addExerciseBtnText}>Add Exercise</Text>
         </TouchableOpacity>
 
-        <View style={{ height: restSeconds > 0 ? 120 : 40 }} />
+
       </ScrollView>
 
       {/* Rest timer bar */}
@@ -912,6 +880,7 @@ export default function WorkoutScreen() {
               placeholder="Search exercises..."
               placeholderTextColor={colors.textMuted}
               autoFocus
+              testID="exercise-search"
             />
           </View>
           <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
@@ -923,6 +892,7 @@ export default function WorkoutScreen() {
                   style={styles.addExerciseItem}
                   onPress={() => handleAddExerciseToWorkout(e)}
                   activeOpacity={0.7}
+                  testID={`exercise-item-${e.name.replace(/\s+/g, '-')}`}
                 >
                   <Text style={styles.addExerciseItemName}>{e.name}</Text>
                   <Text style={styles.addExerciseItemMeta}>
@@ -997,7 +967,7 @@ function NoActiveWorkout({
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity style={styles.emptyBtn} onPress={onStartEmpty}>
+        <TouchableOpacity style={styles.emptyBtn} onPress={onStartEmpty} testID="start-empty-workout">
           <Ionicons name="flash-outline" size={20} color={colors.white} style={{ marginRight: spacing.sm }} />
           <Text style={styles.emptyBtnText}>Start Empty Workout</Text>
         </TouchableOpacity>
@@ -1028,6 +998,21 @@ function NoActiveWorkout({
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function TargetCell({ upcomingTargets, exerciseId, setNumber }: {
+  upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[];
+  exerciseId: string;
+  setNumber: number;
+}) {
+  const target = upcomingTargets
+    .find(e => e.exercise_id === exerciseId)
+    ?.sets?.find(s => s.set_number === setNumber);
+  return (
+    <Text style={[styles.targetCol, styles.colTarget]} numberOfLines={1}>
+      {target ? `${target.target_weight}×${target.target_reps}` : '—'}
+    </Text>
   );
 }
 
@@ -1108,6 +1093,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.md,
+    paddingBottom: 200,
     maxWidth: 500,
     alignSelf: 'center' as any,
     width: '100%' as any,
