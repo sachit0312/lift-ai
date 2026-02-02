@@ -8,26 +8,17 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
   getTemplateExercises,
   removeExerciseFromTemplate,
   updateTemplateExerciseDefaults,
   updateTemplate,
 } from '../services/database';
-import type { TemplateExercise, ExerciseType } from '../types/database';
+import type { TemplateExercise } from '../types/database';
 
 type RouteProp = NativeStackScreenProps<TemplatesStackParamList, 'TemplateDetail'>['route'];
 type Nav = NativeStackNavigationProp<TemplatesStackParamList, 'TemplateDetail'>;
-
-const exerciseTypeColor = (type?: ExerciseType) => {
-  switch (type) {
-    case 'weighted': return colors.primary;
-    case 'bodyweight': return colors.success;
-    case 'machine': return colors.warning;
-    case 'cable': return colors.accent;
-    default: return colors.textMuted;
-  }
-};
 
 export default function TemplateDetailScreen() {
   const route = useRoute<RouteProp>();
@@ -45,9 +36,10 @@ export default function TemplateDetailScreen() {
   const [showDefaultsModal, setShowDefaultsModal] = useState(false);
   const [defaultsValue, setDefaultsValue] = useState('');
   const [editingItem, setEditingItem] = useState<TemplateExercise | null>(null);
+  const [editingField, setEditingField] = useState<'sets' | 'rest'>('sets');
 
   const loadExercises = useCallback(() => {
-    getTemplateExercises(templateId).then(setExercises);
+    getTemplateExercises(templateId).then(setExercises).catch((e) => console.error('Failed to load exercises', e));
   }, [templateId]);
 
   useFocusEffect(
@@ -63,7 +55,7 @@ export default function TemplateDetailScreen() {
           updateTemplate(templateId, name.trim()).then(() => {
             setTemplateName(name.trim());
             navigation.setOptions({ title: name.trim() });
-          });
+          }).catch((e) => console.error('Failed to rename template', e));
         }
       }, 'plain-text', templateName);
     } else {
@@ -79,7 +71,7 @@ export default function TemplateDetailScreen() {
       updateTemplate(templateId, name).then(() => {
         setTemplateName(name);
         navigation.setOptions({ title: name });
-      });
+      }).catch((e) => console.error('Failed to rename template', e));
     }
   };
 
@@ -92,7 +84,7 @@ export default function TemplateDetailScreen() {
           if (!input) return;
           const sets = parseInt(input.trim(), 10);
           if (!isNaN(sets) && sets > 0) {
-            updateTemplateExerciseDefaults(item.id, { sets }).then(loadExercises);
+            updateTemplateExerciseDefaults(item.id, { sets }).then(loadExercises).catch((e) => console.error('Failed to update defaults', e));
           } else {
             Alert.alert('Invalid', 'Enter a number of sets (e.g. 4)');
           }
@@ -102,19 +94,47 @@ export default function TemplateDetailScreen() {
       );
     } else {
       setEditingItem(item);
+      setEditingField('sets');
       setDefaultsValue(`${item.default_sets}`);
+      setShowDefaultsModal(true);
+    }
+  };
+
+  const handleEditRestTimer = (item: TemplateExercise) => {
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        'Rest Timer',
+        'Rest between sets (seconds)',
+        (input) => {
+          if (!input) return;
+          const secs = parseInt(input.trim(), 10);
+          if (!isNaN(secs) && secs > 0) {
+            updateTemplateExerciseDefaults(item.id, { rest_seconds: secs }).then(loadExercises);
+          }
+        },
+        'plain-text',
+        `${item.rest_seconds}`,
+      );
+    } else {
+      setEditingItem(item);
+      setEditingField('rest');
+      setDefaultsValue(`${item.rest_seconds}`);
       setShowDefaultsModal(true);
     }
   };
 
   const handleDefaultsConfirm = () => {
     if (!editingItem) return;
-    const sets = parseInt(defaultsValue.trim(), 10);
-    if (!isNaN(sets) && sets > 0) {
+    const val = parseInt(defaultsValue.trim(), 10);
+    if (!isNaN(val) && val > 0) {
       setShowDefaultsModal(false);
-      updateTemplateExerciseDefaults(editingItem.id, { sets }).then(loadExercises);
+      if (editingField === 'rest') {
+        updateTemplateExerciseDefaults(editingItem.id, { rest_seconds: val }).then(loadExercises);
+      } else {
+        updateTemplateExerciseDefaults(editingItem.id, { sets: val }).then(loadExercises);
+      }
     } else {
-      Alert.alert('Invalid', 'Enter a number of sets (e.g. 4)');
+      Alert.alert('Invalid', editingField === 'rest' ? 'Enter rest time in seconds (e.g. 90)' : 'Enter a number of sets (e.g. 4)');
     }
   };
 
@@ -124,7 +144,7 @@ export default function TemplateDetailScreen() {
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: () => removeExerciseFromTemplate(item.id).then(loadExercises),
+        onPress: () => removeExerciseFromTemplate(item.id).then(loadExercises).catch((e) => console.error('Failed to remove exercise', e)),
       },
     ]);
   };
@@ -137,6 +157,10 @@ export default function TemplateDetailScreen() {
         <Text style={styles.defaults}>
           {item.default_sets} sets
         </Text>
+        <TouchableOpacity onPress={() => handleEditRestTimer(item)} style={styles.restTimerPill}>
+          <Ionicons name="timer-outline" size={12} color={colors.textSecondary} />
+          <Text style={styles.restTimerText}>{item.rest_seconds}s rest</Text>
+        </TouchableOpacity>
         {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
           <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
         )}
@@ -175,6 +199,7 @@ export default function TemplateDetailScreen() {
         style={styles.addBtn}
         onPress={() => navigation.navigate('ExercisePicker', { templateId })}
         activeOpacity={0.8}
+        testID="template-add-exercise-btn"
       >
         <Ionicons name="add-circle-outline" size={20} color={colors.primary} style={{ marginRight: spacing.sm }} />
         <Text style={styles.addBtnText}>Add Exercise</Text>
@@ -214,7 +239,7 @@ export default function TemplateDetailScreen() {
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowDefaultsModal(false)}>
             <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
               <Text style={styles.modalTitle}>Edit Defaults</Text>
-              <Text style={styles.modalSub}>Number of sets</Text>
+              <Text style={styles.modalSub}>{editingField === 'rest' ? 'Rest between sets (seconds)' : 'Number of sets'}</Text>
               <TextInput
                 style={styles.modalInput}
                 value={defaultsValue}
@@ -326,6 +351,16 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
+  },
+  restTimerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: spacing.xs,
+  },
+  restTimerText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.xs,
   },
   removeBtn: {
     width: 48,

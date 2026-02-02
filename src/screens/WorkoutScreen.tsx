@@ -69,6 +69,7 @@ interface ExerciseBlock {
   lastTime: string | null;
   notesExpanded: boolean;
   notes: string;
+  restSeconds: number;
 }
 
 // ─── Rest timer defaults by training goal ───
@@ -203,6 +204,7 @@ export default function WorkoutScreen() {
         lastTime,
         notesExpanded: restoredNotes.length > 0,
         notes: restoredNotes,
+        restSeconds: REST_SECONDS[exercise.training_goal],
       });
     }
 
@@ -251,9 +253,9 @@ export default function WorkoutScreen() {
     timerRef.current = setInterval(update, 1000);
   }
 
-  function startRestTimer(goal: TrainingGoal, exerciseName: string) {
+  function startRestTimer(seconds: number, exerciseName: string) {
     if (restRef.current) clearInterval(restRef.current);
-    const total = REST_SECONDS[goal];
+    const total = seconds;
     setRestTotal(total);
     setRestSeconds(total);
     setRestExerciseName(exerciseName);
@@ -295,6 +297,7 @@ export default function WorkoutScreen() {
     workoutId: string,
     exercise: Exercise,
     setCount: number,
+    restSec?: number,
   ): Promise<ExerciseBlock> {
     const previousSets = await getPreviousSets(exercise.id);
     const sets: LocalSet[] = [];
@@ -322,7 +325,7 @@ export default function WorkoutScreen() {
       });
     }
     const lastTime = await formatLastTime(exercise.id);
-    return { exercise, sets, lastTime, notesExpanded: false, notes: '' };
+    return { exercise, sets, lastTime, notesExpanded: false, notes: '', restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] };
   }
 
   function activateWorkout(workout: Workout, blocks: ExerciseBlock[], name: string | null = null) {
@@ -344,7 +347,7 @@ export default function WorkoutScreen() {
       const blocks: ExerciseBlock[] = [];
       for (const te of templateExercises) {
         if (!te.exercise) continue;
-        blocks.push(await buildExerciseBlock(workout.id, te.exercise, te.default_sets));
+        blocks.push(await buildExerciseBlock(workout.id, te.exercise, te.default_sets, te.rest_seconds));
       }
 
       activateWorkout(workout, blocks, template.name);
@@ -377,7 +380,7 @@ export default function WorkoutScreen() {
       for (const upEx of upcomingWorkout.exercises) {
         if (!upEx.exercise) continue;
         const setCount = Math.max((upEx.sets ?? []).length, 1);
-        blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount));
+        blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount, upEx.rest_seconds));
       }
 
       setUpcomingTargets(upcomingWorkout.exercises);
@@ -432,6 +435,7 @@ export default function WorkoutScreen() {
       lastTime,
       notesExpanded: false,
       notes: '',
+      restSeconds: REST_SECONDS[exercise.training_goal],
     };
 
     setExerciseBlocks((prev) => [...prev, newBlock]);
@@ -512,7 +516,7 @@ export default function WorkoutScreen() {
       // Haptic feedback
       try { Vibration.vibrate(50); } catch {}
       const block = exerciseBlocks[blockIdx];
-      startRestTimer(block.exercise.training_goal, block.exercise.name);
+      startRestTimer(block.restSeconds, block.exercise.name);
     }
   }
 

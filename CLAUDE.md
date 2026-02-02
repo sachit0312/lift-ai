@@ -13,7 +13,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser/expo-auth-session. Dark themed with barbell icon. Navigates to Signup.
 - **SignupScreen** (`src/screens/SignupScreen.tsx`): Email/password registration with confirm password validation. Navigates to Login.
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus.
-- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count, navigate to exercise picker.
+- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count and per-exercise rest timer (default 150s), navigate to exercise picker.
 - **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type chips (single-select) and muscle group chips (multi-select from: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms) and description field. Training goal defaults to hypertrophy (managed via MCP).
 
 ## Navigation Types
@@ -28,7 +28,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - Tags: tap set number to cycle (working → warmup W → failure F → drop D). Tagged sets show colored badge instead of number.
 - Long-press set number to delete set (except last set).
 - Completed set rows get green-tinted background + green left border + haptic vibration feedback.
-- Rest timer: auto-starts on set completion. Defaults by training_goal: strength=180s, hypertrophy=90s, endurance=60s. Shows exercise name that triggered it, progress bar, large countdown, +15s/-15s adjust buttons, Skip button. Vibrates when timer ends.
+- Rest timer: auto-starts on set completion. Per-exercise rest seconds from template (default 150s) override training_goal defaults (strength=180s, hypertrophy=90s, endurance=60s). Mid-workout added exercises use training_goal defaults. Shows exercise name that triggered it, progress bar, large countdown, +15s/-15s adjust buttons, Skip button. Vibrates when timer ends.
 - Add Exercise mid-workout: full-screen modal with search to add any existing exercise.
 - Finish: Modal confirmation dialog showing completed/total sets, then summary screen (duration, exercises, sets completed, total volume in lb) with celebration vibration. Triggers `syncToSupabase()` after finishing.
 - Upcoming Workout: On idle screen, pulls upcoming workout from Supabase via `pullUpcomingWorkout()` (with 5s timeout to prevent hanging), then loads from local DB via `getUpcomingWorkoutForToday()`. Shows a "Workout Ready" card with exercise count and notes. Starting from upcoming workout pre-populates exercise blocks and enables a TARGET column (weight x reps) per set from the upcoming workout plan.

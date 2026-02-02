@@ -113,6 +113,7 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // Migration: drop columns that may exist from older schema
   await database.runAsync('ALTER TABLE template_exercises DROP COLUMN default_reps').catch(() => {});
   await database.runAsync('ALTER TABLE template_exercises DROP COLUMN default_weight').catch(() => {});
+  await database.runAsync('ALTER TABLE template_exercises ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 150').catch(() => {});
 }
 
 // ─── Exercises ───
@@ -190,6 +191,7 @@ export async function getTemplateExercises(templateId: string): Promise<Template
     exercise_id: r.exercise_id,
     order: r.sort_order,
     default_sets: r.default_sets,
+    rest_seconds: r.rest_seconds ?? 150,
     exercise: {
       id: r.exercise_id,
       user_id: 'local',
@@ -209,16 +211,17 @@ export async function getTemplateExerciseCount(templateId: string): Promise<numb
   return rows[0]?.count ?? 0;
 }
 
-export async function addExerciseToTemplate(templateId: string, exerciseId: string, defaults?: { sets?: number }): Promise<TemplateExercise> {
+export async function addExerciseToTemplate(templateId: string, exerciseId: string, defaults?: { sets?: number; rest_seconds?: number }): Promise<TemplateExercise> {
   const database = await getDb();
   const id = uuid();
   const existing = await database.getAllAsync<any>('SELECT MAX(sort_order) as max_order FROM template_exercises WHERE template_id = ?', templateId);
   const order = (existing[0]?.max_order ?? -1) + 1;
+  const restSec = defaults?.rest_seconds ?? 150;
   await database.runAsync(
-    'INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets) VALUES (?, ?, ?, ?, ?)',
-    id, templateId, exerciseId, order, defaults?.sets ?? 3,
+    'INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds) VALUES (?, ?, ?, ?, ?, ?)',
+    id, templateId, exerciseId, order, defaults?.sets ?? 3, restSec,
   );
-  return { id, template_id: templateId, exercise_id: exerciseId, order, default_sets: defaults?.sets ?? 3 };
+  return { id, template_id: templateId, exercise_id: exerciseId, order, default_sets: defaults?.sets ?? 3, rest_seconds: restSec };
 }
 
 export async function removeExerciseFromTemplate(id: string): Promise<void> {
@@ -226,10 +229,15 @@ export async function removeExerciseFromTemplate(id: string): Promise<void> {
   await database.runAsync('DELETE FROM template_exercises WHERE id = ?', id);
 }
 
-export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number }): Promise<void> {
-  if (defaults.sets === undefined) return;
+export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number }): Promise<void> {
   const database = await getDb();
-  await database.runAsync('UPDATE template_exercises SET default_sets = ? WHERE id = ?', defaults.sets, id);
+  const parts: string[] = [];
+  const values: any[] = [];
+  if (defaults.sets !== undefined) { parts.push('default_sets = ?'); values.push(defaults.sets); }
+  if (defaults.rest_seconds !== undefined) { parts.push('rest_seconds = ?'); values.push(defaults.rest_seconds); }
+  if (parts.length === 0) return;
+  values.push(id);
+  await database.runAsync(`UPDATE template_exercises SET ${parts.join(', ')} WHERE id = ?`, ...values);
 }
 
 // ─── Workouts ───
