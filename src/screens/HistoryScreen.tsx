@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../services/database';
-import { formatDuration, formatDate } from '../utils/format';
+import { formatDuration, formatDate, formatVolume } from '../utils/format';
 import type { Workout, WorkoutSet, Exercise } from '../types/database';
 
 interface WorkoutWithVolume extends Workout {
@@ -78,7 +78,7 @@ export default function HistoryScreen() {
         setExpandedSets([]);
         return;
       }
-      const sets = await getWorkoutSets(workoutId);
+      const sets = (await getWorkoutSets(workoutId)).filter(s => s.is_completed);
       const grouped: Record<string, WorkoutSet[]> = {};
       const order: string[] = [];
       for (const s of sets) {
@@ -127,9 +127,7 @@ export default function HistoryScreen() {
               <View style={styles.pill}>
                 <Ionicons name="barbell-outline" size={12} color={colors.success} />
                 <Text style={styles.pillText}>
-                  {item.totalVolume >= 1000
-                    ? `${(item.totalVolume / 1000).toFixed(1)}k lb`
-                    : `${item.totalVolume} lb`}
+                  {formatVolume(item.totalVolume)}
                 </Text>
               </View>
             </View>
@@ -140,15 +138,23 @@ export default function HistoryScreen() {
               {expandedSets.map((group, gi) => (
                 <View key={gi} style={styles.exerciseGroup}>
                   <Text style={styles.exerciseGroupName}>{group.exerciseName}</Text>
-                  {group.sets.map((s) => (
-                    <View key={s.id} style={styles.setRow}>
-                      <View style={[styles.setDot, { backgroundColor: s.is_completed ? colors.success : colors.textMuted }]} />
-                      <Text style={styles.setText}>
-                        Set {s.set_number}: {s.weight ?? 0}lb x {s.reps ?? 0}{' '}
-                        <Text style={styles.setTag}>({s.tag})</Text>
-                      </Text>
-                    </View>
-                  ))}
+                  {group.sets.map((s) => {
+                    const tagLabel = s.tag === 'warmup' ? 'W' : s.tag === 'failure' ? 'F' : s.tag === 'drop' ? 'D' : null;
+                    const tagColor = s.tag === 'warmup' ? colors.warning : s.tag === 'failure' ? colors.error : s.tag === 'drop' ? colors.primary : undefined;
+                    return (
+                      <View key={s.id} style={styles.setRow}>
+                        <View style={[styles.setDot, { backgroundColor: colors.success }]} />
+                        <Text style={styles.setText}>
+                          Set {s.set_number}: {s.weight ?? 0}lb × {s.reps ?? 0}
+                        </Text>
+                        {tagLabel && (
+                          <View style={[styles.setTagBadge, { backgroundColor: tagColor }]}>
+                            <Text style={styles.setTagBadgeText}>{tagLabel}</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
               ))}
               {item.ai_summary ? (
@@ -316,8 +322,18 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.sm,
   },
-  setTag: {
-    color: colors.textMuted,
+  setTagBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center' as any,
+    justifyContent: 'center' as any,
+    marginLeft: spacing.sm,
+  },
+  setTagBadgeText: {
+    color: colors.white,
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
   },
   aiSummary: {
     flexDirection: 'row',
