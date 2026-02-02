@@ -8,11 +8,17 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { getAllExercises, createExercise, addExerciseToTemplate } from '../services/database';
 import type { Exercise, ExerciseType } from '../types/database';
 
 type RouteProp = NativeStackScreenProps<TemplatesStackParamList, 'ExercisePicker'>['route'];
 type Nav = NativeStackNavigationProp<TemplatesStackParamList, 'ExercisePicker'>;
+
+const MUSCLE_GROUPS = [
+  'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps',
+  'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Forearms',
+];
 
 const EXERCISE_TYPES: { value: ExerciseType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'weighted', label: 'Weighted', icon: 'barbell-outline' },
@@ -21,14 +27,7 @@ const EXERCISE_TYPES: { value: ExerciseType; label: string; icon: keyof typeof I
   { value: 'cable', label: 'Cable', icon: 'git-pull-request-outline' },
 ];
 
-const typeBadgeColor = (type: ExerciseType) => {
-  switch (type) {
-    case 'weighted': return colors.primary;
-    case 'bodyweight': return colors.success;
-    case 'machine': return colors.warning;
-    case 'cable': return colors.accent;
-  }
-};
+const typeBadgeColor = exerciseTypeColor;
 
 export default function ExercisePickerScreen() {
   const route = useRoute<RouteProp>();
@@ -42,7 +41,7 @@ export default function ExercisePickerScreen() {
   // New exercise form state
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<ExerciseType>('weighted');
-  const [newMuscles, setNewMuscles] = useState('');
+  const [newMuscles, setNewMuscles] = useState<string[]>([]);
   const [newDescription, setNewDescription] = useState('');
   const [validationError, setValidationError] = useState('');
 
@@ -69,7 +68,7 @@ export default function ExercisePickerScreen() {
   const resetForm = () => {
     setNewName('');
     setNewType('weighted');
-    setNewMuscles('');
+    setNewMuscles([]);
     setNewDescription('');
     setValidationError('');
   };
@@ -80,14 +79,10 @@ export default function ExercisePickerScreen() {
       return;
     }
     setValidationError('');
-    const muscleGroups = newMuscles
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
     const exercise = await createExercise({
       name: newName.trim(),
       type: newType,
-      muscle_groups: muscleGroups,
+      muscle_groups: newMuscles,
       training_goal: 'hypertrophy',
       description: newDescription.trim(),
     });
@@ -135,6 +130,7 @@ export default function ExercisePickerScreen() {
         placeholderTextColor={colors.textMuted}
         returnKeyType="done"
         onSubmitEditing={() => Keyboard.dismiss()}
+        testID="exercise-name-input"
       />
       {validationError ? <Text style={styles.errorText}>{validationError}</Text> : null}
 
@@ -161,13 +157,30 @@ export default function ExercisePickerScreen() {
       </View>
 
       <Text style={styles.label}>Muscle Groups</Text>
-      <TextInput
-        style={styles.input}
-        value={newMuscles}
-        onChangeText={setNewMuscles}
-        placeholder="e.g. chest, triceps, shoulders"
-        placeholderTextColor={colors.textMuted}
-      />
+      <View style={styles.muscleGrid}>
+        {MUSCLE_GROUPS.map((mg) => {
+          const selected = newMuscles.includes(mg);
+          return (
+            <TouchableOpacity
+              key={mg}
+              testID={`muscle-${mg}`}
+              style={[
+                styles.muscleChip,
+                selected && styles.muscleChipSelected,
+              ]}
+              onPress={() =>
+                setNewMuscles((prev) =>
+                  selected ? prev.filter((m) => m !== mg) : [...prev, mg],
+                )
+              }
+            >
+              <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                {mg}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       <Text style={styles.label}>Description (optional)</Text>
       <TextInput
@@ -180,7 +193,7 @@ export default function ExercisePickerScreen() {
         numberOfLines={2}
       />
 
-      <TouchableOpacity style={styles.saveBtn} onPress={handleCreate} activeOpacity={0.8}>
+      <TouchableOpacity style={styles.saveBtn} onPress={handleCreate} activeOpacity={0.8} testID="save-exercise-btn">
         <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
         <Text style={styles.saveBtnText}>Save & Add to Template</Text>
       </TouchableOpacity>
@@ -213,6 +226,7 @@ export default function ExercisePickerScreen() {
         style={styles.createToggle}
         onPress={() => { if (showCreate) resetForm(); setShowCreate(!showCreate); }}
         activeOpacity={0.7}
+        testID="create-exercise-toggle"
       >
         <Ionicons name={showCreate ? 'chevron-up' : 'add-circle-outline'} size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
         <Text style={styles.createToggleText}>
@@ -281,7 +295,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   createFormScroll: {
-    maxHeight: 400,
+    maxHeight: 500,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
@@ -359,6 +373,24 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: colors.white,
     fontWeight: fontWeight.semibold,
+  },
+  muscleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  muscleChip: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  muscleChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   saveBtn: {
     backgroundColor: colors.primary,

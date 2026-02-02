@@ -1,0 +1,51 @@
+appId: com.anonymous.workout-enhanced
+---
+# Start empty workout, add exercise, input data, finish workout
+# Skips checkbox tap (known Maestro issue with TouchableOpacity in ScrollView)
+
+- runFlow: ../workout/start-empty.yaml
+
+# Search and select Bench Press
+- tapOn:
+    id: "exercise-search"
+- inputText: "Bench"
+- hideKeyboard
+- tapOn:
+    id: "exercise-item-Bench-Press"
+
+# Wait for modal to dismiss and exercise block to appear
+- waitForAnimationToEnd
+
+# Input weight for first set
+- tapOn:
+    id: "weight-0-0"
+- inputText: "135"
+
+# Input reps for first set
+- tapOn:
+    id: "reps-0-0"
+- inputText: "10"
+
+# Dismiss keyboard
+- hideKeyboard
+
+# Tap finish button in header
+- tapOn:
+    id: "finish-workout-btn"
+
+# Wait for finish confirmation modal
+- extendedWaitUntil:
+    visible:
+      text: "Finish Workout"
+    timeout: 3000
+
+# Tap Finish in modal (second "Finish" text on screen)
+- tapOn:
+    text: "Finish"
+    index: 1
+
+# Assert completion screen
+- extendedWaitUntil:
+    visible:
+      text: "Workout Complete!"
+    timeout: 10000

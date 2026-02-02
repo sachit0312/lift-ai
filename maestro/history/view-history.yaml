@@ -1,0 +1,37 @@
+appId: com.anonymous.workout-enhanced
+---
+# View workout history after completing a workout
+
+- runFlow: ../workout/start-and-finish.yaml
+
+# Dismiss completion screen
+- tapOn:
+    text: "Done"
+
+# Navigate to History tab
+- tapOn:
+    text: "History"
+
+# Verify history screen loads
+- extendedWaitUntil:
+    visible:
+      text: "History"
+    timeout: 3000
+
+# Verify the workout appears (template name won't show since it was empty workout)
+- assertVisible:
+    text: "Free Workout"
+
+# Tap to expand
+- tapOn:
+    text: "Free Workout"
+
+# Verify expanded section shows exercise name
+- extendedWaitUntil:
+    visible:
+      text: "Bench Press"
+    timeout: 3000
+
+# Verify completed set data is visible
+- assertVisible:
+    text: "135lb"

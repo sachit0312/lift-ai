@@ -5,5 +5,7 @@ module.exports = {
   ],
   moduleNameMapper: {
     '^expo-sqlite$': '<rootDir>/src/__mocks__/expo-sqlite.ts',
+    '^@sentry/react-native$': '<rootDir>/src/__mocks__/@sentry/react-native.ts',
   },
+  testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/'],
 };

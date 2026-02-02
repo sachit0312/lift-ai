@@ -6,6 +6,7 @@ import {
   createTemplate,
   startWorkout,
   updateWorkoutSet,
+  getPRsThisWeek,
 } from '../database';
 
 beforeEach(() => {
@@ -73,5 +74,40 @@ describe('updateWorkoutSet', () => {
     );
     expect(call).toBeDefined();
     expect(call![1]).toBe(1);
+  });
+});
+
+describe('getPRsThisWeek', () => {
+  it('returns 0 when no workouts', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    const result = await getPRsThisWeek();
+    expect(result).toBe(0);
+  });
+
+  it('counts exercise where this week beats prior', async () => {
+    // First call: week sets — one exercise with weight=100, reps=10
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 100, reps: 10 },
+    ]);
+    // Second call: prior sets for ex-1 — lower 1RM (weight=80, reps=10)
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { weight: 80, reps: 10 },
+    ]);
+
+    const result = await getPRsThisWeek();
+    expect(result).toBe(1);
+  });
+
+  it('returns 0 when this week does not beat prior', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 80, reps: 10 },
+    ]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { weight: 100, reps: 10 },
+    ]);
+
+    const result = await getPRsThisWeek();
+    expect(result).toBe(0);
   });
 });

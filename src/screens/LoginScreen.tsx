@@ -16,8 +16,8 @@ import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '../services/supabase';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import type { AuthStackParamList } from '../navigation/RootNavigator';
 
-type AuthStackParamList = { Login: undefined; Signup: undefined };
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export default function LoginScreen({ navigation }: Props) {
@@ -45,7 +45,7 @@ export default function LoginScreen({ navigation }: Props) {
     setError('');
     setGoogleLoading(true);
     try {
-      const redirectTo = makeRedirectUri();
+      const redirectTo = makeRedirectUri({ scheme: 'workout-enhanced' });
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
@@ -59,11 +59,14 @@ export default function LoginScreen({ navigation }: Props) {
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
         if (result.type === 'success') {
           const url = result.url;
-          const params = new URLSearchParams(url.split('#')[1]);
-          const access_token = params.get('access_token');
-          const refresh_token = params.get('refresh_token');
-          if (access_token && refresh_token) {
-            await supabase.auth.setSession({ access_token, refresh_token });
+          const fragment = url.split('#')[1];
+          if (fragment) {
+            const params = new URLSearchParams(fragment);
+            const access_token = params.get('access_token');
+            const refresh_token = params.get('refresh_token');
+            if (access_token && refresh_token) {
+              await supabase.auth.setSession({ access_token, refresh_token });
+            }
           }
         }
       }
@@ -98,6 +101,7 @@ export default function LoginScreen({ navigation }: Props) {
           autoCapitalize="none"
           keyboardType="email-address"
           editable={!isLoading}
+          testID="login-email"
         />
 
         <TextInput
@@ -108,12 +112,14 @@ export default function LoginScreen({ navigation }: Props) {
           onChangeText={setPassword}
           secureTextEntry
           editable={!isLoading}
+          testID="login-password"
         />
 
         <TouchableOpacity
           style={[styles.loginButton, isLoading && styles.disabledButton]}
           onPress={handleEmailLogin}
           disabled={isLoading}
+          testID="login-btn"
         >
           {loading ? (
             <ActivityIndicator color={colors.white} />

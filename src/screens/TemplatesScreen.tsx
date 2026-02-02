@@ -32,7 +32,7 @@ export default function TemplatesScreen() {
         })),
       );
       setTemplates(withCounts);
-    });
+    }).catch((e) => console.error('Failed to load templates', e));
   }, []);
 
   useFocusEffect(
@@ -47,7 +47,7 @@ export default function TemplatesScreen() {
         if (name && name.trim()) {
           createTemplate(name.trim()).then((t) => {
             navigation.navigate('TemplateDetail', { templateId: t.id, templateName: t.name });
-          });
+          }).catch((e) => console.error('Failed to create template', e));
         }
       });
     } else {
@@ -61,7 +61,7 @@ export default function TemplatesScreen() {
     setShowCreateModal(false);
     createTemplate(name).then((t) => {
       navigation.navigate('TemplateDetail', { templateId: t.id, templateName: t.name });
-    });
+    }).catch((e) => console.error('Failed to create template', e));
   };
 
   const handleLongPress = (template: Template) => {
@@ -71,7 +71,7 @@ export default function TemplatesScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteTemplate(template.id).then(loadTemplates);
+          deleteTemplate(template.id).then(loadTemplates).catch((e) => console.error('Failed to delete template', e));
         },
       },
     ]);
@@ -112,7 +112,7 @@ export default function TemplatesScreen() {
           </View>
         }
       />
-      <TouchableOpacity style={styles.fab} onPress={handleCreate} activeOpacity={0.8}>
+      <TouchableOpacity style={styles.fab} onPress={handleCreate} activeOpacity={0.8} testID="create-template-fab">
         <Ionicons name="add" size={28} color={colors.white} />
       </TouchableOpacity>
 
@@ -129,12 +129,13 @@ export default function TemplatesScreen() {
                 placeholderTextColor={colors.textMuted}
                 autoFocus
                 onSubmitEditing={handleCreateConfirm}
+                testID="template-name-input"
               />
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowCreateModal(false)}>
                   <Text style={styles.modalCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.modalCreateBtn} onPress={handleCreateConfirm}>
+                <TouchableOpacity style={styles.modalCreateBtn} onPress={handleCreateConfirm} testID="template-create-btn">
                   <Text style={styles.modalCreateText}>Create</Text>
                 </TouchableOpacity>
               </View>

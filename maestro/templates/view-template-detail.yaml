@@ -1,0 +1,25 @@
+appId: com.anonymous.workout-enhanced
+---
+# View template detail and verify rest timer
+
+# Navigate to Templates tab
+- tapOn:
+    text: "Templates"
+
+# Create a new template
+- tapOn:
+    id: "create-template-fab"
+
+# Wait for template to be created and navigate
+- extendedWaitUntil:
+    visible:
+      text: "No exercises yet"
+    timeout: 3000
+
+# Verify no "TEMPLATE NAME" label
+- assertNotVisible:
+    text: "TEMPLATE NAME"
+
+# Add exercise button exists
+- assertVisible:
+    id: "template-add-exercise-btn"

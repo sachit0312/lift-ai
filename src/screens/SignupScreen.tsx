@@ -14,8 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../services/supabase';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import type { AuthStackParamList } from '../navigation/RootNavigator';
 
-type AuthStackParamList = { Login: undefined; Signup: undefined };
 type Props = NativeStackScreenProps<AuthStackParamList, 'Signup'>;
 
 export default function SignupScreen({ navigation }: Props) {

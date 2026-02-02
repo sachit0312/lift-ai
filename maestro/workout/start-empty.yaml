@@ -1,0 +1,24 @@
+appId: com.anonymous.workout-enhanced
+---
+# Prerequisites: run seed-exercises.yaml first to populate data
+# This flow assumes no active workout (fresh state or after seed)
+- launchApp
+- waitForAnimationToEnd
+
+# Go to Workout tab
+- tapOn:
+    text: "Workout.*"
+- waitForAnimationToEnd
+
+# Start an empty workout
+- tapOn:
+    id: "start-empty-workout"
+- waitForAnimationToEnd
+
+# Assert active workout
+- assertVisible:
+    id: "finish-workout-btn"
+
+# Tap add exercise
+- tapOn:
+    id: "add-exercise-btn"

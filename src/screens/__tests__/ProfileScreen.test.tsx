@@ -65,4 +65,19 @@ describe('ProfileScreen', () => {
       expect(getByTestId('logout-btn')).toBeTruthy();
     });
   });
+
+  it('shows PRs This Week card', async () => {
+    const { getByText } = render(<ProfileScreen />);
+    await waitFor(() => {
+      expect(getByText('PRs This Week')).toBeTruthy();
+    });
+  });
+
+  it('does not show Week Volume or Avg Duration', async () => {
+    const { queryByText } = render(<ProfileScreen />);
+    await waitFor(() => {
+      expect(queryByText('Week Volume')).toBeNull();
+      expect(queryByText('Avg Duration')).toBeNull();
+    });
+  });
 });

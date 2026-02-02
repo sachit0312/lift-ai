@@ -1,0 +1,66 @@
+appId: com.anonymous.workout-enhanced
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd
+
+# Navigate to Templates tab
+- tapOn:
+    text: "Templates.*"
+
+# Create a new template via native iOS Alert.prompt
+- tapOn:
+    id: "create-template-fab"
+- inputText: "Seed Template"
+- tapOn:
+    text: "OK"
+- waitForAnimationToEnd
+
+# Go to exercise picker
+- tapOn:
+    id: "template-add-exercise-btn"
+
+# Create Bench Press
+- tapOn:
+    id: "create-exercise-toggle"
+- tapOn:
+    id: "exercise-name-input"
+- inputText: "Bench Press"
+- hideKeyboard
+- tapOn:
+    id: "muscle-Chest"
+- tapOn:
+    id: "muscle-Triceps"
+# Swipe up on form to reveal save button
+- swipe:
+    start: 50%, 60%
+    end: 50%, 30%
+- tapOn:
+    id: "save-exercise-btn"
+
+# goBack to TemplateDetail — wait for the button
+- extendedWaitUntil:
+    visible:
+      id: "template-add-exercise-btn"
+    timeout: 5000
+
+# Go to picker again for Squat
+- tapOn:
+    id: "template-add-exercise-btn"
+
+# Create Squat
+- tapOn:
+    id: "create-exercise-toggle"
+- tapOn:
+    id: "exercise-name-input"
+- inputText: "Squat"
+- hideKeyboard
+- tapOn:
+    id: "muscle-Quads"
+- tapOn:
+    id: "muscle-Glutes"
+- swipe:
+    start: 50%, 60%
+    end: 50%, 30%
+- tapOn:
+    id: "save-exercise-btn"

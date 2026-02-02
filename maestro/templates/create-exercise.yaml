@@ -1,0 +1,44 @@
+appId: com.anonymous.workout-enhanced
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd
+
+# Navigate to Templates tab
+- tapOn:
+    text: "Templates.*"
+
+# Create a new template via native iOS Alert.prompt
+- tapOn:
+    id: "create-template-fab"
+- inputText: "Test Template"
+- tapOn:
+    text: "OK"
+- waitForAnimationToEnd
+
+# Tap Add Exercise on TemplateDetailScreen
+- tapOn:
+    id: "template-add-exercise-btn"
+
+# Toggle create form
+- tapOn:
+    id: "create-exercise-toggle"
+
+# Input exercise name then dismiss keyboard
+- tapOn:
+    id: "exercise-name-input"
+- inputText: "Romanian Deadlift"
+- hideKeyboard
+
+# Select muscle groups
+- tapOn:
+    id: "muscle-Hamstrings"
+- tapOn:
+    id: "muscle-Glutes"
+
+# Swipe up to reveal save button, then tap
+- swipe:
+    start: 50%, 60%
+    end: 50%, 30%
+- tapOn:
+    id: "save-exercise-btn"

@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
 import { getDb } from './database';
 
@@ -21,7 +22,7 @@ export async function syncToSupabase(): Promise<void> {
         description: e.description,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
-      if (error) console.error('Sync exercises error:', error);
+      if (error) { console.error('Sync exercises error:', error); Sentry.captureException(error); return; }
     }
 
     // Templates — select specific columns
@@ -29,14 +30,14 @@ export async function syncToSupabase(): Promise<void> {
     if (templates.length > 0) {
       const mapped = templates.map((t) => ({ ...t, user_id: session.user.id }));
       const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
-      if (error) console.error('Sync templates error:', error);
+      if (error) { console.error('Sync templates error:', error); Sentry.captureException(error); return; }
     }
 
     // Template exercises — select specific columns
     const templateExercises = await db.getAllAsync<any>('SELECT id, template_id, exercise_id, sort_order, default_sets FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
-      if (error) console.error('Sync template_exercises error:', error);
+      if (error) { console.error('Sync template_exercises error:', error); Sentry.captureException(error); return; }
     }
 
     // Workouts (only finished) — select specific columns
@@ -44,7 +45,7 @@ export async function syncToSupabase(): Promise<void> {
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w) => ({ ...w, user_id: session.user.id }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
-      if (error) console.error('Sync workouts error:', error);
+      if (error) { console.error('Sync workouts error:', error); Sentry.captureException(error); return; }
     }
 
     // Workout sets — only for finished workouts, convert is_completed to boolean
@@ -60,12 +61,13 @@ export async function syncToSupabase(): Promise<void> {
         is_completed: !!s.is_completed,
       }));
       const { error } = await supabase.from('workout_sets').upsert(mapped, { onConflict: 'id' });
-      if (error) console.error('Sync workout_sets error:', error);
+      if (error) { console.error('Sync workout_sets error:', error); Sentry.captureException(error); return; }
     }
 
     console.log('Sync to Supabase complete');
   } catch (err) {
     console.error('syncToSupabase failed:', err);
+    Sentry.captureException(err);
   }
 }
 
@@ -80,11 +82,13 @@ export async function pullUpcomingWorkout(): Promise<void> {
     const { data: workouts, error: wErr } = await supabase
       .from('upcoming_workouts')
       .select('*')
+      .eq('user_id', session.user.id)
       .order('created_at', { ascending: false })
       .limit(1);
 
     if (wErr) {
       console.error('Pull upcoming_workouts error:', wErr);
+      Sentry.captureException(wErr);
       return;
     }
     if (!workouts || workouts.length === 0) return;
@@ -111,6 +115,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
 
     if (eErr) {
       console.error('Pull upcoming_workout_exercises error:', eErr);
+      Sentry.captureException(eErr);
       return;
     }
 
@@ -129,6 +134,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
 
       if (sErr) {
         console.error('Pull upcoming_workout_sets error:', sErr);
+        Sentry.captureException(sErr);
         continue;
       }
 
@@ -143,5 +149,6 @@ export async function pullUpcomingWorkout(): Promise<void> {
     console.log('Pull upcoming workout complete');
   } catch (err) {
     console.error('pullUpcomingWorkout failed:', err);
+    Sentry.captureException(err);
   }
 }

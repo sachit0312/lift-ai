@@ -28,6 +28,7 @@ jest.mock('../../services/database', () => ({
     { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '' },
   ]),
   getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
+  createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '' }),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -147,6 +148,46 @@ describe('WorkoutScreen', () => {
 
     await waitFor(() => {
       expect(getByText('Finish Workout')).toBeTruthy();
+    });
+  });
+
+  it('shows create exercise form in add-exercise modal', async () => {
+    const { getByTestId, getByText } = render(<WorkoutScreen />);
+
+    // Start empty workout
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Open add exercise modal
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+
+    // Tap the create toggle
+    await waitFor(() => expect(getByText('Create New Exercise')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Create New Exercise')); });
+
+    // Verify form fields appear
+    await waitFor(() => {
+      expect(getByText('Name')).toBeTruthy();
+      expect(getByText('Muscle Groups')).toBeTruthy();
+    });
+  });
+
+  it('header shows two-row layout with timer and progress', async () => {
+    const { getByTestId } = render(<WorkoutScreen />);
+
+    // Start empty workout
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Verify sets-progress exists and shows 0/0 sets
+    await waitFor(() => {
+      const progress = getByTestId('sets-progress');
+      expect(progress).toBeTruthy();
+      const children = progress.props.children;
+      expect(children[0]).toBe(0);
+      expect(children[2]).toBe(0);
     });
   });
 });

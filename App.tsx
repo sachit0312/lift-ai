@@ -1,9 +1,15 @@
+import * as Sentry from '@sentry/react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import { colors } from './src/theme';
+
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+  enabled: !!process.env.EXPO_PUBLIC_SENTRY_DSN,
+});
 
 const navTheme = {
   ...DefaultTheme,
@@ -19,7 +25,7 @@ const navTheme = {
   },
 };
 
-export default function App() {
+function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
@@ -31,3 +37,5 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
+
+export default Sentry.wrap(App);
