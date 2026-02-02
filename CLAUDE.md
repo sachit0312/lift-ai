@@ -4,7 +4,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 
 ## Architecture
 - **Navigation**: RootNavigator (`src/navigation/RootNavigator.tsx`) conditionally renders AuthStack (Login/Signup) or TabNavigator based on session state. TabNavigator has bottom tabs with a native stack nested inside Templates tab for list -> detail -> exercise picker flow.
-- **Authentication**: AuthContext (`src/contexts/AuthContext.tsx`) manages session via `supabase.auth.onAuthStateChange`. On `SIGNED_IN`, clears local SQLite and pulls upcoming workout from Supabase.
+- **Authentication**: AuthContext (`src/contexts/AuthContext.tsx`) manages session via `supabase.auth.onAuthStateChange`. On `SIGNED_IN`, clears local SQLite and pulls upcoming workout from Supabase only when the user ID changes (not on token refresh), preventing accidental data loss.
 - **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises, templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets.
 - **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius).
 - **Types**: All DB types in src/types/database.ts.
@@ -14,7 +14,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **SignupScreen** (`src/screens/SignupScreen.tsx`): Email/password registration with confirm password validation. Navigates to Login.
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus.
 - **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count, navigate to exercise picker.
-- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type/muscle groups pickers and description field. Training goal defaults to hypertrophy (managed via MCP).
+- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type chips (single-select) and muscle group chips (multi-select from: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms) and description field. Training goal defaults to hypertrophy (managed via MCP).
 
 ## Navigation Types
 - AuthStackParamList exported from `src/navigation/RootNavigator.tsx` (Login, Signup).
@@ -31,7 +31,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - Rest timer: auto-starts on set completion. Defaults by training_goal: strength=180s, hypertrophy=90s, endurance=60s. Shows exercise name that triggered it, progress bar, large countdown, +15s/-15s adjust buttons, Skip button. Vibrates when timer ends.
 - Add Exercise mid-workout: full-screen modal with search to add any existing exercise.
 - Finish: Modal confirmation dialog showing completed/total sets, then summary screen (duration, exercises, sets completed, total volume in lb) with celebration vibration. Triggers `syncToSupabase()` after finishing.
-- Upcoming Workout: On idle screen, pulls upcoming workout from Supabase via `pullUpcomingWorkout()`, then loads from local DB via `getUpcomingWorkoutForToday()`. Shows a "Workout Ready" card with exercise count and notes. Starting from upcoming workout pre-populates exercise blocks and enables a TARGET column (weight x reps) per set from the upcoming workout plan.
+- Upcoming Workout: On idle screen, pulls upcoming workout from Supabase via `pullUpcomingWorkout()` (with 5s timeout to prevent hanging), then loads from local DB via `getUpcomingWorkoutForToday()`. Shows a "Workout Ready" card with exercise count and notes. Starting from upcoming workout pre-populates exercise blocks and enables a TARGET column (weight x reps) per set from the upcoming workout plan.
 - TARGET column: Shown in set header/rows only when workout was started from an upcoming workout. Displays target weight x reps per set in a muted primary color.
 - Template name displayed in active workout header is stored in a separate `templateName` state variable (not mutated onto the Workout object) for type safety.
 - All set changes persist to SQLite immediately via `updateWorkoutSet()`.
@@ -40,7 +40,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 
 ## History & Profile
 - **HistoryScreen**: FlatList of completed workouts (date, template name, duration, volume). Tap to expand sets grouped by exercise.
-- **ProfileScreen**: Stats dashboard (total workouts, this month, week volume, avg duration, streak). Shows user email. Logout button with confirmation alert.
+- **ProfileScreen**: Stats dashboard (total workouts, this month, PRs this week via Epley formula, streak). Shows user email. Logout button with confirmation alert.
 
 ## MCP AI Coach
 Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching.
@@ -65,7 +65,7 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Email/password auth via `supabase.auth.signInWithPassword` / `supabase.auth.signUp`
 - Google OAuth via expo-web-browser + expo-auth-session (extracts tokens from redirect URL fragment)
 - Session persisted in expo-secure-store, auto-refreshed
-- **Google OAuth setup required**: Enable Google provider in Supabase dashboard, set Client ID/Secret from Google Cloud Console, add Expo redirect URI to allowed URLs
+- **Google OAuth setup required**: Enable Google provider in Supabase dashboard, set Client ID/Secret from Google Cloud Console, add Expo redirect URI to allowed URLs. App uses `scheme: "workout-enhanced"` in app.json for deep linking; `makeRedirectUri({ scheme: 'workout-enhanced' })` generates the correct redirect URI for Expo Go on physical devices.
 
 ## Layout
 - All screens wrapped in SafeAreaView from react-native-safe-area-context (prevents content behind notch/home indicator).
@@ -94,10 +94,27 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Database service tests at `src/services/__tests__/database.test.ts` — tests createExercise, getAllExercises, createTemplate, startWorkout, updateWorkoutSet.
 - UUID utility tests at `src/utils/__tests__/uuid.test.ts` — uniqueness and v4 format.
 - Format utility tests at `src/utils/__tests__/format.test.ts` — formatDuration and formatDate.
+- ExercisePickerScreen component tests at `src/screens/__tests__/ExercisePickerScreen.test.tsx` — renders search bar, muscle group chip toggle, validation error for empty name, search filtering. Uses @testing-library/react-native with mocked database, sync, navigation, and @expo/vector-icons.
+- WorkoutScreen component tests at `src/screens/__tests__/WorkoutScreen.test.tsx` — idle state rendering, starting empty workout, adding exercise + toggling checkbox completion (covers Maestro gap), finish modal.
+- LoginScreen component tests at `src/screens/__tests__/LoginScreen.test.tsx` — renders inputs, validation error for empty fields, calls signInWithPassword, navigates to Signup.
+- TemplatesScreen component tests at `src/screens/__tests__/TemplatesScreen.test.tsx` — empty state, template list rendering, FAB button.
+- ProfileScreen component tests at `src/screens/__tests__/ProfileScreen.test.tsx` — renders title/email, stat cards, logout button.
+- Shared test helper at `src/__tests__/helpers/renderWithProviders.tsx` — wraps components in NavigationContainer.
+
+## E2E Testing (Maestro)
+- Maestro YAML flows in `maestro/` directory. Run: `maestro test maestro/<path>.yaml`
+- Flows: `setup/seed-exercises.yaml`, `templates/create-exercise.yaml`, `workout/start-empty.yaml`, `workout/start-and-finish.yaml`.
+- Flows use `runFlow` for composition (e.g. start-and-finish runs start-empty).
+- Checkbox completion is tested via RNTL (Maestro has a known issue with TouchableOpacity tap inside ScrollView on iOS).
+- TestIDs used: login-email, login-password, login-btn, logout-btn, start-empty-workout, add-exercise-btn, finish-workout-btn, create-template-fab, create-exercise-toggle, exercise-name-input, exercise-search, save-exercise-btn, weight-{ex}-{set}, reps-{ex}-{set}, check-{ex}-{set}, muscle-{name}, exercise-type-picker, sets-progress.
 
 ## Utils
 - `src/utils/uuid.ts` — UUID v4 generator.
-- `src/utils/format.ts` — `formatDuration(startedAt, finishedAt)` and `formatDate(iso)` extracted from HistoryScreen.
+- `src/utils/format.ts` — `formatDuration(startedAt, finishedAt)`, `formatVolume(volume)`, and `formatDate(iso)`.
+- `src/utils/exerciseTypeColor.ts` — shared exercise type → color mapping (used by TemplateDetailScreen, ExercisePickerScreen).
+
+## Working Style
+- Be proactive: run commands, check results, and take action without waiting for the user to tell you each step.
 
 ## Notes
 - Alert.prompt is iOS-only; Android uses fallback Alert.alert patterns. Finish workout uses a custom Modal instead of Alert.alert for web compatibility.

@@ -7,13 +7,18 @@ import type {
 } from '../types/database';
 
 let db: SQLite.SQLiteDatabase;
+let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!db) {
-    db = await SQLite.openDatabaseAsync('workout-enhanced.db');
-    await initSchema(db);
+  if (db) return db;
+  if (!dbInitPromise) {
+    dbInitPromise = (async () => {
+      db = await SQLite.openDatabaseAsync('workout-enhanced.db');
+      await initSchema(db);
+      return db;
+    })();
   }
-  return db;
+  return dbInitPromise;
 }
 
 async function initSchema(database: SQLite.SQLiteDatabase) {
@@ -247,12 +252,14 @@ export async function getWorkoutHistory(): Promise<Workout[]> {
   const rows = await database.getAllAsync<any>(
     `SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NOT NULL ORDER BY w.started_at DESC`
   );
-  return rows.map((r: any) => ({ ...r, template_name: r.template_name }));
+  return rows;
 }
 
 export async function getActiveWorkout(): Promise<Workout | null> {
   const database = await getDb();
-  const rows = await database.getAllAsync<any>('SELECT * FROM workouts WHERE finished_at IS NULL ORDER BY started_at DESC LIMIT 1');
+  const rows = await database.getAllAsync<any>(
+    'SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NULL ORDER BY w.started_at DESC LIMIT 1'
+  );
   return rows[0] ?? null;
 }
 
@@ -323,6 +330,66 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
     result.push({ workout: w, sets: sets.map((s: any) => ({ ...s, is_completed: !!s.is_completed, tag: s.tag as SetTag })) });
   }
   return result;
+}
+
+// ─── PRs This Week ───
+
+export async function getPRsThisWeek(): Promise<number> {
+  const database = await getDb();
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - dayOfWeek);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekStartISO = weekStart.toISOString();
+
+  const weekSets = await database.getAllAsync<any>(
+    `SELECT ws.exercise_id, ws.weight, ws.reps
+     FROM workout_sets ws
+     JOIN workouts w ON ws.workout_id = w.id
+     WHERE w.finished_at IS NOT NULL
+       AND w.started_at >= ?
+       AND ws.is_completed = 1
+       AND ws.weight IS NOT NULL
+       AND ws.reps IS NOT NULL`,
+    weekStartISO,
+  );
+
+  const exerciseIds = [...new Set(weekSets.map((s: any) => s.exercise_id))];
+
+  let prCount = 0;
+  for (const exId of exerciseIds) {
+    const weekBest = weekSets
+      .filter((s: any) => s.exercise_id === exId)
+      .reduce((max: number, s: any) => {
+        const e1rm = s.weight * (1 + s.reps / 30);
+        return e1rm > max ? e1rm : max;
+      }, 0);
+
+    const priorSets = await database.getAllAsync<any>(
+      `SELECT ws.weight, ws.reps
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND w.started_at < ?
+         AND ws.exercise_id = ?
+         AND ws.is_completed = 1
+         AND ws.weight IS NOT NULL
+         AND ws.reps IS NOT NULL`,
+      weekStartISO, exId,
+    );
+
+    const priorBest = priorSets.reduce((max: number, s: any) => {
+      const e1rm = s.weight * (1 + s.reps / 30);
+      return e1rm > max ? e1rm : max;
+    }, 0);
+
+    if (weekBest > priorBest && priorBest > 0) {
+      prCount++;
+    }
+  }
+
+  return prCount;
 }
 
 // ─── Upcoming Workouts ───

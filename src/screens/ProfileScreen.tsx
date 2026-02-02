@@ -14,13 +14,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
-import { getWorkoutHistory, getWorkoutSets } from '../services/database';
+import { getWorkoutHistory, getPRsThisWeek } from '../services/database';
 
 interface Stats {
   totalWorkouts: number;
   thisMonth: number;
-  weekVolume: number;
-  avgDuration: string;
+  prsThisWeek: number;
   streak: number;
 }
 
@@ -29,8 +28,7 @@ export default function ProfileScreen() {
   const [stats, setStats] = useState<Stats>({
     totalWorkouts: 0,
     thisMonth: 0,
-    weekVolume: 0,
-    avgDuration: '--',
+    prsThisWeek: 0,
     streak: 0,
   });
   const [loading, setLoading] = useState(true);
@@ -45,37 +43,12 @@ export default function ProfileScreen() {
 
           const now = new Date();
           const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-          const dayOfWeek = now.getDay();
-          const weekStart = new Date(now);
-          weekStart.setDate(now.getDate() - dayOfWeek);
-          weekStart.setHours(0, 0, 0, 0);
 
           const thisMonth = history.filter(
             (w) => new Date(w.started_at) >= monthStart,
           ).length;
 
-          const weekWorkouts = history.filter(
-            (w) => new Date(w.started_at) >= weekStart,
-          );
-
-          let weekVolume = 0;
-          for (const w of weekWorkouts) {
-            const sets = await getWorkoutSets(w.id);
-            weekVolume += sets
-              .filter((s) => s.is_completed)
-              .reduce((sum, s) => sum + (s.weight ?? 0) * (s.reps ?? 0), 0);
-          }
-
-          // Calculate average duration
-          let avgDuration = '--';
-          const finishedWorkouts = history.filter(w => w.finished_at);
-          if (finishedWorkouts.length > 0) {
-            const totalMs = finishedWorkouts.reduce((sum, w) => {
-              return sum + (new Date(w.finished_at!).getTime() - new Date(w.started_at).getTime());
-            }, 0);
-            const avgMin = Math.round(totalMs / finishedWorkouts.length / 60000);
-            avgDuration = avgMin < 60 ? `${avgMin}m` : `${Math.floor(avgMin / 60)}h ${avgMin % 60}m`;
-          }
+          const prsThisWeek = await getPRsThisWeek();
 
           // Calculate streak (consecutive days with workouts)
           let streak = 0;
@@ -126,8 +99,7 @@ export default function ProfileScreen() {
             setStats({
               totalWorkouts: history.length,
               thisMonth,
-              weekVolume,
-              avgDuration,
+              prsThisWeek,
               streak,
             });
           }
@@ -144,16 +116,7 @@ export default function ProfileScreen() {
   const statCards: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
     { label: 'Total Workouts', value: `${stats.totalWorkouts}`, icon: 'fitness-outline', color: colors.primary },
     { label: 'This Month', value: `${stats.thisMonth}`, icon: 'calendar-outline', color: colors.success },
-    {
-      label: 'Week Volume',
-      value:
-        stats.weekVolume >= 1000
-          ? `${(stats.weekVolume / 1000).toFixed(1)}k lb`
-          : `${stats.weekVolume} lb`,
-      icon: 'trending-up-outline',
-      color: colors.warning,
-    },
-    { label: 'Avg Duration', value: stats.avgDuration, icon: 'time-outline', color: colors.accent },
+    { label: 'PRs This Week', value: `${stats.prsThisWeek}`, icon: 'trophy-outline', color: colors.warning },
     { label: 'Streak', value: stats.streak > 0 ? `${stats.streak} day${stats.streak > 1 ? 's' : ''}` : '—', icon: 'flame-outline', color: colors.error },
   ];
 
@@ -194,7 +157,7 @@ export default function ProfileScreen() {
         ))}
       </View>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} testID="logout-btn">
         <Ionicons name="log-out-outline" size={20} color={colors.error} />
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
