@@ -174,7 +174,6 @@ export default function TemplateDetailScreen() {
   return (
     <View style={styles.container}>
       <TouchableOpacity style={styles.nameRow} onPress={handleEditName} activeOpacity={0.7}>
-        <Text style={styles.nameLabel}>TEMPLATE NAME</Text>
         <View style={styles.nameRowInner}>
           <Text style={styles.nameValue}>{templateName}</Text>
           <Ionicons name="pencil-outline" size={16} color={colors.textMuted} />
@@ -277,13 +276,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     padding: spacing.md,
     paddingVertical: spacing.lg,
-  },
-  nameLabel: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    letterSpacing: 1.5,
-    marginBottom: spacing.xs,
   },
   nameRowInner: {
     flexDirection: 'row',
