@@ -32,6 +32,7 @@ import {
   getExerciseHistory,
   getExerciseById,
   getAllExercises,
+  createExercise,
 } from '../services/database';
 import type {
   Template,
@@ -41,6 +42,7 @@ import type {
   Exercise,
   SetTag,
   TrainingGoal,
+  ExerciseType,
 } from '../types/database';
 
 // ─── Types for local state ───
@@ -77,6 +79,18 @@ const REST_SECONDS: Record<TrainingGoal, number> = {
   endurance: 60,
 };
 
+const MUSCLE_GROUPS = [
+  'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps',
+  'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Forearms',
+];
+
+const EXERCISE_TYPES: { value: ExerciseType; label: string }[] = [
+  { value: 'weighted', label: 'Weighted' },
+  { value: 'bodyweight', label: 'Bodyweight' },
+  { value: 'machine', label: 'Machine' },
+  { value: 'cable', label: 'Cable' },
+];
+
 // ─── Main Component ───
 
 export default function WorkoutScreen() {
@@ -97,6 +111,12 @@ export default function WorkoutScreen() {
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
   const [exerciseSearch, setExerciseSearch] = useState('');
+  const [showCreateInWorkout, setShowCreateInWorkout] = useState(false);
+  const [newExName, setNewExName] = useState('');
+  const [newExType, setNewExType] = useState<ExerciseType>('weighted');
+  const [newExMuscles, setNewExMuscles] = useState<string[]>([]);
+  const [newExDescription, setNewExDescription] = useState('');
+  const [newExValidation, setNewExValidation] = useState('');
   const [upcomingWorkout, setUpcomingWorkout] = useState<Awaited<ReturnType<typeof getUpcomingWorkoutForToday>>>(null);
   const [upcomingTargets, setUpcomingTargets] = useState<(UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null>(null);
 
@@ -415,6 +435,27 @@ export default function WorkoutScreen() {
     };
 
     setExerciseBlocks((prev) => [...prev, newBlock]);
+  }
+
+  async function handleCreateAndAddExercise() {
+    if (!newExName.trim()) {
+      setNewExValidation('Exercise name is required');
+      return;
+    }
+    setNewExValidation('');
+    const exercise = await createExercise({
+      name: newExName.trim(),
+      type: newExType,
+      muscle_groups: newExMuscles,
+      training_goal: 'hypertrophy',
+      description: newExDescription.trim(),
+    });
+    setNewExName('');
+    setNewExType('weighted');
+    setNewExMuscles([]);
+    setNewExDescription('');
+    setShowCreateInWorkout(false);
+    await handleAddExerciseToWorkout(exercise);
   }
 
   // ─── Set manipulation helpers ───
@@ -885,6 +926,75 @@ export default function WorkoutScreen() {
               testID="exercise-search"
             />
           </View>
+          <TouchableOpacity
+            style={styles.createToggleInModal}
+            onPress={() => setShowCreateInWorkout(!showCreateInWorkout)}
+          >
+            <Ionicons name={showCreateInWorkout ? 'chevron-up' : 'add-circle-outline'} size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
+            <Text style={styles.createToggleText}>
+              {showCreateInWorkout ? 'Hide Form' : 'Create New Exercise'}
+            </Text>
+          </TouchableOpacity>
+
+          {showCreateInWorkout && (
+            <ScrollView style={styles.createFormInModal} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              <Text style={styles.createLabel}>Name</Text>
+              <TextInput
+                style={[styles.createInput, newExValidation ? { borderColor: colors.error } : null]}
+                value={newExName}
+                onChangeText={(v) => { setNewExName(v); setNewExValidation(''); }}
+                placeholder='e.g. "Incline Dumbbell Press"'
+                placeholderTextColor={colors.textMuted}
+                testID="workout-exercise-name-input"
+              />
+              {newExValidation ? <Text style={styles.createErrorText}>{newExValidation}</Text> : null}
+
+              <Text style={styles.createLabel}>Type</Text>
+              <View style={styles.createChipRow}>
+                {EXERCISE_TYPES.map((t) => (
+                  <TouchableOpacity
+                    key={t.value}
+                    style={[styles.createChip, newExType === t.value && styles.createChipSelected]}
+                    onPress={() => setNewExType(t.value)}
+                  >
+                    <Text style={[styles.createChipText, newExType === t.value && styles.createChipTextSelected]}>{t.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.createLabel}>Muscle Groups</Text>
+              <View style={styles.createChipRow}>
+                {MUSCLE_GROUPS.map((mg) => {
+                  const sel = newExMuscles.includes(mg);
+                  return (
+                    <TouchableOpacity
+                      key={mg}
+                      style={[styles.createChip, sel && styles.createChipSelected]}
+                      onPress={() => setNewExMuscles((prev) => sel ? prev.filter(m => m !== mg) : [...prev, mg])}
+                    >
+                      <Text style={[styles.createChipText, sel && styles.createChipTextSelected]}>{mg}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.createLabel}>Description (optional)</Text>
+              <TextInput
+                style={[styles.createInput, { minHeight: 50, textAlignVertical: 'top' }]}
+                value={newExDescription}
+                onChangeText={setNewExDescription}
+                placeholder="Form cues, setup notes..."
+                placeholderTextColor={colors.textMuted}
+                multiline
+              />
+
+              <TouchableOpacity style={styles.createSaveBtn} onPress={handleCreateAndAddExercise}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
+                <Text style={styles.createSaveBtnText}>Save & Add to Workout</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+
           <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
             {availableExercises
               .filter(e => e.name.toLowerCase().includes(exerciseSearch.toLowerCase()))
@@ -1605,5 +1715,91 @@ const styles = StyleSheet.create({
     opacity: 0.5,
     fontSize: 12,
     textAlign: 'center' as const,
+  },
+
+  // Create exercise in modal
+  createToggleInModal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.sm,
+    marginVertical: spacing.sm,
+  },
+  createToggleText: {
+    color: colors.primary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  createFormInModal: {
+    maxHeight: 400,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  createLabel: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  createInput: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    color: colors.text,
+    fontSize: fontSize.md,
+  },
+  createErrorText: {
+    color: colors.error,
+    fontSize: fontSize.xs,
+    marginTop: spacing.xs,
+  },
+  createChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  createChip: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  createChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  createChipText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  createChipTextSelected: {
+    color: colors.white,
+    fontWeight: fontWeight.semibold,
+  },
+  createSaveBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  createSaveBtnText: {
+    color: colors.white,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
 });
