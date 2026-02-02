@@ -677,23 +677,25 @@ export default function WorkoutScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="close" size={24} color={colors.textMuted} />
-        </TouchableOpacity>
-        <View style={{ flex: 1, marginLeft: spacing.sm }}>
-          <Text style={styles.headerTitle}>
+        <View style={styles.headerRow1}>
+          <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={24} color={colors.textMuted} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>
             {templateName ?? 'Workout'}
           </Text>
-          <View style={styles.timerRow}>
-            <Ionicons name="time-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
-            <Text style={styles.headerTimer}>{elapsed}</Text>
-            <Text style={styles.headerProgress} testID="sets-progress"> · {completedSetsCount}/{totalSetsCount} sets</Text>
-          </View>
+          <TouchableOpacity style={styles.finishBtn} onPress={handleFinish} testID="finish-workout-btn">
+            <Ionicons name="checkmark" size={16} color={colors.white} style={{ marginRight: 4 }} />
+            <Text style={styles.finishBtnText}>Finish</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.finishBtn} onPress={handleFinish} testID="finish-workout-btn">
-          <Ionicons name="checkmark" size={16} color={colors.white} style={{ marginRight: 4 }} />
-          <Text style={styles.finishBtnText}>Finish</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRow2}>
+          <View style={styles.timerRow}>
+            <Ionicons name="time-outline" size={16} color={colors.primary} style={{ marginRight: 4 }} />
+            <Text style={styles.headerTimer}>{elapsed}</Text>
+          </View>
+          <Text style={styles.headerProgress} testID="sets-progress">{completedSetsCount}/{totalSetsCount} sets</Text>
+        </View>
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="always">
@@ -1044,34 +1046,46 @@ const styles = StyleSheet.create({
 
   // Header
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.background,
   },
+  headerRow1: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  headerRow2: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.lg,
+  },
   headerTitle: {
     color: colors.text,
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: spacing.sm,
   },
   timerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
   },
   headerTimer: {
     color: colors.primary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
   },
   headerProgress: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.medium,
   },
   finishBtn: {
     backgroundColor: colors.success,
