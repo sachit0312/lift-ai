@@ -12,12 +12,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../services/database';
-import { formatDuration, formatDate, formatVolume } from '../utils/format';
+import { formatDuration, formatDate } from '../utils/format';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { Workout, WorkoutSet, Exercise } from '../types/database';
 
 interface WorkoutWithVolume extends Workout {
-  totalVolume: number;
   duration: string;
 }
 
@@ -50,19 +49,10 @@ export default function HistoryScreen() {
           for (const e of exercises) map[e.id] = e;
           if (!cancelled) setExerciseMap(map);
 
-          const enriched: WorkoutWithVolume[] = await Promise.all(
-            history.map(async (w) => {
-              const sets = await getWorkoutSets(w.id);
-              const totalVolume = sets
-                .filter((s) => s.is_completed)
-                .reduce((sum, s) => sum + (s.weight ?? 0) * (s.reps ?? 0), 0);
-              return {
-                ...w,
-                totalVolume,
-                duration: formatDuration(w.started_at, w.finished_at),
-              };
-            }),
-          );
+          const enriched: WorkoutWithVolume[] = history.map((w) => ({
+            ...w,
+            duration: formatDuration(w.started_at, w.finished_at),
+          }));
           if (!cancelled) setWorkouts(enriched);
         } finally {
           if (!cancelled) setLoading(false);
@@ -127,12 +117,6 @@ export default function HistoryScreen() {
               <View style={styles.pill}>
                 <Ionicons name="time-outline" size={12} color={colors.primaryLight} />
                 <Text style={styles.pillText}>{item.duration}</Text>
-              </View>
-              <View style={styles.pill}>
-                <Ionicons name="barbell-outline" size={12} color={colors.success} />
-                <Text style={styles.pillText}>
-                  {formatVolume(item.totalVolume)}
-                </Text>
               </View>
             </View>
           </View>

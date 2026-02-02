@@ -109,7 +109,7 @@ export default function WorkoutScreen() {
   const [restExerciseName, setRestExerciseName] = useState('');
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
-  const [summaryStats, setSummaryStats] = useState({ exercises: 0, sets: 0, volume: 0, duration: '' });
+  const [summaryStats, setSummaryStats] = useState({ exercises: 0, sets: 0, duration: '' });
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
   const [exerciseSearch, setExerciseSearch] = useState('');
@@ -629,15 +629,11 @@ export default function WorkoutScreen() {
     if (!workout) return;
 
     let totalSets = 0;
-    let totalVolume = 0;
     let exerciseCount = exerciseBlocks.length;
     for (const block of exerciseBlocks) {
       for (const s of block.sets) {
         if (s.is_completed) {
           totalSets++;
-          const w = s.weight === '' ? 0 : Number(s.weight);
-          const r = s.reps === '' ? 0 : Number(s.reps);
-          totalVolume += w * r;
         }
       }
     }
@@ -659,7 +655,6 @@ export default function WorkoutScreen() {
     setSummaryStats({
       exercises: exerciseCount,
       sets: totalSets,
-      volume: totalVolume,
       duration: durationStr,
     });
     setShowSummary(true);
@@ -703,7 +698,6 @@ export default function WorkoutScreen() {
             <SummaryStat label="Duration" value={summaryStats.duration} icon="time-outline" />
             <SummaryStat label="Exercises" value={String(summaryStats.exercises)} icon="barbell-outline" />
             <SummaryStat label="Sets" value={String(summaryStats.sets)} icon="layers-outline" />
-            <SummaryStat label="Volume" value={`${summaryStats.volume.toLocaleString()} lb`} icon="trending-up-outline" />
           </View>
           <TouchableOpacity style={styles.primaryBtn} onPress={handleDismissSummary}>
             <Text style={styles.primaryBtnText}>Done</Text>
