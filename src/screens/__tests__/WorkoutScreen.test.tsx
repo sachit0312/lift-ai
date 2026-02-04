@@ -25,10 +25,11 @@ jest.mock('../../services/database', () => ({
   getExerciseHistory: jest.fn().mockResolvedValue([]),
   getExerciseById: jest.fn().mockResolvedValue(null),
   getAllExercises: jest.fn().mockResolvedValue([
-    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '' },
+    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null },
   ]),
   getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
-  createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '' }),
+  createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '', notes: null }),
+  updateExerciseNotes: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -50,6 +51,7 @@ import {
   addWorkoutSet,
   getAllExercises,
   updateWorkoutSet,
+  updateExerciseNotes,
 } from '../../services/database';
 
 import WorkoutScreen from '../WorkoutScreen';
@@ -126,12 +128,25 @@ describe('WorkoutScreen', () => {
     });
   });
 
-  it('opens finish confirmation modal', async () => {
+  it('opens finish confirmation modal when at least one set is completed', async () => {
     const { getByTestId, getByText } = render(<WorkoutScreen />);
 
     await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
     await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
     await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Add exercise
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+    await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Bench Press')); });
+
+    // Wait for set row and complete a set
+    await waitFor(() => expect(getByTestId('check-0-0')).toBeTruthy());
+    await act(async () => {
+      fireEvent.changeText(getByTestId('weight-0-0'), '135');
+      fireEvent.changeText(getByTestId('reps-0-0'), '10');
+    });
+    await act(async () => { fireEvent.press(getByTestId('check-0-0')); });
 
     // Tap finish
     await act(async () => { fireEvent.press(getByTestId('finish-workout-btn')); });
@@ -139,6 +154,33 @@ describe('WorkoutScreen', () => {
     await waitFor(() => {
       expect(getByText('Finish Workout')).toBeTruthy();
     });
+  });
+
+  it('blocks finishing workout with 0 completed sets', async () => {
+    // Mock Alert.alert to track calls
+    const mockAlert = jest.spyOn(require('react-native').Alert, 'alert');
+
+    const { getByTestId, getByText } = render(<WorkoutScreen />);
+
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Add exercise but don't complete any sets
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+    await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Bench Press')); });
+
+    // Wait for set row
+    await waitFor(() => expect(getByTestId('check-0-0')).toBeTruthy());
+
+    // Tap finish without completing any sets
+    await act(async () => { fireEvent.press(getByTestId('finish-workout-btn')); });
+
+    // Should show alert about no sets completed
+    expect(mockAlert).toHaveBeenCalledWith('No Sets Completed', 'Complete at least one set before finishing.');
+
+    mockAlert.mockRestore();
   });
 
   it('shows create exercise form in add-exercise modal', async () => {
@@ -178,6 +220,89 @@ describe('WorkoutScreen', () => {
       const children = progress.props.children;
       expect(children[0]).toBe(0);
       expect(children[2]).toBe(0);
+    });
+  });
+
+  it('blocks set completion when weight is empty', async () => {
+    const { getByTestId, getByText } = render(<WorkoutScreen />);
+
+    // Start empty workout
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Add exercise
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+    await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Bench Press')); });
+
+    // Wait for set row
+    await waitFor(() => expect(getByTestId('check-0-0')).toBeTruthy());
+
+    // Enter only reps, not weight
+    await act(async () => { fireEvent.changeText(getByTestId('reps-0-0'), '10'); });
+
+    // Clear previous calls
+    (updateWorkoutSet as jest.Mock).mockClear();
+
+    // Try to complete set
+    await act(async () => { fireEvent.press(getByTestId('check-0-0')); });
+
+    // Should NOT call updateWorkoutSet with is_completed: true
+    expect(updateWorkoutSet).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ is_completed: true }),
+    );
+  });
+
+  it('blocks set completion when reps is empty', async () => {
+    const { getByTestId, getByText } = render(<WorkoutScreen />);
+
+    // Start empty workout
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Add exercise
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+    await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Bench Press')); });
+
+    // Wait for set row
+    await waitFor(() => expect(getByTestId('check-0-0')).toBeTruthy());
+
+    // Enter only weight, not reps
+    await act(async () => { fireEvent.changeText(getByTestId('weight-0-0'), '135'); });
+
+    // Clear previous calls
+    (updateWorkoutSet as jest.Mock).mockClear();
+
+    // Try to complete set
+    await act(async () => { fireEvent.press(getByTestId('check-0-0')); });
+
+    // Should NOT call updateWorkoutSet with is_completed: true
+    expect(updateWorkoutSet).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ is_completed: true }),
+    );
+  });
+
+  it('shows rest timer toggle in exercise block', async () => {
+    const { getByTestId, getByText } = render(<WorkoutScreen />);
+
+    // Start empty workout
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Add exercise
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+    await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Bench Press')); });
+
+    // Wait for rest timer toggle to appear
+    await waitFor(() => {
+      expect(getByTestId('rest-timer-toggle-0')).toBeTruthy();
     });
   });
 });

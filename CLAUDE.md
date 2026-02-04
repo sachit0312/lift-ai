@@ -5,7 +5,8 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 ## Architecture
 - **Navigation**: RootNavigator (`src/navigation/RootNavigator.tsx`) conditionally renders AuthStack (Login/Signup) or TabNavigator based on session state. TabNavigator has bottom tabs with a native stack nested inside Templates tab for list -> detail -> exercise picker flow.
 - **Authentication**: AuthContext (`src/contexts/AuthContext.tsx`) manages session via `supabase.auth.onAuthStateChange`. On `SIGNED_IN`, clears local SQLite and pulls upcoming workout from Supabase only when the user ID changes (not on token refresh), preventing accidental data loss.
-- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises, templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets. Indexes on workout_sets(workout_id, exercise_id), workouts(finished_at, started_at), template_exercises(template_id) for query performance. Key functions (getExerciseById, getAllExercises, createExercise, getWorkoutHistory) have try/catch with Sentry error reporting. Uses `safeJsonParse` helper for muscle_groups parsing to prevent crashes on malformed JSON.
+- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises (with notes column for sticky notes), templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets. Indexes on workout_sets(workout_id, exercise_id), workouts(finished_at, started_at), template_exercises(template_id) for query performance. Key functions (getExerciseById, getAllExercises, createExercise, getWorkoutHistory, getExerciseNotes, updateExerciseNotes) have try/catch with Sentry error reporting. Uses `safeJsonParse` helper for muscle_groups parsing to prevent crashes on malformed JSON.
+- **Sticky Exercise Notes**: Exercise notes are stored in the exercises table (notes column) and persist across workouts. When adding an exercise to a workout, existing notes are auto-loaded. Notes changes are saved via `updateExerciseNotes()` for persistence.
 - **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius).
 - **Types**: All DB types in src/types/database.ts.
 - **Observability**: Sentry crash reporting (`@sentry/react-native`) initialized in `App.tsx` with `Sentry.wrap()`. Includes `tracesSampleRate` (1.0 dev, 0.2 prod) and `debug: __DEV__`. Navigation breadcrumbs added via `onStateChange` callback. Errors in sync.ts are reported via `Sentry.captureException()` alongside `console.error()`. User context set/cleared on login/logout in AuthContext. Sentry org: `sachit-goyal`, project: `react-native`. Disabled when `EXPO_PUBLIC_SENTRY_DSN` is not set.
@@ -17,7 +18,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **SignupScreen** (`src/screens/SignupScreen.tsx`): Email/password registration with confirm password validation. Navigates to Login.
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus. `renderItem` and `handleLongPress` wrapped in `useCallback`. Modal has `onRequestClose` for Android back button.
 - **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count and per-exercise rest timer (default 150s), navigate to exercise picker. `renderItem` and handlers (`handleEditDefaults`, `handleEditRestTimer`, `handleRemove`) wrapped in `useCallback`. Both modals have `onRequestClose` for Android back button.
-- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type chips (single-select) and muscle group chips (multi-select from: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms) and description field. Training goal defaults to hypertrophy (managed via MCP). `renderItem` and `handlePick` wrapped in `useCallback`. Filtered exercises array memoized with `useMemo`.
+- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type chips (single-select) and muscle group chips (multi-select from: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms) and description field. Training goal defaults to hypertrophy (managed via MCP). `renderItem` and `handlePick` wrapped in `useCallback`. Filtered exercises array memoized with `useMemo`. Search bar is hidden when create form is expanded for cleaner UX.
 
 ## Navigation Types
 - AuthStackParamList exported from `src/navigation/RootNavigator.tsx` (Login, Signup).
@@ -27,11 +28,14 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **WorkoutScreen** (`src/screens/WorkoutScreen.tsx`) handles both idle and active states inline (no separate ActiveWorkoutScreen file).
 - Idle state: "Start Empty Workout" button + template list from `getAllTemplates()`. Tap template to start workout from it.
 - Active state: header with cancel (X) button + template name + elapsed timer (mm:ss) + sets progress counter (X/Y sets) + Finish button, ScrollView of exercise blocks. Cancel button shows Alert confirmation then deletes workout and returns to idle.
-- Each exercise block: name, PREVIOUS column (per-set data from last workout), set rows with flex-based layout (set number, previous weight×reps, weight input with placeholder from previous, reps input with placeholder from previous, completion checkbox), "Add Set" button, collapsible notes.
+- Each exercise block: header row with exercise name (left) and rest timer controls (right: − button, timer display, + button), set header, set rows with flex-based layout (set number, previous weight×reps, weight input with placeholder from previous, reps input with placeholder from previous, completion checkbox), action row ("Add Set" + "Notes" buttons with equal width).
+- **Set Completion Validation**: Sets cannot be marked complete without entering both weight and reps. Red border appears on weight/reps inputs for 2 seconds when validation fails (no alert popup).
+- **Finish Workout Validation**: Cannot finish workout with 0 completed sets. Alert shown prompting user to complete at least one set.
 - Tags: tap set number to cycle (working → warmup W → failure F → drop D). Tagged sets show colored badge instead of number.
 - Long-press set number to delete set (except last set).
 - Completed set rows get green-tinted background + green left border + haptic vibration feedback.
-- Rest timer: auto-starts on set completion. Per-exercise rest seconds from template (default 150s) override training_goal defaults (strength=180s, hypertrophy=90s, endurance=60s). Mid-workout added exercises use training_goal defaults. Shows exercise name that triggered it, progress bar, large countdown, +15s/-15s adjust buttons, Skip button. Vibrates when timer ends.
+- Rest timer: auto-starts on set completion when enabled. Per-exercise rest seconds from template (default 150s) override training_goal defaults (strength=180s, hypertrophy=90s, endurance=60s). Mid-workout added exercises use training_goal defaults. Shows exercise name that triggered it, progress bar, large countdown, +15s/-15s adjust buttons, Skip button. Vibrates when timer ends.
+- **Rest Timer Controls**: Timer controls are in the exercise header row (right side). Tap timer display to toggle on/off. − and + buttons adjust rest time by 15 seconds. Shows "1:30" format when enabled, "Off" when disabled. Disabled rest timers don't auto-start on set completion.
 - Add Exercise mid-workout: full-screen modal with search to add any existing exercise.
 - Finish: Modal confirmation dialog showing completed/total sets, then summary screen (duration, exercises, sets completed) with celebration vibration. Triggers `syncToSupabase()` after finishing.
 - Upcoming Workout: On idle screen, pulls upcoming workout from Supabase via `pullUpcomingWorkout()` (with 5s timeout to prevent hanging), then loads from local DB via `getUpcomingWorkoutForToday()`. Shows a "Workout Ready" card with exercise count and notes. Starting from upcoming workout pre-populates exercise blocks and enables a TARGET column (weight x reps) per set from the upcoming workout plan.
@@ -77,7 +81,7 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 
 ## Layout
 - All screens wrapped in SafeAreaView from react-native-safe-area-context (prevents content behind notch/home indicator).
-- App.tsx wraps NavigationContainer in AuthProvider inside ErrorBoundary inside SafeAreaProvider.
+- App.tsx wraps NavigationContainer in AuthProvider inside ErrorBoundary inside SafeAreaProvider. Uses `LogBox.ignoreLogs()` in DEV mode to suppress sync error messages from showing in Metro overlay.
 
 ## Tech Stack
 - Expo (React Native) with TypeScript
@@ -103,8 +107,8 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Database service tests at `src/services/__tests__/database.test.ts` — tests createExercise, getAllExercises, createTemplate, startWorkout, updateWorkoutSet, getPRsThisWeek.
 - UUID utility tests at `src/utils/__tests__/uuid.test.ts` — uniqueness and v4 format.
 - Format utility tests at `src/utils/__tests__/format.test.ts` — formatDuration and formatDate.
-- ExercisePickerScreen component tests at `src/screens/__tests__/ExercisePickerScreen.test.tsx` — renders search bar, muscle group chip toggle, validation error for empty name, search filtering. Uses @testing-library/react-native with mocked database, sync, navigation, and @expo/vector-icons.
-- WorkoutScreen component tests at `src/screens/__tests__/WorkoutScreen.test.tsx` — idle state rendering, starting empty workout, adding exercise + toggling checkbox completion (covers Maestro gap), finish modal, create exercise form in add-exercise modal, header two-row layout with timer and sets progress.
+- ExercisePickerScreen component tests at `src/screens/__tests__/ExercisePickerScreen.test.tsx` — renders search bar, muscle group chip toggle, validation error for empty name, search filtering, hides search bar when create form expanded. Uses @testing-library/react-native with mocked database, sync, navigation, and @expo/vector-icons.
+- WorkoutScreen component tests at `src/screens/__tests__/WorkoutScreen.test.tsx` — idle state rendering, starting empty workout, adding exercise + toggling checkbox completion (covers Maestro gap), finish modal (requires completed set), 0 sets validation (blocks finish), create exercise form in add-exercise modal, header two-row layout with timer and sets progress, empty set completion validation (blocks when weight/reps empty), rest timer toggle visibility.
 - LoginScreen component tests at `src/screens/__tests__/LoginScreen.test.tsx` — renders inputs, validation error for empty fields, calls signInWithPassword, navigates to Signup.
 - TemplatesScreen component tests at `src/screens/__tests__/TemplatesScreen.test.tsx` — empty state, template list rendering, FAB button.
 - ProfileScreen component tests at `src/screens/__tests__/ProfileScreen.test.tsx` — renders title/email, stat cards, logout button, PRs This Week card, absence of Week Volume/Avg Duration.
@@ -118,7 +122,7 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Flows: `setup/seed-exercises.yaml`, `templates/create-exercise.yaml`, `templates/view-template-detail.yaml`, `workout/start-empty.yaml`, `workout/start-and-finish.yaml`, `history/view-history.yaml`.
 - Flows use `runFlow` for composition (e.g. start-and-finish runs start-empty).
 - Checkbox completion is tested via RNTL (Maestro has a known issue with TouchableOpacity tap inside ScrollView on iOS).
-- TestIDs used: login-email, login-password, login-btn, logout-btn, start-empty-workout, add-exercise-btn, finish-workout-btn, create-template-fab, create-exercise-toggle, exercise-name-input, exercise-search, save-exercise-btn, weight-{ex}-{set}, reps-{ex}-{set}, check-{ex}-{set}, muscle-{name}, exercise-type-picker, sets-progress.
+- TestIDs used: login-email, login-password, login-btn, logout-btn, start-empty-workout, add-exercise-btn, finish-workout-btn, create-template-fab, create-exercise-toggle, exercise-name-input, exercise-search, save-exercise-btn, weight-{ex}-{set}, reps-{ex}-{set}, check-{ex}-{set}, muscle-{name}, exercise-type-picker, sets-progress, rest-timer-toggle-{blockIdx}, exercise-notes-{blockIdx}.
 
 ## Utils
 - `src/utils/uuid.ts` — UUID v4 generator.
