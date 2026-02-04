@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Animated, { useAnimatedStyle, interpolate, SharedValue } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, SharedValue } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
@@ -1269,59 +1269,40 @@ interface SwipeableSetRowProps {
   children: React.ReactNode;
 }
 
-// Animated delete button with scale/opacity for smooth feel
-const RightAction = React.memo(function RightAction({
-  progress,
-  onDelete,
-}: {
-  progress: SharedValue<number>;
-  onDelete: () => void;
-}) {
-  const animatedStyle = useAnimatedStyle(() => {
-    const scale = interpolate(progress.value, [0, 1], [0.8, 1]);
-    const opacity = interpolate(progress.value, [0, 0.5, 1], [0, 0.8, 1]);
-    return {
-      transform: [{ scale }],
-      opacity,
-    };
-  });
+// Swipe-to-delete: red expands with swipe, trash icon fixed at left edge
+const RightAction = React.memo(function RightAction({ drag }: { drag: SharedValue<number> }) {
+  const animatedStyle = useAnimatedStyle(() => ({
+    width: Math.max(80, -drag.value),
+  }));
 
   return (
-    <Animated.View style={[styles.swipeDeleteBtn, animatedStyle]}>
-      <TouchableOpacity onPress={onDelete} style={styles.swipeDeleteInner}>
-        <Ionicons name="trash-outline" size={22} color={colors.white} />
-      </TouchableOpacity>
+    <Animated.View style={[styles.swipeDeleteContainer, animatedStyle]}>
+      <Ionicons name="trash-outline" size={22} color={colors.white} />
     </Animated.View>
   );
 });
 
 const SwipeableSetRow = React.memo(function SwipeableSetRow({
-  set,
   setIdx,
   blockIdx,
   block,
   onDelete,
   children,
 }: SwipeableSetRowProps) {
-  const swipeableRef = useRef<React.ComponentRef<typeof ReanimatedSwipeable>>(null);
   const canDelete = block.sets.length > 1;
 
-  const handleDelete = useCallback(() => {
-    swipeableRef.current?.close();
-    onDelete(blockIdx, setIdx);
-  }, [blockIdx, setIdx, onDelete]);
-
   const renderRightActions = useCallback(
-    (progress: SharedValue<number>) => {
+    (_progress: SharedValue<number>, drag: SharedValue<number>) => {
       if (!canDelete) return null;
-      return <RightAction progress={progress} onDelete={handleDelete} />;
+      return <RightAction drag={drag} />;
     },
-    [canDelete, handleDelete]
+    [canDelete]
   );
 
   const handleSwipeableWillOpen = useCallback(
     (direction: 'left' | 'right') => {
-      if (direction === 'right' && canDelete) {
+      // direction is the swipe direction: 'left' when swiping left to reveal right actions
+      if (direction === 'left' && canDelete) {
         onDelete(blockIdx, setIdx);
       }
     },
@@ -1338,12 +1319,9 @@ const SwipeableSetRow = React.memo(function SwipeableSetRow({
 
   return (
     <ReanimatedSwipeable
-      ref={swipeableRef}
       renderRightActions={renderRightActions}
       onSwipeableWillOpen={handleSwipeableWillOpen}
-      rightThreshold={120}
-      overshootRight={false}
-      friction={2}
+      rightThreshold={280}
       testID={`swipeable-set-${blockIdx}-${setIdx}`}
     >
       {children}
@@ -1559,20 +1537,12 @@ const styles = StyleSheet.create({
     borderColor: colors.error,
     backgroundColor: 'rgba(240, 82, 82, 0.08)',
   },
-  swipeDeleteBtn: {
+  swipeDeleteContainer: {
     backgroundColor: colors.error,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 80,
     height: '100%',
-    borderRadius: borderRadius.md,
-    marginLeft: spacing.xs,
-  },
-  swipeDeleteInner: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
+    alignItems: 'flex-start',
+    paddingLeft: 28,
   },
 
   // Checkbox
