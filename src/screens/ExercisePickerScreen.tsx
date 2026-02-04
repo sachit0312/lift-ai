@@ -10,23 +10,12 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-n
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
+import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import { getAllExercises, createExercise, addExerciseToTemplate } from '../services/database';
 import type { Exercise, ExerciseType } from '../types/database';
 
 type RouteProp = NativeStackScreenProps<TemplatesStackParamList, 'ExercisePicker'>['route'];
 type Nav = NativeStackNavigationProp<TemplatesStackParamList, 'ExercisePicker'>;
-
-const MUSCLE_GROUPS = [
-  'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps',
-  'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Forearms',
-];
-
-const EXERCISE_TYPES: { value: ExerciseType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { value: 'weighted', label: 'Weighted', icon: 'barbell-outline' },
-  { value: 'bodyweight', label: 'Bodyweight', icon: 'body-outline' },
-  { value: 'machine', label: 'Machine', icon: 'cog-outline' },
-  { value: 'cable', label: 'Cable', icon: 'git-pull-request-outline' },
-];
 
 const typeBadgeColor = exerciseTypeColor;
 
@@ -141,7 +130,7 @@ export default function ExercisePickerScreen() {
 
           <Text style={styles.label}>Type</Text>
           <View style={styles.typeGrid}>
-            {EXERCISE_TYPES.map((t) => (
+            {EXERCISE_TYPE_OPTIONS_WITH_ICONS.map((t) => (
               <TouchableOpacity
                 key={t.value}
                 style={[

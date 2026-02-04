@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { syncToSupabase, pullUpcomingWorkout } from '../services/sync';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
@@ -75,26 +76,6 @@ interface ExerciseBlock {
   restSeconds: number;
   restEnabled: boolean;
 }
-
-// ─── Rest timer defaults by training goal ───
-
-const REST_SECONDS: Record<TrainingGoal, number> = {
-  strength: 180,
-  hypertrophy: 90,
-  endurance: 60,
-};
-
-const MUSCLE_GROUPS = [
-  'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps',
-  'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Forearms',
-];
-
-const EXERCISE_TYPES: { value: ExerciseType; label: string }[] = [
-  { value: 'weighted', label: 'Weighted' },
-  { value: 'bodyweight', label: 'Bodyweight' },
-  { value: 'machine', label: 'Machine' },
-  { value: 'cable', label: 'Cable' },
-];
 
 // ─── Main Component ───
 
@@ -1048,7 +1029,7 @@ export default function WorkoutScreen() {
 
               <Text style={styles.createLabel}>Type</Text>
               <View style={styles.createChipRow}>
-                {EXERCISE_TYPES.map((t) => (
+                {EXERCISE_TYPE_OPTIONS.map((t) => (
                   <TouchableOpacity
                     key={t.value}
                     style={[styles.createChip, newExType === t.value && styles.createChipSelected]}
