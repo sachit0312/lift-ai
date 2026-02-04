@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getExerciseHistory } from '../services/database';
+import { calculateEstimated1RM } from '../utils/oneRepMax';
 import type { Exercise, WorkoutSet } from '../types/database';
 
 interface Props {
@@ -40,7 +41,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         .map((h) => {
           const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
           if (completedSets.length === 0) return null;
-          const best = Math.max(...completedSets.map(s => (s.weight ?? 0) * (1 + (s.reps ?? 0) / 30)));
+          const best = Math.max(...completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0)));
           const d = new Date(h.workout.started_at);
           return { date: `${d.getMonth() + 1}/${d.getDate()}`, best1RM: Math.round(best) };
         })
@@ -58,7 +59,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
           const h = history[i];
           const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
           if (completedSets.length === 0) continue;
-          const best = Math.max(...completedSets.map(s => (s.weight ?? 0) * (1 + (s.reps ?? 0) / 30)));
+          const best = Math.max(...completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0)));
           const rounded = Math.round(best);
           if (rounded >= maxVal) {
             maxVal = rounded;
@@ -82,7 +83,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         let bestSet: WorkoutSet | null = null;
         let best1RM = 0;
         for (const s of completedSets) {
-          const e1rm = (s.weight ?? 0) * (1 + (s.reps ?? 0) / 30);
+          const e1rm = calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0);
           if (e1rm > best1RM) {
             best1RM = e1rm;
             bestSet = s;
