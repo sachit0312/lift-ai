@@ -52,7 +52,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 
 ## Components
 - **ErrorBoundary** (`src/components/ErrorBoundary.tsx`): Class component error boundary wrapping app content. Catches React errors, reports to Sentry with componentStack, shows dark-themed recovery UI with "Try Again" button.
-- **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with estimated 1RM progression chart (react-native-chart-kit LineChart), PR banner (best estimated 1RM with date), and recent performances (last 3 sessions with completed sets). Accessible from HistoryScreen (tap exercise name) and WorkoutScreen (tap exercise name during active workout). Uses Epley formula: weight * (1 + reps/30).
+- **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with estimated 1RM progression chart (react-native-chart-kit LineChart), PR banner (best estimated 1RM with date), and recent performances (last 3 sessions showing best set per session by estimated 1RM). Accessible from HistoryScreen (tap exercise name) and WorkoutScreen (tap exercise name during active workout). Uses Epley formula: weight * (1 + reps/30).
 
 ## MCP AI Coach
 Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching.
@@ -112,7 +112,7 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - LoginScreen component tests at `src/screens/__tests__/LoginScreen.test.tsx` — renders inputs, validation error for empty fields, calls signInWithPassword, navigates to Signup.
 - TemplatesScreen component tests at `src/screens/__tests__/TemplatesScreen.test.tsx` — empty state, template list rendering, FAB button.
 - ProfileScreen component tests at `src/screens/__tests__/ProfileScreen.test.tsx` — renders title/email, stat cards, logout button, PRs This Week card, absence of Week Volume/Avg Duration.
-- ExerciseHistoryModal component tests at `src/components/__tests__/ExerciseHistoryModal.test.tsx` — null exercise, no-data message, PR banner + chart with sufficient data, recent session set data, close button.
+- ExerciseHistoryModal component tests at `src/components/__tests__/ExerciseHistoryModal.test.tsx` — null exercise, no-data message, PR banner + chart with sufficient data, recent session best set data (by 1RM), close button.
 - HistoryScreen component tests at `src/screens/__tests__/HistoryScreen.test.tsx` — empty state, workout card rendering (no volume pill), expand to show completed sets with tag badges (filters incomplete), exercise name tap opens history modal.
 - TemplateDetailScreen component tests at `src/screens/__tests__/TemplateDetailScreen.test.tsx` — renders template name (no label), exercise card with sets and rest timer pill, empty state, add exercise button.
 - Shared test helper at `src/__tests__/helpers/renderWithProviders.tsx` — wraps components in NavigationContainer.

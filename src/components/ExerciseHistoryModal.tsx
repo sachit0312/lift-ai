@@ -22,7 +22,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
   const [chartData, setChartData] = useState<DataPoint[]>([]);
   const [prValue, setPrValue] = useState(0);
   const [prDate, setPrDate] = useState('');
-  const [recentSessions, setRecentSessions] = useState<{ date: string; sets: WorkoutSet[] }[]>([]);
+  const [recentSessions, setRecentSessions] = useState<{ date: string; bestSet: WorkoutSet | null }[]>([]);
 
   useEffect(() => {
     if (!visible || !exercise) return;
@@ -64,10 +64,23 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         setPrDate('');
       }
 
-      const recent = history.slice(0, 3).map(h => ({
-        date: new Date(h.workout.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        sets: h.sets.filter(s => s.is_completed),
-      }));
+      const recent = history.slice(0, 3).map(h => {
+        const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
+        // Find best set by estimated 1RM
+        let bestSet: WorkoutSet | null = null;
+        let best1RM = 0;
+        for (const s of completedSets) {
+          const e1rm = (s.weight ?? 0) * (1 + (s.reps ?? 0) / 30);
+          if (e1rm > best1RM) {
+            best1RM = e1rm;
+            bestSet = s;
+          }
+        }
+        return {
+          date: new Date(h.workout.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          bestSet,
+        };
+      });
       setRecentSessions(recent);
     } finally {
       setLoading(false);
@@ -135,11 +148,11 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                   {recentSessions.map((session, i) => (
                     <View key={i} style={styles.sessionCard}>
                       <Text style={styles.sessionDate}>{session.date}</Text>
-                      {session.sets.map((s) => (
-                        <Text key={s.id} style={styles.sessionSet}>
-                          Set {s.set_number}: {s.weight ?? 0}lb × {s.reps ?? 0}
+                      {session.bestSet && (
+                        <Text style={styles.sessionSet}>
+                          Best: {session.bestSet.weight}lb × {session.bestSet.reps}
                         </Text>
-                      ))}
+                      )}
                     </View>
                   ))}
                 </View>
