@@ -22,6 +22,7 @@ function parseExercise(r: any): Exercise {
   return {
     ...r,
     muscle_groups: safeJsonParse(r.muscle_groups, []),
+    notes: r.notes ?? null,
   };
 }
 
@@ -142,6 +143,9 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   await database.runAsync('ALTER TABLE template_exercises DROP COLUMN default_reps').catch(() => {});
   await database.runAsync('ALTER TABLE template_exercises DROP COLUMN default_weight').catch(() => {});
   await database.runAsync('ALTER TABLE template_exercises ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 150').catch(() => {});
+
+  // Migration: add notes column to exercises table for sticky notes
+  await database.runAsync('ALTER TABLE exercises ADD COLUMN notes TEXT').catch(() => {});
 }
 
 // ─── Exercises ───
@@ -171,16 +175,17 @@ export async function getAllExercises(): Promise<Exercise[]> {
   }
 }
 
-export async function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'created_at'>): Promise<Exercise> {
+export async function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'created_at' | 'notes'> & { notes?: string | null }): Promise<Exercise> {
   try {
     const database = await getDb();
     const id = uuid();
     const now = new Date().toISOString();
+    const notes = e.notes ?? e.description ?? null;
     await database.runAsync(
-      'INSERT INTO exercises (id, name, type, muscle_groups, training_goal, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      id, e.name, e.type, JSON.stringify(e.muscle_groups), e.training_goal, e.description, now,
+      'INSERT INTO exercises (id, name, type, muscle_groups, training_goal, description, created_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      id, e.name, e.type, JSON.stringify(e.muscle_groups), e.training_goal, e.description, now, notes,
     );
-    return { id, user_id: 'local', name: e.name, type: e.type, muscle_groups: e.muscle_groups, training_goal: e.training_goal, description: e.description, created_at: now };
+    return { id, user_id: 'local', name: e.name, type: e.type, muscle_groups: e.muscle_groups, training_goal: e.training_goal, description: e.description, created_at: now, notes };
   } catch (error) {
     console.error('createExercise error:', error);
     Sentry.captureException(error);
@@ -191,6 +196,17 @@ export async function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'creat
 export async function deleteExercise(id: string): Promise<void> {
   const database = await getDb();
   await database.runAsync('DELETE FROM exercises WHERE id = ?', id);
+}
+
+export async function getExerciseNotes(exerciseId: string): Promise<string | null> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<any>('SELECT notes FROM exercises WHERE id = ?', exerciseId);
+  return rows[0]?.notes ?? null;
+}
+
+export async function updateExerciseNotes(exerciseId: string, notes: string | null): Promise<void> {
+  const database = await getDb();
+  await database.runAsync('UPDATE exercises SET notes = ? WHERE id = ?', notes, exerciseId);
 }
 
 // ─── Templates ───
@@ -224,7 +240,7 @@ export async function deleteTemplate(id: string): Promise<void> {
 export async function getTemplateExercises(templateId: string): Promise<TemplateExercise[]> {
   const database = await getDb();
   const rows = await database.getAllAsync<any>(
-    `SELECT te.*, e.name as exercise_name, e.type as exercise_type, e.muscle_groups as exercise_muscle_groups, e.training_goal as exercise_training_goal, e.description as exercise_description, e.created_at as exercise_created_at
+    `SELECT te.*, e.name as exercise_name, e.type as exercise_type, e.muscle_groups as exercise_muscle_groups, e.training_goal as exercise_training_goal, e.description as exercise_description, e.created_at as exercise_created_at, e.notes as exercise_notes
      FROM template_exercises te
      JOIN exercises e ON te.exercise_id = e.id
      WHERE te.template_id = ?
@@ -247,6 +263,7 @@ export async function getTemplateExercises(templateId: string): Promise<Template
       training_goal: r.exercise_training_goal as TrainingGoal,
       description: r.exercise_description,
       created_at: r.exercise_created_at,
+      notes: r.exercise_notes ?? null,
     },
   }));
 }
@@ -534,7 +551,7 @@ export async function getUpcomingWorkoutForToday(): Promise<{
   const exerciseRows = await database.getAllAsync<any>(
     `SELECT ue.*, e.id as e_id, e.user_id as e_user_id, e.name as e_name, e.type as e_type,
             e.muscle_groups as e_muscle_groups, e.training_goal as e_training_goal,
-            e.description as e_description, e.created_at as e_created_at
+            e.description as e_description, e.created_at as e_created_at, e.notes as e_notes
      FROM upcoming_workout_exercises ue
      JOIN exercises e ON ue.exercise_id = e.id
      WHERE ue.upcoming_workout_id = ?
@@ -566,6 +583,7 @@ export async function getUpcomingWorkoutForToday(): Promise<{
         training_goal: r.e_training_goal as TrainingGoal,
         description: r.e_description,
         created_at: r.e_created_at,
+        notes: r.e_notes ?? null,
       },
       sets,
     });

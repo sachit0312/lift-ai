@@ -42,7 +42,7 @@ export default function ExercisePickerScreen() {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<ExerciseType>('weighted');
   const [newMuscles, setNewMuscles] = useState<string[]>([]);
-  const [newDescription, setNewDescription] = useState('');
+  const [newExNotes, setNewExNotes] = useState('');
   const [validationError, setValidationError] = useState('');
 
   const loadExercises = useCallback(() => {
@@ -69,7 +69,7 @@ export default function ExercisePickerScreen() {
     setNewName('');
     setNewType('weighted');
     setNewMuscles([]);
-    setNewDescription('');
+    setNewExNotes('');
     setValidationError('');
   };
 
@@ -84,7 +84,8 @@ export default function ExercisePickerScreen() {
       type: newType,
       muscle_groups: newMuscles,
       training_goal: 'hypertrophy',
-      description: newDescription.trim(),
+      description: '',
+      notes: newExNotes.trim() || null,
     });
     await addExerciseToTemplate(templateId, exercise.id);
     navigation.goBack();
@@ -182,15 +183,16 @@ export default function ExercisePickerScreen() {
         })}
       </View>
 
-      <Text style={styles.label}>Description (optional)</Text>
+      <Text style={styles.label}>Notes (optional)</Text>
       <TextInput
         style={[styles.input, styles.textArea]}
-        value={newDescription}
-        onChangeText={setNewDescription}
+        value={newExNotes}
+        onChangeText={setNewExNotes}
         placeholder="Form cues, setup notes..."
         placeholderTextColor={colors.textMuted}
         multiline
         numberOfLines={2}
+        testID="exercise-notes-input"
       />
 
       <TouchableOpacity style={styles.saveBtn} onPress={handleCreate} activeOpacity={0.8} testID="save-exercise-btn">
@@ -206,21 +208,23 @@ export default function ExercisePickerScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.searchContainer}>
-        <Ionicons name="search-outline" size={18} color={colors.textMuted} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchBar}
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search by name or muscle group..."
-          placeholderTextColor={colors.textMuted}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-          </TouchableOpacity>
-        )}
-      </View>
+      {!showCreate && (
+        <View style={styles.searchContainer}>
+          <Ionicons name="search-outline" size={18} color={colors.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchBar}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by name or muscle group..."
+            placeholderTextColor={colors.textMuted}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       <TouchableOpacity
         style={styles.createToggle}

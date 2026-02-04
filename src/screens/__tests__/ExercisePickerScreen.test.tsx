@@ -95,4 +95,61 @@ describe('ExercisePickerScreen', () => {
     expect(getByText('Bench Press')).toBeTruthy();
     expect(queryByText('Squat')).toBeNull();
   });
+
+  it('hides search bar when create form is expanded', async () => {
+    const { getByTestId, queryByPlaceholderText, getByPlaceholderText } = render(<ExercisePickerScreen />);
+
+    // Initially visible
+    await waitFor(() => {
+      expect(getByPlaceholderText(/Search/)).toBeTruthy();
+    });
+
+    // Toggle create form open
+    await act(async () => {
+      fireEvent.press(getByTestId('create-exercise-toggle'));
+    });
+
+    // Search bar should be hidden
+    expect(queryByPlaceholderText(/Search/)).toBeNull();
+  });
+
+  it('shows search bar when create form collapsed', async () => {
+    const { getByTestId, getByPlaceholderText } = render(<ExercisePickerScreen />);
+
+    // Wait for initial render
+    await waitFor(() => {
+      expect(getByPlaceholderText(/Search/)).toBeTruthy();
+    });
+
+    // Open create form
+    await act(async () => {
+      fireEvent.press(getByTestId('create-exercise-toggle'));
+    });
+
+    // Close create form
+    await act(async () => {
+      fireEvent.press(getByTestId('create-exercise-toggle'));
+    });
+
+    // Search bar should be visible again
+    expect(getByPlaceholderText(/Search/)).toBeTruthy();
+  });
+
+  it('saves notes field when creating exercise', async () => {
+    const { getByTestId } = render(<ExercisePickerScreen />);
+
+    await waitFor(() => expect(getByTestId('create-exercise-toggle')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('create-exercise-toggle')); });
+
+    await act(async () => {
+      fireEvent.changeText(getByTestId('exercise-name-input'), 'Test Exercise');
+      fireEvent.changeText(getByTestId('exercise-notes-input'), 'Keep elbows tucked');
+    });
+
+    await act(async () => { fireEvent.press(getByTestId('save-exercise-btn')); });
+
+    expect(createExercise).toHaveBeenCalledWith(
+      expect.objectContaining({ notes: 'Keep elbows tucked' })
+    );
+  });
 });
