@@ -16,6 +16,7 @@ export const colors = {
   textMuted: '#6B6B72',
   white: '#FFFFFF',
   black: '#000000',
+  overlay: 'rgba(0,0,0,0.6)',
 };
 
 export const spacing = {

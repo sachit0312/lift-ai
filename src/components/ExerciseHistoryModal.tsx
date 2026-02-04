@@ -191,7 +191,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
   },
   container: {
