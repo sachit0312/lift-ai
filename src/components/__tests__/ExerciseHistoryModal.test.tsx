@@ -110,7 +110,7 @@ describe('ExerciseHistoryModal', () => {
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
-    expect(await findByText('Best: 150lb × 6')).toBeTruthy();
+    expect(await findByText('150lb × 6')).toBeTruthy();
   });
 
   it('shows best set per session in recent performances', async () => {
@@ -128,7 +128,7 @@ describe('ExerciseHistoryModal', () => {
 
     await waitFor(() => {
       // 145 × 8 has highest e1RM: 145 * (1 + 8/30) = 145 * 1.267 = 183.7
-      expect(getByText(/Best: 145lb × 8/)).toBeTruthy();
+      expect(getByText(/145lb × 8/)).toBeTruthy();
     });
   });
 
@@ -143,5 +143,43 @@ describe('ExerciseHistoryModal', () => {
     const closeIcon = await findByText('close');
     fireEvent.press(closeIcon);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('renders recent performances with side-by-side layout', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue([
+      {
+        workout: { id: 'w1', started_at: '2024-01-15T10:00:00Z' },
+        sets: [
+          { id: 's1', set_number: 1, weight: 135, reps: 8, is_completed: true },
+        ],
+      },
+      {
+        workout: { id: 'w2', started_at: '2024-01-12T10:00:00Z' },
+        sets: [
+          { id: 's2', set_number: 1, weight: 130, reps: 10, is_completed: true },
+        ],
+      },
+      {
+        workout: { id: 'w3', started_at: '2024-01-08T10:00:00Z' },
+        sets: [
+          { id: 's3', set_number: 1, weight: 125, reps: 12, is_completed: true },
+        ],
+      },
+    ]);
+
+    const { getByTestId } = render(
+      <ExerciseHistoryModal
+        visible={true}
+        exercise={createMockExercise()}
+        onClose={jest.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      // Each session row should have date and best set on same row
+      expect(getByTestId('session-row-0')).toBeTruthy();
+      expect(getByTestId('session-date-0')).toBeTruthy();
+      expect(getByTestId('session-best-0')).toBeTruthy();
+    });
   });
 });

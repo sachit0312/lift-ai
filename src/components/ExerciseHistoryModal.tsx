@@ -167,11 +167,13 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                 <View style={styles.recentSection}>
                   <Text style={styles.sectionTitle}>Recent Performances</Text>
                   {recentSessions.map((session, i) => (
-                    <View key={i} style={styles.sessionCard}>
-                      <Text style={styles.sessionDate}>{session.date}</Text>
+                    <View key={i} style={styles.sessionRow} testID={`session-row-${i}`}>
+                      <Text style={styles.sessionDate} testID={`session-date-${i}`}>
+                        {session.date}
+                      </Text>
                       {session.bestSet && (
-                        <Text style={styles.sessionSet}>
-                          Best: {session.bestSet.weight}lb × {session.bestSet.reps}
+                        <Text style={styles.sessionBest} testID={`session-best-${i}`}>
+                          {session.bestSet.weight}lb × {session.bestSet.reps}
                         </Text>
                       )}
                     </View>
@@ -267,22 +269,23 @@ const styles = StyleSheet.create({
   recentSection: {
     marginTop: spacing.lg,
   },
-  sessionCard: {
+  sessionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     padding: spacing.md,
     marginBottom: spacing.sm,
   },
   sessionDate: {
-    color: colors.primary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-    marginBottom: spacing.xs,
-  },
-  sessionSet: {
     color: colors.textSecondary,
     fontSize: fontSize.sm,
-    marginLeft: spacing.sm,
-    marginBottom: 2,
+    fontWeight: fontWeight.medium,
+  },
+  sessionBest: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
 });
