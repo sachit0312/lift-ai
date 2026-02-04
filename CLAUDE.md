@@ -94,11 +94,13 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Supabase migrations in supabase/migrations/
 
 ## Building & Running
+- `npx expo run:ios --device` — builds native iOS app and installs directly on physical iPhone (PREFERRED for testing)
 - `npx expo run:ios` — builds native iOS app and launches in simulator (bundle ID: `com.anonymous.workout-enhanced`)
-- `npx expo start --ios` — starts Metro bundler + Expo Go
+- `npx expo start --ios` — starts Metro bundler + Expo Go (NOT used for testing)
 - `npx tsc --noEmit` — type-check without emitting
 - MCP server: `cd /Users/sachitgoyal/code/workout-mcp-server && npm run build && npm start`
 - iOS build uses Xcode DerivedData at default location
+- **Important**: Always test via native build on physical iPhone, not Expo Go
 
 ## Testing
 - Jest with jest-expo preset. Run: `npm test` or `npx jest`
