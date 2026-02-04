@@ -13,6 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../services/database';
 import { formatDuration, formatDate } from '../utils/format';
+import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { Workout, WorkoutSet, Exercise } from '../types/database';
 
@@ -132,8 +133,8 @@ export default function HistoryScreen() {
                     <Text style={styles.exerciseGroupName}>{group.exerciseName}</Text>
                   </TouchableOpacity>
                   {group.sets.map((s) => {
-                    const tagLabel = s.tag === 'warmup' ? 'W' : s.tag === 'failure' ? 'F' : s.tag === 'drop' ? 'D' : null;
-                    const tagColor = s.tag === 'warmup' ? colors.warning : s.tag === 'failure' ? colors.error : s.tag === 'drop' ? colors.primary : undefined;
+                    const tagLabel = getSetTagLabel(s.tag);
+                    const tagColor = getSetTagColor(s.tag);
                     return (
                       <View key={s.id} style={styles.setRow}>
                         <View style={[styles.setDot, { backgroundColor: colors.success }]} />

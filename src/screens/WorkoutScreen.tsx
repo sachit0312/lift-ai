@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
+import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { syncToSupabase, pullUpcomingWorkout } from '../services/sync';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
@@ -835,8 +836,8 @@ export default function WorkoutScreen() {
 
             {/* Set rows */}
             {block.sets.map((set, setIdx) => {
-              const tagLabel = set.tag === 'warmup' ? 'W' : set.tag === 'failure' ? 'F' : set.tag === 'drop' ? 'D' : null;
-              const tagColor = set.tag === 'warmup' ? colors.warning : set.tag === 'failure' ? colors.error : set.tag === 'drop' ? colors.primary : undefined;
+              const tagLabel = getSetTagLabel(set.tag);
+              const tagColor = getSetTagColor(set.tag);
               const prevText = set.previous
                 ? `${set.previous.weight}×${set.previous.reps}`
                 : '—';
