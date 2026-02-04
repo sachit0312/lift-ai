@@ -1,0 +1,64 @@
+appId: com.anonymous.workout-enhanced
+---
+# View exercises list and open exercise history modal
+
+# Seed exercises first to have data to display
+- runFlow: ../setup/seed-exercises.yaml
+
+# Go back to idle state after seed
+- tapOn:
+    text: "Workout.*"
+- waitForAnimationToEnd
+
+# Navigate to Exercises tab
+- tapOn:
+    text: "Exercises"
+- waitForAnimationToEnd
+
+# Verify Exercises screen loads with title
+- assertVisible:
+    text: "Exercises"
+
+# Verify search input is visible
+- assertVisible:
+    id: "exercise-search"
+
+# Search for an exercise
+- tapOn:
+    id: "exercise-search"
+- inputText: "Bench"
+- hideKeyboard
+
+# Verify search filters results
+- assertVisible:
+    text: "Bench Press"
+
+# Tap exercise to open history modal
+- tapOn:
+    text: "Bench Press"
+- waitForAnimationToEnd
+
+# Verify history modal opened
+- assertVisible:
+    text: "Recent Performances"
+
+# Close modal by tapping the close icon
+- tapOn:
+    text: "close"
+- waitForAnimationToEnd
+
+# Verify back on exercises list
+- assertVisible:
+    id: "exercise-search"
+
+# Clear search
+- tapOn:
+    id: "exercise-search"
+- eraseText
+- hideKeyboard
+
+# Verify both seeded exercises are visible (scroll if needed)
+- assertVisible:
+    text: "Bench Press"
+- assertVisible:
+    text: "Squat"
