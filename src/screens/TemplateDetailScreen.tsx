@@ -75,7 +75,7 @@ export default function TemplateDetailScreen() {
     }
   };
 
-  const handleEditDefaults = (item: TemplateExercise) => {
+  const handleEditDefaults = useCallback((item: TemplateExercise) => {
     if (Platform.OS === 'ios') {
       Alert.prompt(
         'Edit Sets',
@@ -98,9 +98,9 @@ export default function TemplateDetailScreen() {
       setDefaultsValue(`${item.default_sets}`);
       setShowDefaultsModal(true);
     }
-  };
+  }, [loadExercises]);
 
-  const handleEditRestTimer = (item: TemplateExercise) => {
+  const handleEditRestTimer = useCallback((item: TemplateExercise) => {
     if (Platform.OS === 'ios') {
       Alert.prompt(
         'Rest Timer',
@@ -121,7 +121,7 @@ export default function TemplateDetailScreen() {
       setDefaultsValue(`${item.rest_seconds}`);
       setShowDefaultsModal(true);
     }
-  };
+  }, [loadExercises]);
 
   const handleDefaultsConfirm = () => {
     if (!editingItem) return;
@@ -138,7 +138,7 @@ export default function TemplateDetailScreen() {
     }
   };
 
-  const handleRemove = (item: TemplateExercise) => {
+  const handleRemove = useCallback((item: TemplateExercise) => {
     Alert.alert('Remove Exercise', `Remove "${item.exercise?.name}" from template?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -147,9 +147,9 @@ export default function TemplateDetailScreen() {
         onPress: () => removeExerciseFromTemplate(item.id).then(loadExercises).catch((e) => console.error('Failed to remove exercise', e)),
       },
     ]);
-  };
+  }, [loadExercises]);
 
-  const renderItem = ({ item }: { item: TemplateExercise }) => (
+  const renderItem = useCallback(({ item }: { item: TemplateExercise }) => (
     <View style={styles.card}>
       <View style={[styles.cardAccent, { backgroundColor: exerciseTypeColor(item.exercise?.type) }]} />
       <TouchableOpacity style={styles.cardBody} onPress={() => handleEditDefaults(item)} activeOpacity={0.7}>
@@ -169,7 +169,7 @@ export default function TemplateDetailScreen() {
         <Ionicons name="trash-outline" size={18} color={colors.error} />
       </TouchableOpacity>
     </View>
-  );
+  ), [handleEditDefaults, handleEditRestTimer, handleRemove]);
 
   return (
     <View style={styles.container}>
@@ -205,7 +205,7 @@ export default function TemplateDetailScreen() {
       </TouchableOpacity>
 
       {/* Rename Modal */}
-      <Modal visible={showRenameModal} transparent animationType="fade">
+      <Modal visible={showRenameModal} transparent animationType="fade" onRequestClose={() => setShowRenameModal(false)}>
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowRenameModal(false)}>
             <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
@@ -233,7 +233,7 @@ export default function TemplateDetailScreen() {
       </Modal>
 
       {/* Defaults Modal */}
-      <Modal visible={showDefaultsModal} transparent animationType="fade">
+      <Modal visible={showDefaultsModal} transparent animationType="fade" onRequestClose={() => setShowDefaultsModal(false)}>
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowDefaultsModal(false)}>
             <TouchableOpacity activeOpacity={1} style={styles.modalCard}>

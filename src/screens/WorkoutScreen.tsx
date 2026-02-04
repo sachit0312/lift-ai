@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+// WorkoutScreen - handles both idle and active workout states
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -669,6 +670,10 @@ export default function WorkoutScreen() {
     loadState();
   }
 
+  const handleCloseHistoryModal = useCallback(() => {
+    setHistoryExercise(null);
+  }, []);
+
   // ─── Cleanup ───
 
   useEffect(() => {
@@ -677,6 +682,13 @@ export default function WorkoutScreen() {
       if (restRef.current) clearInterval(restRef.current);
     };
   }, []);
+
+  // ─── Memoized values ───
+
+  const { completedSetsCount, totalSetsCount } = useMemo(() => ({
+    completedSetsCount: exerciseBlocks.reduce((sum, b) => sum + b.sets.filter(s => s.is_completed).length, 0),
+    totalSetsCount: exerciseBlocks.reduce((sum, b) => sum + b.sets.length, 0),
+  }), [exerciseBlocks]);
 
   // ─── Render ───
 
@@ -710,9 +722,6 @@ export default function WorkoutScreen() {
   if (!activeWorkout) {
     return <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleStartFromTemplate} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} />;
   }
-
-  const completedSetsCount = exerciseBlocks.reduce((sum, b) => sum + b.sets.filter(s => s.is_completed).length, 0);
-  const totalSetsCount = exerciseBlocks.reduce((sum, b) => sum + b.sets.length, 0);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -908,7 +917,7 @@ export default function WorkoutScreen() {
       )}
 
       {/* Add exercise modal */}
-      <Modal visible={showAddExercise} transparent animationType="slide">
+      <Modal visible={showAddExercise} transparent animationType="slide" onRequestClose={() => setShowAddExercise(false)}>
         <View style={styles.addExerciseModal}>
           <View style={styles.addExerciseModalHeader}>
             <Text style={styles.addExerciseModalTitle}>Add Exercise</Text>
@@ -1019,7 +1028,7 @@ export default function WorkoutScreen() {
       </Modal>
 
       {/* Finish confirmation modal */}
-      <Modal visible={showFinishModal} transparent animationType="fade">
+      <Modal visible={showFinishModal} transparent animationType="fade" onRequestClose={() => setShowFinishModal(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowFinishModal(false)}>
           <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
             <Text style={styles.modalTitle}>Finish Workout</Text>
@@ -1041,7 +1050,7 @@ export default function WorkoutScreen() {
       <ExerciseHistoryModal
         visible={!!historyExercise}
         exercise={historyExercise}
-        onClose={() => setHistoryExercise(null)}
+        onClose={handleCloseHistoryModal}
       />
     </SafeAreaView>
   );
@@ -1049,7 +1058,7 @@ export default function WorkoutScreen() {
 
 // ─── Sub-components ───
 
-function NoActiveWorkout({
+const NoActiveWorkout = React.memo(function NoActiveWorkout({
   templates,
   upcomingWorkout,
   onStartTemplate,
@@ -1119,9 +1128,9 @@ function NoActiveWorkout({
       </ScrollView>
     </SafeAreaView>
   );
-}
+});
 
-function TargetCell({ upcomingTargets, exerciseId, setNumber }: {
+const TargetCell = React.memo(function TargetCell({ upcomingTargets, exerciseId, setNumber }: {
   upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[];
   exerciseId: string;
   setNumber: number;
@@ -1134,9 +1143,9 @@ function TargetCell({ upcomingTargets, exerciseId, setNumber }: {
       {target ? `${target.target_weight}×${target.target_reps}` : '—'}
     </Text>
   );
-}
+});
 
-function SummaryStat({ label, value, icon }: { label: string; value: string; icon?: keyof typeof Ionicons.glyphMap }) {
+const SummaryStat = React.memo(function SummaryStat({ label, value, icon }: { label: string; value: string; icon?: keyof typeof Ionicons.glyphMap }) {
   return (
     <View style={styles.summaryStatRow}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -1146,7 +1155,7 @@ function SummaryStat({ label, value, icon }: { label: string; value: string; ico
       <Text style={styles.summaryStatValue}>{value}</Text>
     </View>
   );
-}
+});
 
 // ─── Styles ───
 

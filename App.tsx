@@ -1,15 +1,38 @@
 import * as Sentry from '@sentry/react-native';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, NavigationState } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { colors } from './src/theme';
 
 Sentry.init({
   dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
   enabled: !!process.env.EXPO_PUBLIC_SENTRY_DSN,
+  tracesSampleRate: __DEV__ ? 1.0 : 0.2,
+  debug: __DEV__,
 });
+
+const getActiveRouteName = (state: NavigationState | undefined): string | undefined => {
+  if (!state) return undefined;
+  const route = state.routes[state.index];
+  if (route.state) {
+    return getActiveRouteName(route.state as NavigationState);
+  }
+  return route.name;
+};
+
+const handleNavigationStateChange = (state: NavigationState | undefined): void => {
+  const routeName = getActiveRouteName(state);
+  if (routeName) {
+    Sentry.addBreadcrumb({
+      category: 'navigation',
+      message: `Navigated to ${routeName}`,
+      level: 'info',
+    });
+  }
+};
 
 const navTheme = {
   ...DefaultTheme,
@@ -28,12 +51,14 @@ const navTheme = {
 function App() {
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <NavigationContainer theme={navTheme}>
-          <RootNavigator />
-          <StatusBar style="light" />
-        </NavigationContainer>
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <NavigationContainer theme={navTheme} onStateChange={handleNavigationStateChange}>
+            <RootNavigator />
+            <StatusBar style="light" />
+          </NavigationContainer>
+        </AuthProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }

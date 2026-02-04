@@ -1,4 +1,10 @@
-import { __mockDb } from 'expo-sqlite';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { __mockDb } = require('expo-sqlite') as { __mockDb: {
+  getAllAsync: jest.Mock;
+  getFirstAsync: jest.Mock;
+  runAsync: jest.Mock;
+  execAsync: jest.Mock;
+}};
 
 import {
   createExercise,
@@ -11,6 +17,7 @@ import {
 
 beforeEach(() => {
   __mockDb.getAllAsync.mockClear();
+  __mockDb.getFirstAsync.mockClear();
   __mockDb.runAsync.mockClear();
   __mockDb.execAsync.mockClear();
 });
@@ -86,13 +93,13 @@ describe('getPRsThisWeek', () => {
   });
 
   it('counts exercise where this week beats prior', async () => {
-    // First call: week sets — one exercise with weight=100, reps=10
+    // First call: week sets — one exercise with weight=100, reps=10 (e1RM = 100 * (1 + 10/30) = 133.33)
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { exercise_id: 'ex-1', weight: 100, reps: 10 },
     ]);
-    // Second call: prior sets for ex-1 — lower 1RM (weight=80, reps=10)
+    // Second call: prior sets — lower 1RM (weight=80, reps=10) (e1RM = 80 * (1 + 10/30) = 106.67)
     __mockDb.getAllAsync.mockResolvedValueOnce([
-      { weight: 80, reps: 10 },
+      { exercise_id: 'ex-1', weight: 80, reps: 10 },
     ]);
 
     const result = await getPRsThisWeek();
@@ -100,11 +107,13 @@ describe('getPRsThisWeek', () => {
   });
 
   it('returns 0 when this week does not beat prior', async () => {
+    // First call: week sets — lower 1RM (e1RM = 80 * (1 + 10/30) = 106.67)
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { exercise_id: 'ex-1', weight: 80, reps: 10 },
     ]);
+    // Second call: prior sets — higher 1RM (e1RM = 100 * (1 + 10/30) = 133.33)
     __mockDb.getAllAsync.mockResolvedValueOnce([
-      { weight: 100, reps: 10 },
+      { exercise_id: 'ex-1', weight: 100, reps: 10 },
     ]);
 
     const result = await getPRsThisWeek();

@@ -79,7 +79,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
   const screenWidth = Dimensions.get('window').width - spacing.lg * 2;
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.container}>
           <View style={styles.header}>

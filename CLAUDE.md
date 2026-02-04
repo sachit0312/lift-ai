@@ -5,18 +5,19 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 ## Architecture
 - **Navigation**: RootNavigator (`src/navigation/RootNavigator.tsx`) conditionally renders AuthStack (Login/Signup) or TabNavigator based on session state. TabNavigator has bottom tabs with a native stack nested inside Templates tab for list -> detail -> exercise picker flow.
 - **Authentication**: AuthContext (`src/contexts/AuthContext.tsx`) manages session via `supabase.auth.onAuthStateChange`. On `SIGNED_IN`, clears local SQLite and pulls upcoming workout from Supabase only when the user ID changes (not on token refresh), preventing accidental data loss.
-- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises, templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets.
+- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises, templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets. Indexes on workout_sets(workout_id, exercise_id), workouts(finished_at, started_at), template_exercises(template_id) for query performance. Key functions (getExerciseById, getAllExercises, createExercise, getWorkoutHistory) have try/catch with Sentry error reporting. Uses `safeJsonParse` helper for muscle_groups parsing to prevent crashes on malformed JSON.
 - **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius).
 - **Types**: All DB types in src/types/database.ts.
-- **Observability**: Sentry crash reporting (`@sentry/react-native`) initialized in `App.tsx` with `Sentry.wrap()`. Errors in sync.ts are reported via `Sentry.captureException()` alongside `console.error()`. User context set/cleared on login/logout in AuthContext. Sentry org: `sachit-goyal`, project: `react-native`. Disabled when `EXPO_PUBLIC_SENTRY_DSN` is not set.
-- **Environment Config**: `app.config.ts` (dynamic Expo config, replaces app.json). `.env` (dev default), `.env.development`, `.env.production` for Supabase URL/key separation. All env files gitignored. Dev Supabase project: `workout-enhanced-dev` (ref: `gcpnqpqqwcwvyzoivolp`). Prod Supabase project: `lift.ai` (ref: `lgnkxjiqzsqiwrqrsxww`).
+- **Observability**: Sentry crash reporting (`@sentry/react-native`) initialized in `App.tsx` with `Sentry.wrap()`. Includes `tracesSampleRate` (1.0 dev, 0.2 prod) and `debug: __DEV__`. Navigation breadcrumbs added via `onStateChange` callback. Errors in sync.ts are reported via `Sentry.captureException()` alongside `console.error()`. User context set/cleared on login/logout in AuthContext. Sentry org: `sachit-goyal`, project: `react-native`. Disabled when `EXPO_PUBLIC_SENTRY_DSN` is not set.
+- **Error Handling**: `ErrorBoundary` class component (`src/components/ErrorBoundary.tsx`) wraps AuthProvider in App.tsx. Catches React errors via `getDerivedStateFromError`/`componentDidCatch`, reports to Sentry with componentStack, shows recovery UI with "Try Again" button. Uses theme colors for dark mode consistency.
+- **Environment Config**: `app.config.ts` (dynamic Expo config, replaces app.json). `.env` (dev default), `.env.development`, `.env.production` for Supabase URL/key separation. All env files gitignored. Dev Supabase project: `workout-enhanced-dev` (ref: `gcpnqpqqwcwvyzoivolp`). Prod Supabase project: `lift.ai` (ref: `lgnkxjiqzsqiwrqrsxww`). Env switching: `npx expo start` → dev (loads `.env.development`), `npx expo start --no-dev` → prod (loads `.env.production`). Use `.env.local` (gitignored, highest priority) for temporary overrides.
 
 ## Screens
 - **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser/expo-auth-session. Dark themed with barbell icon. Navigates to Signup.
 - **SignupScreen** (`src/screens/SignupScreen.tsx`): Email/password registration with confirm password validation. Navigates to Login.
-- **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus.
-- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count and per-exercise rest timer (default 150s), navigate to exercise picker.
-- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type chips (single-select) and muscle group chips (multi-select from: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms) and description field. Training goal defaults to hypertrophy (managed via MCP).
+- **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus. `renderItem` and `handleLongPress` wrapped in `useCallback`. Modal has `onRequestClose` for Android back button.
+- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count and per-exercise rest timer (default 150s), navigate to exercise picker. `renderItem` and handlers (`handleEditDefaults`, `handleEditRestTimer`, `handleRemove`) wrapped in `useCallback`. Both modals have `onRequestClose` for Android back button.
+- **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type chips (single-select) and muscle group chips (multi-select from: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms) and description field. Training goal defaults to hypertrophy (managed via MCP). `renderItem` and `handlePick` wrapped in `useCallback`. Filtered exercises array memoized with `useMemo`.
 
 ## Navigation Types
 - AuthStackParamList exported from `src/navigation/RootNavigator.tsx` (Login, Signup).
@@ -39,12 +40,14 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - All set changes persist to SQLite immediately via `updateWorkoutSet()`.
 - Uses `useFocusEffect` to check for active workouts on tab focus.
 - Keyboard dismisses on scroll (`keyboardDismissMode="on-drag"`).
+- **Performance optimizations**: Set counts (`completedSetsCount`, `totalSetsCount`) memoized with `useMemo`. Sub-components (`NoActiveWorkout`, `TargetCell`, `SummaryStat`) wrapped with `React.memo`. Modal `onRequestClose` handlers added for proper Android back button support. `handleCloseHistoryModal` wrapped in `useCallback`.
 
 ## History & Profile
-- **HistoryScreen**: FlatList of completed workouts (date, template name, duration). Tap to expand sets grouped by exercise. Tap exercise name in expanded view to open ExerciseHistoryModal.
-- **ProfileScreen**: Stats dashboard (total workouts, this month, PRs this week via Epley formula, streak). Shows user email. Logout button with confirmation alert.
+- **HistoryScreen**: FlatList of completed workouts (date, template name, duration). Tap to expand sets grouped by exercise. Tap exercise name in expanded view to open ExerciseHistoryModal. `renderWorkout` wrapped in `useCallback` for FlatList performance.
+- **ProfileScreen**: Stats dashboard (total workouts, this month, PRs this week via Epley formula, streak). Shows user email. Logout button with confirmation alert. `statCards` array memoized with `useMemo`.
 
 ## Components
+- **ErrorBoundary** (`src/components/ErrorBoundary.tsx`): Class component error boundary wrapping app content. Catches React errors, reports to Sentry with componentStack, shows dark-themed recovery UI with "Try Again" button.
 - **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with estimated 1RM progression chart (react-native-chart-kit LineChart), PR banner (best estimated 1RM with date), and recent performances (last 3 sessions with completed sets). Accessible from HistoryScreen (tap exercise name) and WorkoutScreen (tap exercise name during active workout). Uses Epley formula: weight * (1 + reps/30).
 
 ## MCP AI Coach
@@ -74,7 +77,7 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 
 ## Layout
 - All screens wrapped in SafeAreaView from react-native-safe-area-context (prevents content behind notch/home indicator).
-- App.tsx wraps NavigationContainer in AuthProvider inside SafeAreaProvider.
+- App.tsx wraps NavigationContainer in AuthProvider inside ErrorBoundary inside SafeAreaProvider.
 
 ## Tech Stack
 - Expo (React Native) with TypeScript
@@ -94,8 +97,9 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 
 ## Testing
 - Jest with jest-expo preset. Run: `npm test` or `npx jest`
-- expo-sqlite mock at `src/__mocks__/expo-sqlite.ts` — provides `openDatabaseAsync` returning a mock db with `getAllAsync`, `runAsync`, `execAsync`. Mapped via `moduleNameMapper` in `jest.config.js`.
-- Config in `jest.config.js`.
+- Config in `jest.config.js` — includes `clearMocks: true` (auto-clears mocks between tests), `setupFilesAfterEnv` pointing to `jest.setup.js`.
+- Shared test setup at `jest.setup.js` — mocks `@expo/vector-icons` (Ionicons), `react-native-chart-kit` (LineChart), and silences console.error for React warnings.
+- expo-sqlite mock at `src/__mocks__/expo-sqlite.ts` — provides `openDatabaseAsync` returning a mock db with `getAllAsync`, `getFirstAsync`, `runAsync`, `execAsync`. Mapped via `moduleNameMapper` in `jest.config.js`.
 - Database service tests at `src/services/__tests__/database.test.ts` — tests createExercise, getAllExercises, createTemplate, startWorkout, updateWorkoutSet, getPRsThisWeek.
 - UUID utility tests at `src/utils/__tests__/uuid.test.ts` — uniqueness and v4 format.
 - Format utility tests at `src/utils/__tests__/format.test.ts` — formatDuration and formatDate.

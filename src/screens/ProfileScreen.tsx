@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -113,12 +113,12 @@ export default function ProfileScreen() {
     }, []),
   );
 
-  const statCards: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
+  const statCards = useMemo<{ label: string; value: string; icon: keyof typeof Ionicons.glyphMap; color: string }[]>(() => [
     { label: 'Total Workouts', value: `${stats.totalWorkouts}`, icon: 'fitness-outline', color: colors.primary },
     { label: 'This Month', value: `${stats.thisMonth}`, icon: 'calendar-outline', color: colors.success },
     { label: 'PRs This Week', value: `${stats.prsThisWeek}`, icon: 'trophy-outline', color: colors.warning },
     { label: 'Streak', value: stats.streak > 0 ? `${stats.streak} day${stats.streak > 1 ? 's' : ''}` : '—', icon: 'flame-outline', color: colors.error },
-  ];
+  ], [stats.totalWorkouts, stats.thisMonth, stats.prsThisWeek, stats.streak]);
 
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [

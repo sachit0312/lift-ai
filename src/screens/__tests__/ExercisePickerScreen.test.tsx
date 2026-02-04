@@ -27,16 +27,6 @@ jest.mock('@react-navigation/native', () => ({
   },
 }));
 
-jest.mock('@expo/vector-icons', () => {
-  const { Text } = require('react-native');
-  return {
-    Ionicons: (props: any) => {
-      const mockReactLocal = require('react');
-      return mockReactLocal.createElement(Text, props, props.name);
-    },
-  };
-});
-
 describe('ExercisePickerScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();

@@ -8,4 +8,6 @@ module.exports = {
     '^@sentry/react-native$': '<rootDir>/src/__mocks__/@sentry/react-native.ts',
   },
   testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/'],
+  clearMocks: true,
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };

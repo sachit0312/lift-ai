@@ -22,16 +22,6 @@ jest.mock('@react-navigation/native', () => ({
   },
 }));
 
-jest.mock('@expo/vector-icons', () => {
-  const { Text } = require('react-native');
-  return {
-    Ionicons: (props: any) => {
-      const r = require('react');
-      return r.createElement(Text, props, props.name);
-    },
-  };
-});
-
 import TemplateDetailScreen from '../TemplateDetailScreen';
 import { getTemplateExercises } from '../../services/database';
 

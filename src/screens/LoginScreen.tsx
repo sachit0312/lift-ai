@@ -32,6 +32,11 @@ export default function LoginScreen({ navigation }: Props) {
       setError('Please enter email and password.');
       return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address.');
+      return;
+    }
     setError('');
     setLoading(true);
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
@@ -46,31 +51,72 @@ export default function LoginScreen({ navigation }: Props) {
     setGoogleLoading(true);
     try {
       const redirectTo = makeRedirectUri({ scheme: 'workout-enhanced' });
+      if (__DEV__) console.log('[OAuth] Redirect URI:', redirectTo);
+
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
       });
+
+      if (__DEV__) console.log('[OAuth] Supabase response:', { hasUrl: !!data?.url, error: oauthError });
+
       if (oauthError) {
+        if (__DEV__) console.error('[OAuth] Supabase error:', oauthError);
         setError(oauthError.message);
         setGoogleLoading(false);
         return;
       }
+
       if (data?.url) {
+        if (__DEV__) console.log('[OAuth] Opening browser with URL');
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        if (__DEV__) console.log('[OAuth] Browser result:', result);
+
         if (result.type === 'success') {
+          if (__DEV__) console.log('[OAuth] Success! URL:', result.url);
           const url = result.url;
           const fragment = url.split('#')[1];
+          const query = url.split('?')[1]?.split('#')[0];
+
+          if (__DEV__) console.log('[OAuth] Fragment:', fragment, 'Query:', query);
+
           if (fragment) {
             const params = new URLSearchParams(fragment);
             const access_token = params.get('access_token');
             const refresh_token = params.get('refresh_token');
+            if (__DEV__) console.log('[OAuth] Tokens from fragment:', { hasAccess: !!access_token, hasRefresh: !!refresh_token });
+
             if (access_token && refresh_token) {
+              if (__DEV__) console.log('[OAuth] Setting session');
               await supabase.auth.setSession({ access_token, refresh_token });
+            } else {
+              throw new Error('Tokens not found in URL fragment');
             }
+          } else if (query) {
+            const params = new URLSearchParams(query);
+            const access_token = params.get('access_token');
+            const refresh_token = params.get('refresh_token');
+            if (__DEV__) console.log('[OAuth] Tokens from query:', { hasAccess: !!access_token, hasRefresh: !!refresh_token });
+
+            if (access_token && refresh_token) {
+              if (__DEV__) console.log('[OAuth] Setting session from query params');
+              await supabase.auth.setSession({ access_token, refresh_token });
+            } else {
+              throw new Error('Tokens not found in URL');
+            }
+          } else {
+            throw new Error('No fragment or query params in redirect URL');
           }
+        } else if (result.type === 'cancel') {
+          if (__DEV__) console.log('[OAuth] User cancelled');
+          throw new Error('Sign in cancelled');
+        } else {
+          if (__DEV__) console.log('[OAuth] Unexpected result type:', result.type);
+          throw new Error('Unexpected OAuth result');
         }
       }
     } catch (e: any) {
+      if (__DEV__) console.error('[OAuth] Exception:', e);
       setError(e.message ?? 'Google sign-in failed.');
     }
     setGoogleLoading(false);

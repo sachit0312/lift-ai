@@ -64,7 +64,7 @@ export default function TemplatesScreen() {
     }).catch((e) => console.error('Failed to create template', e));
   };
 
-  const handleLongPress = (template: Template) => {
+  const handleLongPress = useCallback((template: Template) => {
     Alert.alert('Delete Template', `Delete "${template.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -75,9 +75,9 @@ export default function TemplatesScreen() {
         },
       },
     ]);
-  };
+  }, [loadTemplates]);
 
-  const renderItem = ({ item }: { item: TemplateWithCount }) => (
+  const renderItem = useCallback(({ item }: { item: TemplateWithCount }) => (
     <TouchableOpacity
       style={styles.card}
       onPress={() => navigation.navigate('TemplateDetail', { templateId: item.id, templateName: item.name })}
@@ -93,7 +93,7 @@ export default function TemplatesScreen() {
       </View>
       <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
     </TouchableOpacity>
-  );
+  ), [navigation, handleLongPress]);
 
   return (
     <View style={styles.container}>
@@ -116,7 +116,7 @@ export default function TemplatesScreen() {
         <Ionicons name="add" size={28} color={colors.white} />
       </TouchableOpacity>
 
-      <Modal visible={showCreateModal} transparent animationType="fade">
+      <Modal visible={showCreateModal} transparent animationType="fade" onRequestClose={() => setShowCreateModal(false)}>
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCreateModal(false)}>
             <TouchableOpacity activeOpacity={1} style={styles.modalCard}>

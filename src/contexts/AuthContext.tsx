@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../services/supabase';
@@ -19,14 +19,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const previousUserIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      previousUserIdRef.current = session?.user?.id ?? null;
-      setSession(session);
-      if (session?.user) {
-        Sentry.setUser({ email: session.user.email, id: session.user.id });
-      }
-      setLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        previousUserIdRef.current = session?.user?.id ?? null;
+        setSession(session);
+        if (session?.user) {
+          Sentry.setUser({ email: session.user.email, id: session.user.id });
+        }
+      })
+      .catch((error) => {
+        Sentry.captureException(error);
+        console.error('Failed to get session:', error);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
@@ -39,8 +46,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             Sentry.setUser({ email: newSession.user.email, id: newSession.user.id });
           }
           if (newUserId !== prevUserId) {
-            await clearAllLocalData();
-            await pullUpcomingWorkout();
+            try {
+              await clearAllLocalData();
+              await pullUpcomingWorkout();
+            } catch (error) {
+              Sentry.captureException(error);
+              console.error('Failed to sync data on sign in:', error);
+            }
           }
         } else if (event === 'SIGNED_OUT') {
           Sentry.setUser(null);
@@ -55,8 +67,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const user = session?.user ?? null;
 
+  const value = useMemo(
+    () => ({ session, user, loading }),
+    [session, user, loading]
+  );
+
   return (
-    <AuthContext.Provider value={{ session, user, loading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

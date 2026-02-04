@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, ScrollView,
   Keyboard,
@@ -55,15 +55,15 @@ export default function ExercisePickerScreen() {
     }, [loadExercises]),
   );
 
-  const filtered = exercises.filter((e) =>
+  const filtered = useMemo(() => exercises.filter((e) =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
     e.muscle_groups.some(m => m.toLowerCase().includes(search.toLowerCase())),
-  );
+  ), [exercises, search]);
 
-  const handlePick = async (exercise: Exercise) => {
+  const handlePick = useCallback(async (exercise: Exercise) => {
     await addExerciseToTemplate(templateId, exercise.id);
     navigation.goBack();
-  };
+  }, [templateId, navigation]);
 
   const resetForm = () => {
     setNewName('');
@@ -90,7 +90,7 @@ export default function ExercisePickerScreen() {
     navigation.goBack();
   };
 
-  const renderItem = ({ item }: { item: Exercise }) => (
+  const renderItem = useCallback(({ item }: { item: Exercise }) => (
     <TouchableOpacity style={styles.card} onPress={() => handlePick(item)} activeOpacity={0.7}>
       <View style={[styles.typeDot, { backgroundColor: typeBadgeColor(item.type) }]} />
       <View style={styles.cardContent}>
@@ -105,7 +105,7 @@ export default function ExercisePickerScreen() {
         )}
       </View>
     </TouchableOpacity>
-  );
+  ), [handlePick]);
 
   const renderCreateForm = () => (
     <ScrollView

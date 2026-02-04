@@ -93,7 +93,7 @@ export default function HistoryScreen() {
     [expandedId, exerciseMap],
   );
 
-  const renderWorkout = ({ item }: { item: WorkoutWithVolume }) => {
+  const renderWorkout = useCallback(({ item }: { item: WorkoutWithVolume }) => {
     const isExpanded = expandedId === item.id;
     return (
       <TouchableOpacity
@@ -165,7 +165,7 @@ export default function HistoryScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [expandedId, expandedSets, exerciseMap, handleExpand]);
 
   if (loading) {
     return (
