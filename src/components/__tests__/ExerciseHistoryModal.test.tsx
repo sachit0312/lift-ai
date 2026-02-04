@@ -54,7 +54,17 @@ describe('ExerciseHistoryModal', () => {
     expect(toJSON()).toBeNull();
   });
 
-  it('shows no-data message when insufficient history', async () => {
+  it('shows no data message when no workout history', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue([]);
+
+    const { findByText } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    expect(await findByText('No workout data yet')).toBeTruthy();
+  });
+
+  it('shows 2 more sessions needed message with 1 session', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
       {
         workout: { id: 'w1', started_at: '2026-01-20T10:00:00Z', finished_at: '2026-01-20T11:00:00Z' },
@@ -66,17 +76,60 @@ describe('ExerciseHistoryModal', () => {
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
-    expect(await findByText(/Not enough data for chart/)).toBeTruthy();
+    expect(await findByText('2 more sessions needed for chart')).toBeTruthy();
+  });
+
+  it('shows 1 more session needed message with 2 sessions', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue([
+      {
+        workout: { id: 'w1', started_at: '2026-01-20T10:00:00Z', finished_at: '2026-01-20T11:00:00Z' },
+        sets: [{ id: 's1', workout_id: 'w1', exercise_id: 'ex1', set_number: 1, weight: 135, reps: 10, tag: 'working', rpe: null, is_completed: true, notes: null }],
+      },
+      {
+        workout: { id: 'w2', started_at: '2026-01-22T10:00:00Z', finished_at: '2026-01-22T11:00:00Z' },
+        sets: [{ id: 's2', workout_id: 'w2', exercise_id: 'ex1', set_number: 1, weight: 140, reps: 8, tag: 'working', rpe: null, is_completed: true, notes: null }],
+      },
+    ]);
+
+    const { findByText } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    expect(await findByText('1 more session needed for chart')).toBeTruthy();
+  });
+
+  it('hides PR banner when less than 3 sessions', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue([
+      {
+        workout: { id: 'w1', started_at: '2026-01-20T10:00:00Z', finished_at: '2026-01-20T11:00:00Z' },
+        sets: [{ id: 's1', workout_id: 'w1', exercise_id: 'ex1', set_number: 1, weight: 135, reps: 10, tag: 'working', rpe: null, is_completed: true, notes: null }],
+      },
+      {
+        workout: { id: 'w2', started_at: '2026-01-22T10:00:00Z', finished_at: '2026-01-22T11:00:00Z' },
+        sets: [{ id: 's2', workout_id: 'w2', exercise_id: 'ex1', set_number: 1, weight: 140, reps: 8, tag: 'working', rpe: null, is_completed: true, notes: null }],
+      },
+    ]);
+
+    const { queryByText } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    await waitFor(() => {
+      expect(queryByText('Personal Record')).toBeNull();
+    });
   });
 
   it('shows PR banner and chart with sufficient data', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue(threeSessions);
 
-    const { findByText, getByTestId } = render(
+    const { findByText, findAllByText, getByTestId } = render(
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
-    expect(await findByText(/PR:/)).toBeTruthy();
+    expect(await findByText('Personal Record')).toBeTruthy();
+    expect(await findByText(/\d+ lb/)).toBeTruthy();
+    const oneRmElements = await findAllByText(/1RM/);
+    expect(oneRmElements.length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(getByTestId('line-chart')).toBeTruthy();
     });
