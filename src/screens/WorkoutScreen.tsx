@@ -18,6 +18,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
+import { filterExercises } from '../utils/exerciseSearch';
 import { syncToSupabase, pullUpcomingWorkout } from '../services/sync';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
@@ -1075,8 +1076,7 @@ export default function WorkoutScreen() {
           )}
 
           <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-            {availableExercises
-              .filter(e => e.name.toLowerCase().includes(exerciseSearch.toLowerCase()))
+            {filterExercises(availableExercises, exerciseSearch)
               .map(e => (
                 <TouchableOpacity
                   key={e.id}

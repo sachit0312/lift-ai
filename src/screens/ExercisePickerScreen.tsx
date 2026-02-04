@@ -10,6 +10,7 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-n
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
+import { filterExercises } from '../utils/exerciseSearch';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import { getAllExercises, createExercise, addExerciseToTemplate } from '../services/database';
 import type { Exercise, ExerciseType } from '../types/database';
@@ -45,10 +46,7 @@ export default function ExercisePickerScreen() {
     }, [loadExercises]),
   );
 
-  const filtered = useMemo(() => exercises.filter((e) =>
-    e.name.toLowerCase().includes(search.toLowerCase()) ||
-    e.muscle_groups.some(m => m.toLowerCase().includes(search.toLowerCase())),
-  ), [exercises, search]);
+  const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
   const handlePick = useCallback(async (exercise: Exercise) => {
     await addExerciseToTemplate(templateId, exercise.id);

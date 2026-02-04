@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getAllExercises } from '../services/database';
+import { filterExercises } from '../utils/exerciseSearch';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { Exercise } from '../types/database';
 
@@ -38,10 +39,7 @@ export default function ExercisesScreen() {
     }
   }
 
-  const filtered = exercises.filter(e =>
-    e.name.toLowerCase().includes(search.toLowerCase()) ||
-    e.muscle_groups.some(m => m.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filtered = filterExercises(exercises, search);
 
   const renderExercise = useCallback(({ item }: { item: Exercise }) => (
     <TouchableOpacity
