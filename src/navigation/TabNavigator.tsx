@@ -8,6 +8,7 @@ import TemplateDetailScreen from '../screens/TemplateDetailScreen';
 import ExercisePickerScreen from '../screens/ExercisePickerScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import ExercisesScreen from '../screens/ExercisesScreen';
 
 export type TemplatesStackParamList = {
   TemplatesList: undefined;
@@ -51,6 +52,7 @@ const tabIcon = (route: string, focused: boolean): keyof typeof Ionicons.glyphMa
   const icons: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
     Workout: ['barbell', 'barbell-outline'],
     Templates: ['documents', 'documents-outline'],
+    Exercises: ['fitness', 'fitness-outline'],
     History: ['time', 'time-outline'],
     Profile: ['person', 'person-outline'],
   };
@@ -84,6 +86,7 @@ export default function TabNavigator() {
     >
       <Tab.Screen name="Workout" component={WorkoutScreen} />
       <Tab.Screen name="Templates" component={TemplatesStack} />
+      <Tab.Screen name="Exercises" component={ExercisesScreen} />
       <Tab.Screen name="History" component={HistoryScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
