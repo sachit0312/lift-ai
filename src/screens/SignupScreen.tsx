@@ -75,6 +75,7 @@ export default function SignupScreen({ navigation }: Props) {
           autoCapitalize="none"
           keyboardType="email-address"
           editable={!loading}
+          testID="signup-email"
         />
 
         <TextInput
@@ -85,6 +86,7 @@ export default function SignupScreen({ navigation }: Props) {
           onChangeText={setPassword}
           secureTextEntry
           editable={!loading}
+          testID="signup-password"
         />
 
         <TextInput
@@ -95,12 +97,14 @@ export default function SignupScreen({ navigation }: Props) {
           onChangeText={setConfirmPassword}
           secureTextEntry
           editable={!loading}
+          testID="signup-confirm"
         />
 
         <TouchableOpacity
           style={[styles.signupButton, loading && styles.disabledButton]}
           onPress={handleSignup}
           disabled={loading}
+          testID="signup-btn"
         >
           {loading ? (
             <ActivityIndicator color={colors.white} />
