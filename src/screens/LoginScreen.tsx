@@ -50,7 +50,12 @@ export default function LoginScreen({ navigation }: Props) {
     setError('');
     setGoogleLoading(true);
     try {
-      const redirectTo = makeRedirectUri({ scheme: 'workout-enhanced' });
+      // For native builds, use the native scheme directly with a path
+      const redirectTo = Platform.select({
+        ios: 'workout-enhanced://auth/callback',
+        android: 'workout-enhanced://auth/callback',
+        default: makeRedirectUri({ scheme: 'workout-enhanced' }),
+      });
       if (__DEV__) console.log('[OAuth] Redirect URI:', redirectTo);
 
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({

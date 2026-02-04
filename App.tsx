@@ -1,11 +1,25 @@
 import * as Sentry from '@sentry/react-native';
 import { StatusBar } from 'expo-status-bar';
+import { LogBox } from 'react-native';
 import { NavigationContainer, DefaultTheme, NavigationState } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { colors } from './src/theme';
+
+if (__DEV__) {
+  LogBox.ignoreLogs([
+    'Sync exercises error',
+    'Sync templates error',
+    'Sync workout',
+    'Pull upcoming',
+    'Failed to load',
+    'Failed to start',
+    'pullUpcomingWorkout failed',
+    'syncToSupabase failed',
+  ]);
+}
 
 Sentry.init({
   dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,

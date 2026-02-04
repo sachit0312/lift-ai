@@ -11,6 +11,7 @@ export interface Exercise {
   training_goal: TrainingGoal;
   description: string;
   created_at: string;
+  notes: string | null;
 }
 
 export interface Template {

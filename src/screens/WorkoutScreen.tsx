@@ -14,7 +14,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import Animated, { useAnimatedStyle, interpolate, SharedValue } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
@@ -1267,6 +1269,32 @@ interface SwipeableSetRowProps {
   children: React.ReactNode;
 }
 
+// Animated delete button with scale/opacity for smooth feel
+const RightAction = React.memo(function RightAction({
+  progress,
+  onDelete,
+}: {
+  progress: SharedValue<number>;
+  onDelete: () => void;
+}) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const scale = interpolate(progress.value, [0, 1], [0.8, 1]);
+    const opacity = interpolate(progress.value, [0, 0.5, 1], [0, 0.8, 1]);
+    return {
+      transform: [{ scale }],
+      opacity,
+    };
+  });
+
+  return (
+    <Animated.View style={[styles.swipeDeleteBtn, animatedStyle]}>
+      <TouchableOpacity onPress={onDelete} style={styles.swipeDeleteInner}>
+        <Ionicons name="trash-outline" size={22} color={colors.white} />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+});
+
 const SwipeableSetRow = React.memo(function SwipeableSetRow({
   set,
   setIdx,
@@ -1275,30 +1303,30 @@ const SwipeableSetRow = React.memo(function SwipeableSetRow({
   onDelete,
   children,
 }: SwipeableSetRowProps) {
-  const swipeableRef = useRef<Swipeable>(null);
+  const swipeableRef = useRef<React.ComponentRef<typeof ReanimatedSwipeable>>(null);
   const canDelete = block.sets.length > 1;
 
-  const renderRightActions = useCallback(() => {
-    if (!canDelete) return null;
-    return (
-      <TouchableOpacity
-        style={styles.swipeDeleteBtn}
-        onPress={() => {
-          swipeableRef.current?.close();
-          onDelete(blockIdx, setIdx);
-        }}
-      >
-        <Ionicons name="trash-outline" size={20} color={colors.white} />
-      </TouchableOpacity>
-    );
-  }, [canDelete, blockIdx, setIdx, onDelete]);
+  const handleDelete = useCallback(() => {
+    swipeableRef.current?.close();
+    onDelete(blockIdx, setIdx);
+  }, [blockIdx, setIdx, onDelete]);
 
-  const handleSwipeableOpen = useCallback((direction: 'left' | 'right') => {
-    if (direction === 'right' && canDelete) {
-      swipeableRef.current?.close();
-      onDelete(blockIdx, setIdx);
-    }
-  }, [canDelete, blockIdx, setIdx, onDelete]);
+  const renderRightActions = useCallback(
+    (progress: SharedValue<number>) => {
+      if (!canDelete) return null;
+      return <RightAction progress={progress} onDelete={handleDelete} />;
+    },
+    [canDelete, handleDelete]
+  );
+
+  const handleSwipeableWillOpen = useCallback(
+    (direction: 'left' | 'right') => {
+      if (direction === 'right' && canDelete) {
+        onDelete(blockIdx, setIdx);
+      }
+    },
+    [canDelete, blockIdx, setIdx, onDelete]
+  );
 
   if (!canDelete) {
     return (
@@ -1309,15 +1337,17 @@ const SwipeableSetRow = React.memo(function SwipeableSetRow({
   }
 
   return (
-    <Swipeable
+    <ReanimatedSwipeable
       ref={swipeableRef}
       renderRightActions={renderRightActions}
-      onSwipeableOpen={handleSwipeableOpen}
-      rightThreshold={40}
+      onSwipeableWillOpen={handleSwipeableWillOpen}
+      rightThreshold={120}
+      overshootRight={false}
+      friction={2}
       testID={`swipeable-set-${blockIdx}-${setIdx}`}
     >
       {children}
-    </Swipeable>
+    </ReanimatedSwipeable>
   );
 });
 
@@ -1537,6 +1567,12 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: borderRadius.md,
     marginLeft: spacing.xs,
+  },
+  swipeDeleteInner: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
   },
 
   // Checkbox
