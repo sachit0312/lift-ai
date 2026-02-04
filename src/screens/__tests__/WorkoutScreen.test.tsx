@@ -325,4 +325,21 @@ describe('WorkoutScreen', () => {
       expect(getByTestId('swipeable-set-0-0')).toBeTruthy();
     });
   });
+
+  it('shows remove exercise button in action row', async () => {
+    const { getByTestId, getByText } = render(<WorkoutScreen />);
+
+    // Start empty workout
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+
+    // Add exercise
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+    await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Bench Press')); });
+
+    // Wait for remove exercise button to appear
+    await waitFor(() => expect(getByTestId('remove-exercise-0')).toBeTruthy());
+  });
 });

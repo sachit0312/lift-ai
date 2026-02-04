@@ -617,6 +617,29 @@ export default function WorkoutScreen() {
     });
   }
 
+  const handleRemoveExercise = useCallback(async (blockIdx: number) => {
+    const block = exerciseBlocks[blockIdx];
+    if (!block) return;
+
+    Alert.alert(
+      `Remove ${block.exercise.name}?`,
+      'This will delete all sets for this exercise.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            for (const set of block.sets) {
+              await deleteWorkoutSet(set.id);
+            }
+            setExerciseBlocks((prev) => prev.filter((_, idx) => idx !== blockIdx));
+          },
+        },
+      ],
+    );
+  }, [exerciseBlocks]);
+
   function handleToggleRestTimer(blockIdx: number) {
     setExerciseBlocks((prev) => {
       const next = [...prev];
@@ -928,7 +951,7 @@ export default function WorkoutScreen() {
               );
             })}
 
-            {/* Add set + notes */}
+            {/* Add set + notes + remove */}
             <View style={styles.exerciseActions}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => handleAddSet(blockIdx)}>
                 <Ionicons name="add" size={16} color={colors.primary} />
@@ -939,6 +962,13 @@ export default function WorkoutScreen() {
                 <Text style={styles.actionBtnTextMuted}>
                   {block.notesExpanded ? 'Hide Notes' : 'Notes'}
                 </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.removeExerciseBtn}
+                onPress={() => handleRemoveExercise(blockIdx)}
+                testID={`remove-exercise-${blockIdx}`}
+              >
+                <Ionicons name="close" size={18} color={colors.error} />
               </TouchableOpacity>
             </View>
 
@@ -1587,6 +1617,14 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
     marginLeft: 4,
+  },
+  removeExerciseBtn: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.surfaceLight,
   },
   notesInput: {
     backgroundColor: colors.surfaceLight,
