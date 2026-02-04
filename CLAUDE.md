@@ -7,7 +7,8 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **Authentication**: AuthContext (`src/contexts/AuthContext.tsx`) manages session via `supabase.auth.onAuthStateChange`. On `SIGNED_IN`, clears local SQLite and pulls upcoming workout from Supabase only when the user ID changes (not on token refresh), preventing accidental data loss.
 - **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises (with notes column for sticky notes), templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets. Indexes on workout_sets(workout_id, exercise_id), workouts(finished_at, started_at), template_exercises(template_id) for query performance. Key functions (getExerciseById, getAllExercises, createExercise, getWorkoutHistory, getExerciseNotes, updateExerciseNotes) have try/catch with Sentry error reporting. Uses `safeJsonParse` helper for muscle_groups parsing to prevent crashes on malformed JSON.
 - **Sticky Exercise Notes**: Exercise notes are stored in the exercises table (notes column) and persist across workouts. When adding an exercise to a workout, existing notes are auto-loaded. Notes changes are saved via `updateExerciseNotes()` for persistence.
-- **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius).
+- **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius, overlay).
+- **Constants**: Shared constants in src/constants/exercise.ts (MUSCLE_GROUPS, EXERCISE_TYPES, EXERCISE_TYPE_OPTIONS, EXERCISE_TYPE_OPTIONS_WITH_ICONS, REST_SECONDS, DEFAULT_REST_SECONDS).
 - **Types**: All DB types in src/types/database.ts.
 - **Observability**: Sentry crash reporting (`@sentry/react-native`) initialized in `App.tsx` with `Sentry.wrap()`. Includes `tracesSampleRate` (1.0 dev, 0.2 prod) and `debug: __DEV__`. Navigation breadcrumbs added via `onStateChange` callback. Errors in sync.ts are reported via `Sentry.captureException()` alongside `console.error()`. User context set/cleared on login/logout in AuthContext. Sentry org: `sachit-goyal`, project: `react-native`. Disabled when `EXPO_PUBLIC_SENTRY_DSN` is not set.
 - **Error Handling**: `ErrorBoundary` class component (`src/components/ErrorBoundary.tsx`) wraps AuthProvider in App.tsx. Catches React errors via `getDerivedStateFromError`/`componentDidCatch`, reports to Sentry with componentStack, shows recovery UI with "Try Again" button. Uses theme colors for dark mode consistency.
@@ -116,7 +117,11 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - ExercisesScreen component tests at `src/screens/__tests__/ExercisesScreen.test.tsx` — renders exercise list with search, empty state, search filtering by name and muscle group, opening history modal on tap.
 - HistoryScreen component tests at `src/screens/__tests__/HistoryScreen.test.tsx` — empty state, workout card rendering (no volume pill), expand to show completed sets with tag badges (filters incomplete), exercise name tap opens history modal.
 - TemplateDetailScreen component tests at `src/screens/__tests__/TemplateDetailScreen.test.tsx` — renders template name (no label), exercise card with sets and rest timer pill, empty state, add exercise button.
-- Shared test helper at `src/__tests__/helpers/renderWithProviders.tsx` — wraps components in NavigationContainer.
+- SignupScreen component tests at `src/screens/__tests__/SignupScreen.test.tsx` — renders inputs, password match validation, password length validation, calls signUp, navigates to Login.
+- ErrorBoundary component tests at `src/components/__tests__/ErrorBoundary.test.tsx` — renders children, shows error UI on throw, reports to Sentry, recovery on Try Again.
+- Shared test helpers at `src/__tests__/helpers/renderWithProviders.tsx` — wraps components in NavigationContainer.
+- Shared test mocks at `src/__tests__/helpers/mocks.ts` — mockNavigation, mockRoute, mockUseFocusEffect.
+- Test data factories at `src/__tests__/helpers/factories.ts` — createMockExercise, createMockWorkoutSet, createMockWorkout, createMockSession.
 
 ## E2E Testing (Maestro)
 - Maestro YAML flows in `maestro/` directory. Run: `maestro test maestro/<path>.yaml`
@@ -127,8 +132,11 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 
 ## Utils
 - `src/utils/uuid.ts` — UUID v4 generator.
-- `src/utils/format.ts` — `formatDuration(startedAt, finishedAt)`, `formatVolume(volume)`, and `formatDate(iso)`.
-- `src/utils/exerciseTypeColor.ts` — shared exercise type → color mapping (used by TemplateDetailScreen, ExercisePickerScreen).
+- `src/utils/format.ts` — formatDuration, formatVolume, formatDate.
+- `src/utils/exerciseTypeColor.ts` — exercise type → color mapping.
+- `src/utils/setTagUtils.ts` — getSetTagLabel, getSetTagColor for set tags (warmup/failure/drop).
+- `src/utils/exerciseSearch.ts` — filterExercises for search by name and muscle group.
+- `src/utils/oneRepMax.ts` — calculateEstimated1RM (Epley formula: weight * (1 + reps/30)).
 
 ## Working Style
 - Be proactive: run commands, check results, and take action without waiting for the user to tell you each step.
