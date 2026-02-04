@@ -17,6 +17,14 @@ import {
 } from '../services/database';
 import type { TemplateExercise } from '../types/database';
 
+const formatRestTime = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins === 0) return `${secs}s`;
+  if (secs === 0) return `${mins}:00`;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
 type RouteProp = NativeStackScreenProps<TemplatesStackParamList, 'TemplateDetail'>['route'];
 type Nav = NativeStackNavigationProp<TemplatesStackParamList, 'TemplateDetail'>;
 
@@ -31,12 +39,6 @@ export default function TemplateDetailScreen() {
   // Modal state for rename
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameValue, setRenameValue] = useState('');
-
-  // Modal state for edit defaults
-  const [showDefaultsModal, setShowDefaultsModal] = useState(false);
-  const [defaultsValue, setDefaultsValue] = useState('');
-  const [editingItem, setEditingItem] = useState<TemplateExercise | null>(null);
-  const [editingField, setEditingField] = useState<'sets' | 'rest'>('sets');
 
   const loadExercises = useCallback(() => {
     getTemplateExercises(templateId).then(setExercises).catch((e) => console.error('Failed to load exercises', e));
@@ -75,68 +77,37 @@ export default function TemplateDetailScreen() {
     }
   };
 
-  const handleEditDefaults = useCallback((item: TemplateExercise) => {
-    if (Platform.OS === 'ios') {
-      Alert.prompt(
-        'Edit Sets',
-        `Current: ${item.default_sets} sets`,
-        (input) => {
-          if (!input) return;
-          const sets = parseInt(input.trim(), 10);
-          if (!isNaN(sets) && sets > 0) {
-            updateTemplateExerciseDefaults(item.id, { sets }).then(loadExercises).catch((e) => console.error('Failed to update defaults', e));
-          } else {
-            Alert.alert('Invalid', 'Enter a number of sets (e.g. 4)');
-          }
-        },
-        'plain-text',
-        `${item.default_sets}`,
-      );
-    } else {
-      setEditingItem(item);
-      setEditingField('sets');
-      setDefaultsValue(`${item.default_sets}`);
-      setShowDefaultsModal(true);
+  const handleIncreaseSets = useCallback((item: TemplateExercise) => {
+    const newSets = item.default_sets + 1;
+    updateTemplateExerciseDefaults(item.id, { sets: newSets })
+      .then(loadExercises)
+      .catch((e) => console.error('Failed to update sets', e));
+  }, [loadExercises]);
+
+  const handleDecreaseSets = useCallback((item: TemplateExercise) => {
+    const newSets = Math.max(1, item.default_sets - 1);
+    if (newSets !== item.default_sets) {
+      updateTemplateExerciseDefaults(item.id, { sets: newSets })
+        .then(loadExercises)
+        .catch((e) => console.error('Failed to update sets', e));
     }
   }, [loadExercises]);
 
-  const handleEditRestTimer = useCallback((item: TemplateExercise) => {
-    if (Platform.OS === 'ios') {
-      Alert.prompt(
-        'Rest Timer',
-        'Rest between sets (seconds)',
-        (input) => {
-          if (!input) return;
-          const secs = parseInt(input.trim(), 10);
-          if (!isNaN(secs) && secs > 0) {
-            updateTemplateExerciseDefaults(item.id, { rest_seconds: secs }).then(loadExercises);
-          }
-        },
-        'plain-text',
-        `${item.rest_seconds}`,
-      );
-    } else {
-      setEditingItem(item);
-      setEditingField('rest');
-      setDefaultsValue(`${item.rest_seconds}`);
-      setShowDefaultsModal(true);
-    }
+  const handleIncreaseRest = useCallback((item: TemplateExercise) => {
+    const newRest = item.rest_seconds + 15;
+    updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
+      .then(loadExercises)
+      .catch((e) => console.error('Failed to update rest', e));
   }, [loadExercises]);
 
-  const handleDefaultsConfirm = () => {
-    if (!editingItem) return;
-    const val = parseInt(defaultsValue.trim(), 10);
-    if (!isNaN(val) && val > 0) {
-      setShowDefaultsModal(false);
-      if (editingField === 'rest') {
-        updateTemplateExerciseDefaults(editingItem.id, { rest_seconds: val }).then(loadExercises);
-      } else {
-        updateTemplateExerciseDefaults(editingItem.id, { sets: val }).then(loadExercises);
-      }
-    } else {
-      Alert.alert('Invalid', editingField === 'rest' ? 'Enter rest time in seconds (e.g. 90)' : 'Enter a number of sets (e.g. 4)');
+  const handleDecreaseRest = useCallback((item: TemplateExercise) => {
+    const newRest = Math.max(15, item.rest_seconds - 15);
+    if (newRest !== item.rest_seconds) {
+      updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
+        .then(loadExercises)
+        .catch((e) => console.error('Failed to update rest', e));
     }
-  };
+  }, [loadExercises]);
 
   const handleRemove = useCallback((item: TemplateExercise) => {
     Alert.alert('Remove Exercise', `Remove "${item.exercise?.name}" from template?`, [
@@ -149,27 +120,65 @@ export default function TemplateDetailScreen() {
     ]);
   }, [loadExercises]);
 
-  const renderItem = useCallback(({ item }: { item: TemplateExercise }) => (
+  const renderItem = useCallback(({ item, index }: { item: TemplateExercise; index: number }) => (
     <View style={styles.card}>
       <View style={[styles.cardAccent, { backgroundColor: exerciseTypeColor(item.exercise?.type) }]} />
-      <TouchableOpacity style={styles.cardBody} onPress={() => handleEditDefaults(item)} activeOpacity={0.7}>
+      <View style={styles.cardBody}>
         <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
-        <Text style={styles.defaults}>
-          {item.default_sets} sets
-        </Text>
-        <TouchableOpacity onPress={() => handleEditRestTimer(item)} style={styles.restTimerPill}>
-          <Ionicons name="timer-outline" size={12} color={colors.textSecondary} />
-          <Text style={styles.restTimerText}>{item.rest_seconds}s rest</Text>
-        </TouchableOpacity>
         {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
           <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
         )}
-      </TouchableOpacity>
+        <View style={styles.steppersRow}>
+          {/* Sets stepper */}
+          <View style={styles.stepperGroup}>
+            <Ionicons name="barbell-outline" size={16} color={colors.textSecondary} style={styles.stepperIcon} />
+            <TouchableOpacity
+              testID={`sets-decrease-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleDecreaseSets(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="remove" size={16} color={colors.text} />
+            </TouchableOpacity>
+            <Text testID={`sets-value-${index}`} style={styles.stepperValue}>{item.default_sets}</Text>
+            <TouchableOpacity
+              testID={`sets-increase-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleIncreaseSets(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={16} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Rest stepper */}
+          <View style={styles.stepperGroup}>
+            <Ionicons name="timer-outline" size={16} color={colors.textSecondary} style={styles.stepperIcon} />
+            <TouchableOpacity
+              testID={`rest-decrease-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleDecreaseRest(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="remove" size={16} color={colors.text} />
+            </TouchableOpacity>
+            <Text testID={`rest-value-${index}`} style={styles.stepperValue}>{formatRestTime(item.rest_seconds)}</Text>
+            <TouchableOpacity
+              testID={`rest-increase-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleIncreaseRest(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={16} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
       <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
         <Ionicons name="trash-outline" size={18} color={colors.error} />
       </TouchableOpacity>
     </View>
-  ), [handleEditDefaults, handleEditRestTimer, handleRemove]);
+  ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
 
   return (
     <View style={styles.container}>
@@ -232,35 +241,6 @@ export default function TemplateDetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Defaults Modal */}
-      <Modal visible={showDefaultsModal} transparent animationType="fade" onRequestClose={() => setShowDefaultsModal(false)}>
-        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowDefaultsModal(false)}>
-            <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Edit Defaults</Text>
-              <Text style={styles.modalSub}>{editingField === 'rest' ? 'Rest between sets (seconds)' : 'Number of sets'}</Text>
-              <TextInput
-                style={styles.modalInput}
-                value={defaultsValue}
-                onChangeText={setDefaultsValue}
-                placeholder="e.g. 4"
-                keyboardType="number-pad"
-                placeholderTextColor={colors.textMuted}
-                autoFocus
-                onSubmitEditing={handleDefaultsConfirm}
-              />
-              <View style={styles.modalActions}>
-                <TouchableOpacity onPress={() => setShowDefaultsModal(false)} style={styles.modalCancelBtn}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleDefaultsConfirm} style={styles.modalConfirmBtn}>
-                  <Text style={styles.modalConfirmText}>Save</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 }
@@ -334,25 +314,38 @@ const styles = StyleSheet.create({
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
   },
-  defaults: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    marginTop: spacing.xs,
-  },
   muscles: {
     color: colors.textMuted,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
   },
-  restTimerPill: {
+  steppersRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
+    gap: spacing.lg,
   },
-  restTimerText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.xs,
+  stepperGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stepperIcon: {
+    marginRight: spacing.xs,
+  },
+  stepperBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.surfaceLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperValue: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    minWidth: 40,
+    textAlign: 'center',
   },
   removeBtn: {
     width: 48,
@@ -400,11 +393,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
     marginBottom: spacing.sm,
-  },
-  modalSub: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    marginBottom: spacing.md,
   },
   modalInput: {
     backgroundColor: colors.background,

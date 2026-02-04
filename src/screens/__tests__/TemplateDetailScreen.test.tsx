@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, waitFor, fireEvent, act } from '@testing-library/react-native';
 
 jest.mock('../../services/database', () => ({
   getTemplateExercises: jest.fn().mockResolvedValue([]),
@@ -23,7 +23,7 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 import TemplateDetailScreen from '../TemplateDetailScreen';
-import { getTemplateExercises } from '../../services/database';
+import { getTemplateExercises, updateTemplateExerciseDefaults } from '../../services/database';
 
 describe('TemplateDetailScreen', () => {
   beforeEach(() => {
@@ -39,7 +39,7 @@ describe('TemplateDetailScreen', () => {
     expect(queryByText('TEMPLATE NAME')).toBeNull();
   });
 
-  it('renders exercise with rest timer pill', async () => {
+  it('renders exercise with sets and rest stepper values', async () => {
     (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
       {
         id: 'te1',
@@ -61,13 +61,14 @@ describe('TemplateDetailScreen', () => {
       },
     ]);
 
-    const { getByText } = render(<TemplateDetailScreen />);
+    const { getByText, getByTestId } = render(<TemplateDetailScreen />);
 
     await waitFor(() => {
       expect(getByText('Bench Press')).toBeTruthy();
     });
-    expect(getByText('4 sets')).toBeTruthy();
-    expect(getByText('120s rest')).toBeTruthy();
+    // New UI uses stepper values instead of text pills
+    expect(getByTestId('sets-value-0')).toHaveTextContent('4');
+    expect(getByTestId('rest-value-0')).toHaveTextContent('2:00');
   });
 
   it('renders empty state when no exercises', async () => {
@@ -83,6 +84,195 @@ describe('TemplateDetailScreen', () => {
 
     await waitFor(() => {
       expect(getByTestId('template-add-exercise-btn')).toBeTruthy();
+    });
+  });
+
+  it('renders inline stepper controls for sets and rest', async () => {
+    (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'te1',
+        template_id: 'tmpl-1',
+        exercise_id: 'ex1',
+        order: 0,
+        default_sets: 4,
+        rest_seconds: 120,
+        exercise: {
+          id: 'ex1',
+          user_id: 'local',
+          name: 'Bench Press',
+          type: 'weighted',
+          muscle_groups: ['Chest'],
+          training_goal: 'hypertrophy',
+          description: '',
+          created_at: '2026-01-01',
+        },
+      },
+    ]);
+
+    const { getByTestId } = render(<TemplateDetailScreen />);
+
+    await waitFor(() => {
+      // Sets stepper: barbell icon with - and + buttons
+      expect(getByTestId('sets-decrease-0')).toBeTruthy();
+      expect(getByTestId('sets-value-0')).toBeTruthy();
+      expect(getByTestId('sets-increase-0')).toBeTruthy();
+
+      // Rest stepper: timer icon with - and + buttons
+      expect(getByTestId('rest-decrease-0')).toBeTruthy();
+      expect(getByTestId('rest-value-0')).toBeTruthy();
+      expect(getByTestId('rest-increase-0')).toBeTruthy();
+    });
+  });
+
+  it('increments sets when + is pressed', async () => {
+    (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'te1',
+        template_id: 'tmpl-1',
+        exercise_id: 'ex1',
+        order: 0,
+        default_sets: 4,
+        rest_seconds: 120,
+        exercise: {
+          id: 'ex1',
+          user_id: 'local',
+          name: 'Bench Press',
+          type: 'weighted',
+          muscle_groups: ['Chest'],
+          training_goal: 'hypertrophy',
+          description: '',
+          created_at: '2026-01-01',
+        },
+      },
+    ]);
+
+    const { getByTestId } = render(<TemplateDetailScreen />);
+
+    await waitFor(() => expect(getByTestId('sets-value-0')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(getByTestId('sets-increase-0'));
+    });
+
+    await waitFor(() => {
+      expect(updateTemplateExerciseDefaults).toHaveBeenCalledWith(
+        'te1',
+        expect.objectContaining({ sets: 5 })
+      );
+    });
+  });
+
+  it('decrements sets when - is pressed (minimum 1)', async () => {
+    (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'te1',
+        template_id: 'tmpl-1',
+        exercise_id: 'ex1',
+        order: 0,
+        default_sets: 2,
+        rest_seconds: 120,
+        exercise: {
+          id: 'ex1',
+          user_id: 'local',
+          name: 'Bench Press',
+          type: 'weighted',
+          muscle_groups: ['Chest'],
+          training_goal: 'hypertrophy',
+          description: '',
+          created_at: '2026-01-01',
+        },
+      },
+    ]);
+
+    const { getByTestId } = render(<TemplateDetailScreen />);
+
+    await waitFor(() => expect(getByTestId('sets-value-0')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(getByTestId('sets-decrease-0'));
+    });
+
+    await waitFor(() => {
+      expect(updateTemplateExerciseDefaults).toHaveBeenCalledWith(
+        'te1',
+        expect.objectContaining({ sets: 1 })
+      );
+    });
+  });
+
+  it('adjusts rest by 15 seconds when +/- pressed', async () => {
+    (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'te1',
+        template_id: 'tmpl-1',
+        exercise_id: 'ex1',
+        order: 0,
+        default_sets: 4,
+        rest_seconds: 120,
+        exercise: {
+          id: 'ex1',
+          user_id: 'local',
+          name: 'Bench Press',
+          type: 'weighted',
+          muscle_groups: ['Chest'],
+          training_goal: 'hypertrophy',
+          description: '',
+          created_at: '2026-01-01',
+        },
+      },
+    ]);
+
+    const { getByTestId } = render(<TemplateDetailScreen />);
+
+    await waitFor(() => expect(getByTestId('rest-value-0')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(getByTestId('rest-increase-0'));
+    });
+
+    await waitFor(() => {
+      expect(updateTemplateExerciseDefaults).toHaveBeenCalledWith(
+        'te1',
+        expect.objectContaining({ rest_seconds: 135 })
+      );
+    });
+  });
+
+  it('decrements rest by 15 seconds (minimum 15)', async () => {
+    (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'te1',
+        template_id: 'tmpl-1',
+        exercise_id: 'ex1',
+        order: 0,
+        default_sets: 4,
+        rest_seconds: 30,
+        exercise: {
+          id: 'ex1',
+          user_id: 'local',
+          name: 'Bench Press',
+          type: 'weighted',
+          muscle_groups: ['Chest'],
+          training_goal: 'hypertrophy',
+          description: '',
+          created_at: '2026-01-01',
+        },
+      },
+    ]);
+
+    const { getByTestId } = render(<TemplateDetailScreen />);
+
+    await waitFor(() => expect(getByTestId('rest-value-0')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(getByTestId('rest-decrease-0'));
+    });
+
+    await waitFor(() => {
+      expect(updateTemplateExerciseDefaults).toHaveBeenCalledWith(
+        'te1',
+        expect.objectContaining({ rest_seconds: 15 })
+      );
     });
   });
 });
