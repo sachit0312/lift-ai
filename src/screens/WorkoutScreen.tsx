@@ -87,6 +87,7 @@ export default function WorkoutScreen() {
   const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
   const [templateName, setTemplateName] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [startingTemplateId, setStartingTemplateId] = useState<string | null>(null);
 
   // Active workout state
   const [exerciseBlocks, setExerciseBlocks] = useState<ExerciseBlock[]>([]);
@@ -129,29 +130,40 @@ export default function WorkoutScreen() {
       const active = await getActiveWorkout();
       setActiveWorkout(active);
       workoutRef.current = active;
+
       if (active) {
         setTemplateName(active.template_name ?? null);
         await loadActiveWorkout(active);
+        setLoading(false);
       } else {
+        // Load templates immediately (fast, local only)
         const t = await getAllTemplates();
         setTemplates(t);
-        // Pull upcoming workout from Supabase (with timeout so it can't hang)
-        try {
-          await Promise.race([
-            pullUpcomingWorkout(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-          ]);
-        } catch (e) {
-          console.error('pullUpcomingWorkout failed or timed out', e);
-        }
-        const upcoming = await getUpcomingWorkoutForToday();
-        setUpcomingWorkout(upcoming);
+
+        // Show UI right away
+        setLoading(false);
+
+        // Load upcoming workout in background (slow, network)
+        loadUpcomingWorkoutInBackground();
       }
     } catch (e) {
       console.error('Failed to load workout state', e);
-    } finally {
       setLoading(false);
     }
+  }
+
+  async function loadUpcomingWorkoutInBackground() {
+    try {
+      await Promise.race([
+        pullUpcomingWorkout(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+    } catch (e) {
+      console.error('pullUpcomingWorkout failed or timed out', e);
+    }
+
+    const upcoming = await getUpcomingWorkoutForToday();
+    setUpcomingWorkout(upcoming);
   }
 
   // ─── Load existing active workout from DB ───
@@ -334,7 +346,7 @@ export default function WorkoutScreen() {
 
   async function handleStartFromTemplate(template: Template) {
     try {
-      setLoading(true);
+      setStartingTemplateId(template.id);  // Show spinner on this card
       const workout = await startWorkout(template.id);
       const templateExercises = await getTemplateExercises(template.id);
 
@@ -348,7 +360,7 @@ export default function WorkoutScreen() {
     } catch (e) {
       console.error('Failed to start workout', e);
     } finally {
-      setLoading(false);
+      setStartingTemplateId(null);
     }
   }
 
@@ -761,7 +773,7 @@ export default function WorkoutScreen() {
   }
 
   if (!activeWorkout) {
-    return <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleStartFromTemplate} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} />;
+    return <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleStartFromTemplate} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} startingTemplateId={startingTemplateId} />;
   }
 
   return (
@@ -1143,12 +1155,14 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
   onStartTemplate,
   onStartEmpty,
   onStartUpcoming,
+  startingTemplateId,
 }: {
   templates: Template[];
   upcomingWorkout: Awaited<ReturnType<typeof getUpcomingWorkoutForToday>>;
   onStartTemplate: (t: Template) => void;
   onStartEmpty: () => void;
   onStartUpcoming: () => void;
+  startingTemplateId: string | null;
 }) {
   return (
     <SafeAreaView style={styles.container}>
@@ -1183,19 +1197,27 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
         {templates.length > 0 && (
           <>
             <Text style={styles.templateHeader}>TEMPLATES</Text>
-            {templates.map((t) => (
-              <TouchableOpacity
-                key={t.id}
-                style={styles.templateCard}
-                onPress={() => onStartTemplate(t)}
-              >
-                <View style={styles.templateCardLeft} />
-                <View style={styles.templateCardBody}>
-                  <Text style={styles.templateName}>{t.name}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            ))}
+            {templates.map((t) => {
+              const isLoading = startingTemplateId === t.id;
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[styles.templateCard, isLoading && styles.templateCardDisabled]}
+                  onPress={() => onStartTemplate(t)}
+                  disabled={isLoading}
+                >
+                  <View style={styles.templateCardLeft} />
+                  <View style={styles.templateCardBody}>
+                    <Text style={styles.templateName}>{t.name}</Text>
+                  </View>
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.md }} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} style={{ marginRight: spacing.md }} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </>
         )}
 
@@ -1704,6 +1726,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
     overflow: 'hidden',
+  },
+  templateCardDisabled: {
+    opacity: 0.7,
   },
   templateCardLeft: {
     width: 3,
