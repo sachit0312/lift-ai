@@ -22,6 +22,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
   const [chartData, setChartData] = useState<DataPoint[]>([]);
   const [prValue, setPrValue] = useState(0);
   const [prDate, setPrDate] = useState('');
+  const [prDateFormatted, setPrDateFormatted] = useState('');
   const [recentSessions, setRecentSessions] = useState<{ date: string; bestSet: WorkoutSet | null }[]>([]);
 
   useEffect(() => {
@@ -51,17 +52,28 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
       if (points.length > 0) {
         let maxVal = 0;
         let maxDate = '';
-        for (const p of points) {
-          if (p.best1RM >= maxVal) {
-            maxVal = p.best1RM;
-            maxDate = p.date;
+        let maxDateFormatted = '';
+        // Find PR from history to get full date for formatting
+        for (let i = 0; i < history.length; i++) {
+          const h = history[i];
+          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
+          if (completedSets.length === 0) continue;
+          const best = Math.max(...completedSets.map(s => (s.weight ?? 0) * (1 + (s.reps ?? 0) / 30)));
+          const rounded = Math.round(best);
+          if (rounded >= maxVal) {
+            maxVal = rounded;
+            const d = new Date(h.workout.started_at);
+            maxDate = `${d.getMonth() + 1}/${d.getDate()}`;
+            maxDateFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           }
         }
         setPrValue(maxVal);
         setPrDate(maxDate);
+        setPrDateFormatted(maxDateFormatted);
       } else {
         setPrValue(0);
         setPrDate('');
+        setPrDateFormatted('');
       }
 
       const recent = history.slice(0, 3).map(h => {
@@ -106,16 +118,20 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
             <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
           ) : (
             <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-              {prValue > 0 && (
+              {prValue > 0 && chartData.length >= 3 && (
                 <View style={styles.prBanner}>
-                  <Ionicons name="trophy" size={20} color={colors.warning} />
-                  <Text style={styles.prText}>PR: {prValue}lb est. 1RM — {prDate}</Text>
+                  <View style={styles.prHeader}>
+                    <Ionicons name="trophy" size={20} color={colors.warning} />
+                    <Text style={styles.prLabel}>Personal Record</Text>
+                  </View>
+                  <Text style={styles.prValue}>{prValue} lb</Text>
+                  <Text style={styles.prSubtext}>1RM · {prDateFormatted}</Text>
                 </View>
               )}
 
-              {chartData.length >= 2 ? (
+              {chartData.length >= 3 ? (
                 <View style={styles.chartContainer}>
-                  <Text style={styles.sectionTitle}>Estimated 1RM Progression</Text>
+                  <Text style={styles.sectionTitle}>1RM Progression</Text>
                   <LineChart
                     data={{
                       labels: chartData.length <= 8
@@ -139,7 +155,11 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                   />
                 </View>
               ) : (
-                <Text style={styles.noData}>Not enough data for chart (need 2+ sessions)</Text>
+                <Text style={styles.noData}>
+                  {chartData.length === 0
+                    ? 'No workout data yet'
+                    : `${3 - chartData.length} more session${3 - chartData.length === 1 ? '' : 's'} needed for chart`}
+                </Text>
               )}
 
               {recentSessions.length > 0 && (
@@ -198,18 +218,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   prBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     padding: spacing.md,
     marginTop: spacing.md,
-    gap: spacing.sm,
   },
-  prText: {
-    color: colors.text,
-    fontSize: fontSize.md,
+  prHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  prLabel: {
+    color: colors.warning,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  },
+  prValue: {
+    color: colors.text,
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.bold,
+  },
+  prSubtext: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    marginTop: 2,
   },
   chartContainer: {
     marginTop: spacing.lg,
