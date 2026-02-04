@@ -96,42 +96,31 @@ describe('ExercisePickerScreen', () => {
     expect(queryByText('Squat')).toBeNull();
   });
 
-  it('hides search bar when create form is expanded', async () => {
-    const { getByTestId, queryByPlaceholderText, getByPlaceholderText } = render(<ExercisePickerScreen />);
+  it('opens full-screen modal for create exercise', async () => {
+    const { getByTestId } = render(<ExercisePickerScreen />);
+
+    await waitFor(() => expect(getByTestId('create-exercise-toggle')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('create-exercise-toggle')); });
+
+    await waitFor(() => {
+      expect(getByTestId('create-exercise-modal')).toBeTruthy();
+    });
+  });
+
+  it('search bar remains visible when modal is open', async () => {
+    const { getByTestId, getByPlaceholderText } = render(<ExercisePickerScreen />);
 
     // Initially visible
     await waitFor(() => {
       expect(getByPlaceholderText(/Search/)).toBeTruthy();
     });
 
-    // Toggle create form open
+    // Open create modal
     await act(async () => {
       fireEvent.press(getByTestId('create-exercise-toggle'));
     });
 
-    // Search bar should be hidden
-    expect(queryByPlaceholderText(/Search/)).toBeNull();
-  });
-
-  it('shows search bar when create form collapsed', async () => {
-    const { getByTestId, getByPlaceholderText } = render(<ExercisePickerScreen />);
-
-    // Wait for initial render
-    await waitFor(() => {
-      expect(getByPlaceholderText(/Search/)).toBeTruthy();
-    });
-
-    // Open create form
-    await act(async () => {
-      fireEvent.press(getByTestId('create-exercise-toggle'));
-    });
-
-    // Close create form
-    await act(async () => {
-      fireEvent.press(getByTestId('create-exercise-toggle'));
-    });
-
-    // Search bar should be visible again
+    // Search bar should still be in the DOM (modal is separate)
     expect(getByPlaceholderText(/Search/)).toBeTruthy();
   });
 

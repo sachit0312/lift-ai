@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, ScrollView,
-  Keyboard,
+  Keyboard, Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -36,7 +37,7 @@ export default function ExercisePickerScreen() {
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [search, setSearch] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // New exercise form state
   const [newName, setNewName] = useState('');
@@ -88,6 +89,7 @@ export default function ExercisePickerScreen() {
       notes: newExNotes.trim() || null,
     });
     await addExerciseToTemplate(templateId, exercise.id);
+    setShowCreateModal(false);
     navigation.goBack();
   };
 
@@ -108,137 +110,135 @@ export default function ExercisePickerScreen() {
     </TouchableOpacity>
   ), [handlePick]);
 
-  const renderCreateForm = () => (
-    <ScrollView
-      style={styles.createFormScroll}
-      contentContainerStyle={styles.createForm}
-      keyboardShouldPersistTaps="handled"
-      nestedScrollEnabled
+  const renderCreateModal = () => (
+    <Modal
+      visible={showCreateModal}
+      animationType="slide"
+      testID="create-exercise-modal"
+      onRequestClose={() => setShowCreateModal(false)}
     >
-      <View style={styles.createFormHeader}>
-        <View style={styles.createFormTitleRow}>
-          <Ionicons name="add-circle" size={20} color={colors.primary} />
-          <Text style={styles.createTitle}>Create New Exercise</Text>
-        </View>
-      </View>
-
-      <Text style={styles.label}>Name</Text>
-      <TextInput
-        style={[styles.input, validationError ? styles.inputError : null]}
-        value={newName}
-        onChangeText={(v) => { setNewName(v); setValidationError(''); }}
-        placeholder='e.g. "Incline Dumbbell Press"'
-        placeholderTextColor={colors.textMuted}
-        returnKeyType="done"
-        onSubmitEditing={() => Keyboard.dismiss()}
-        testID="exercise-name-input"
-      />
-      {validationError ? <Text style={styles.errorText}>{validationError}</Text> : null}
-
-      <Text style={styles.label}>Type</Text>
-      <View style={styles.typeGrid}>
-        {EXERCISE_TYPES.map((t) => (
-          <TouchableOpacity
-            key={t.value}
-            style={[
-              styles.typeChip,
-              newType === t.value && { backgroundColor: typeBadgeColor(t.value), borderColor: typeBadgeColor(t.value) },
-            ]}
-            onPress={() => setNewType(t.value)}
-          >
-            <Ionicons
-              name={t.icon}
-              size={14}
-              color={newType === t.value ? colors.white : colors.textSecondary}
-              style={{ marginRight: 4 }}
-            />
-            <Text style={[styles.chipText, newType === t.value && styles.chipTextActive]}>{t.label}</Text>
+      <SafeAreaView style={styles.createModalContainer}>
+        <View style={styles.createModalHeader}>
+          <TouchableOpacity onPress={() => { resetForm(); setShowCreateModal(false); }}>
+            <Ionicons name="close" size={24} color={colors.text} />
           </TouchableOpacity>
-        ))}
-      </View>
+          <Text style={styles.createModalTitle}>Create Exercise</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <ScrollView style={styles.createModalBody} keyboardShouldPersistTaps="handled">
+          <Text style={styles.label}>Name</Text>
+          <TextInput
+            style={[styles.input, validationError ? styles.inputError : null]}
+            value={newName}
+            onChangeText={(v) => { setNewName(v); setValidationError(''); }}
+            placeholder='e.g. "Incline Dumbbell Press"'
+            placeholderTextColor={colors.textMuted}
+            returnKeyType="done"
+            onSubmitEditing={() => Keyboard.dismiss()}
+            testID="exercise-name-input"
+          />
+          {validationError ? <Text style={styles.errorText}>{validationError}</Text> : null}
 
-      <Text style={styles.label}>Muscle Groups</Text>
-      <View style={styles.muscleGrid}>
-        {MUSCLE_GROUPS.map((mg) => {
-          const selected = newMuscles.includes(mg);
-          return (
-            <TouchableOpacity
-              key={mg}
-              testID={`muscle-${mg}`}
-              style={[
-                styles.muscleChip,
-                selected && styles.muscleChipSelected,
-              ]}
-              onPress={() =>
-                setNewMuscles((prev) =>
-                  selected ? prev.filter((m) => m !== mg) : [...prev, mg],
-                )
-              }
-            >
-              <Text style={[styles.chipText, selected && styles.chipTextActive]}>
-                {mg}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+          <Text style={styles.label}>Type</Text>
+          <View style={styles.typeGrid}>
+            {EXERCISE_TYPES.map((t) => (
+              <TouchableOpacity
+                key={t.value}
+                style={[
+                  styles.typeChip,
+                  newType === t.value && { backgroundColor: typeBadgeColor(t.value), borderColor: typeBadgeColor(t.value) },
+                ]}
+                onPress={() => setNewType(t.value)}
+              >
+                <Ionicons
+                  name={t.icon}
+                  size={14}
+                  color={newType === t.value ? colors.white : colors.textSecondary}
+                  style={{ marginRight: 4 }}
+                />
+                <Text style={[styles.chipText, newType === t.value && styles.chipTextActive]}>{t.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-      <Text style={styles.label}>Notes (optional)</Text>
-      <TextInput
-        style={[styles.input, styles.textArea]}
-        value={newExNotes}
-        onChangeText={setNewExNotes}
-        placeholder="Form cues, setup notes..."
-        placeholderTextColor={colors.textMuted}
-        multiline
-        numberOfLines={2}
-        testID="exercise-notes-input"
-      />
+          <Text style={styles.label}>Muscle Groups</Text>
+          <View style={styles.muscleGrid}>
+            {MUSCLE_GROUPS.map((mg) => {
+              const selected = newMuscles.includes(mg);
+              return (
+                <TouchableOpacity
+                  key={mg}
+                  testID={`muscle-${mg}`}
+                  style={[
+                    styles.muscleChip,
+                    selected && styles.muscleChipSelected,
+                  ]}
+                  onPress={() =>
+                    setNewMuscles((prev) =>
+                      selected ? prev.filter((m) => m !== mg) : [...prev, mg],
+                    )
+                  }
+                >
+                  <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                    {mg}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-      <TouchableOpacity style={styles.saveBtn} onPress={handleCreate} activeOpacity={0.8} testID="save-exercise-btn">
-        <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
-        <Text style={styles.saveBtnText}>Save & Add to Template</Text>
-      </TouchableOpacity>
+          <Text style={styles.label}>Notes (optional)</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={newExNotes}
+            onChangeText={setNewExNotes}
+            placeholder="Form cues, setup notes..."
+            placeholderTextColor={colors.textMuted}
+            multiline
+            numberOfLines={2}
+            testID="exercise-notes-input"
+          />
 
-      <TouchableOpacity style={styles.cancelBtn} onPress={() => { resetForm(); setShowCreate(false); }} activeOpacity={0.8}>
-        <Text style={styles.cancelBtnText}>Cancel</Text>
-      </TouchableOpacity>
-    </ScrollView>
+          <TouchableOpacity style={styles.saveBtn} onPress={handleCreate} activeOpacity={0.8} testID="save-exercise-btn">
+            <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
+            <Text style={styles.saveBtnText}>Save & Add to Template</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => { resetForm(); setShowCreateModal(false); }} activeOpacity={0.8}>
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 
   return (
     <View style={styles.container}>
-      {!showCreate && (
-        <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={18} color={colors.textMuted} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchBar}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search by name or muscle group..."
-            placeholderTextColor={colors.textMuted}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search-outline" size={18} color={colors.textMuted} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchBar}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search by name or muscle group..."
+          placeholderTextColor={colors.textMuted}
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       <TouchableOpacity
         style={styles.createToggle}
-        onPress={() => { if (showCreate) resetForm(); setShowCreate(!showCreate); }}
+        onPress={() => setShowCreateModal(true)}
         activeOpacity={0.7}
         testID="create-exercise-toggle"
       >
-        <Ionicons name={showCreate ? 'chevron-up' : 'add-circle-outline'} size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
-        <Text style={styles.createToggleText}>
-          {showCreate ? 'Hide Form' : 'Create New Exercise'}
-        </Text>
+        <Ionicons name="add-circle-outline" size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
+        <Text style={styles.createToggleText}>Create New Exercise</Text>
       </TouchableOpacity>
-
-      {showCreate && renderCreateForm()}
 
       <FlatList
         data={filtered}
@@ -256,6 +256,8 @@ export default function ExercisePickerScreen() {
           </View>
         }
       />
+
+      {renderCreateModal()}
     </View>
   );
 }
@@ -298,33 +300,26 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
-  createFormScroll: {
-    maxHeight: 500,
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.lg,
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
+  createModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
-  createForm: {
-    padding: spacing.md,
-  },
-  createFormHeader: {
+  createModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  createFormTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  createTitle: {
+  createModalTitle: {
     color: colors.text,
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
+  },
+  createModalBody: {
+    flex: 1,
+    padding: spacing.md,
   },
   label: {
     color: colors.textSecondary,
