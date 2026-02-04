@@ -305,4 +305,24 @@ describe('WorkoutScreen', () => {
       expect(getByTestId('rest-timer-toggle-0')).toBeTruthy();
     });
   });
+
+  it('renders swipeable set rows', async () => {
+    const { getByTestId, getByText } = render(<WorkoutScreen />);
+
+    await waitFor(() => expect(getByTestId('start-empty-workout')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('start-empty-workout')); });
+
+    // Add an exercise
+    await waitFor(() => expect(getByTestId('add-exercise-btn')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByTestId('add-exercise-btn')); });
+
+    // Tap Bench Press
+    await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
+    await act(async () => { fireEvent.press(getByText('Bench Press')); });
+
+    // The set row should be wrapped in Swipeable
+    await waitFor(() => {
+      expect(getByTestId('swipeable-set-0-0')).toBeTruthy();
+    });
+  });
 });

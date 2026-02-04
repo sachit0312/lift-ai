@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
@@ -764,6 +765,7 @@ export default function WorkoutScreen() {
   }
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
@@ -844,63 +846,71 @@ export default function WorkoutScreen() {
                 : '—';
               const hasError = validationErrors[`${blockIdx}-${setIdx}`];
               return (
-              <View
+              <SwipeableSetRow
                 key={set.id}
-                style={[
-                  styles.setRow,
-                  set.is_completed && styles.setRowCompleted,
-                ]}
+                set={set}
+                setIdx={setIdx}
+                blockIdx={blockIdx}
+                block={block}
+                onDelete={handleDeleteSet}
               >
-                <TouchableOpacity
-                  style={styles.setNumCol}
-                  onPress={() => handleCycleTag(blockIdx, setIdx)}
-                  onLongPress={() => handleDeleteSet(blockIdx, setIdx)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                <View
+                  style={[
+                    styles.setRow,
+                    set.is_completed && styles.setRowCompleted,
+                  ]}
                 >
-                  {tagLabel ? (
-                    <View style={[styles.setNumBadge, { backgroundColor: tagColor }]}>
-                      <Text style={styles.setNumBadgeText}>{tagLabel}</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.setNum}>
-                      {set.set_number}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-                <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
-                  {prevText}
-                </Text>
-                {upcomingTargets && <TargetCell upcomingTargets={upcomingTargets} exerciseId={block.exercise.id} setNumber={set.set_number} />}
-                <TextInput
-                  style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
-                  keyboardType="numeric"
-                  value={set.weight}
-                  onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'weight', v)}
-                  placeholder={set.previous ? String(set.previous.weight) : ''}
-                  placeholderTextColor={colors.textMuted}
-                  testID={`weight-${blockIdx}-${setIdx}`}
-                />
-                <TextInput
-                  style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
-                  keyboardType="numeric"
-                  value={set.reps}
-                  onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'reps', v)}
-                  placeholder={set.previous ? String(set.previous.reps) : ''}
-                  placeholderTextColor={colors.textMuted}
-                  testID={`reps-${blockIdx}-${setIdx}`}
-                />
-                <TouchableOpacity
-                  style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
-                  onPress={() => handleToggleComplete(blockIdx, setIdx)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: set.is_completed }}
-                  testID={`check-${blockIdx}-${setIdx}`}
-                >
-                  {set.is_completed && (
-                    <Ionicons name="checkmark" size={18} color={colors.white} />
-                  )}
-                </TouchableOpacity>
-              </View>
+                  <TouchableOpacity
+                    style={styles.setNumCol}
+                    onPress={() => handleCycleTag(blockIdx, setIdx)}
+                    onLongPress={() => handleDeleteSet(blockIdx, setIdx)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    {tagLabel ? (
+                      <View style={[styles.setNumBadge, { backgroundColor: tagColor }]}>
+                        <Text style={styles.setNumBadgeText}>{tagLabel}</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.setNum}>
+                        {set.set_number}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                  <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
+                    {prevText}
+                  </Text>
+                  {upcomingTargets && <TargetCell upcomingTargets={upcomingTargets} exerciseId={block.exercise.id} setNumber={set.set_number} />}
+                  <TextInput
+                    style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
+                    keyboardType="numeric"
+                    value={set.weight}
+                    onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'weight', v)}
+                    placeholder={set.previous ? String(set.previous.weight) : ''}
+                    placeholderTextColor={colors.textMuted}
+                    testID={`weight-${blockIdx}-${setIdx}`}
+                  />
+                  <TextInput
+                    style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
+                    keyboardType="numeric"
+                    value={set.reps}
+                    onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'reps', v)}
+                    placeholder={set.previous ? String(set.previous.reps) : ''}
+                    placeholderTextColor={colors.textMuted}
+                    testID={`reps-${blockIdx}-${setIdx}`}
+                  />
+                  <TouchableOpacity
+                    style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
+                    onPress={() => handleToggleComplete(blockIdx, setIdx)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: set.is_completed }}
+                    testID={`check-${blockIdx}-${setIdx}`}
+                  >
+                    {set.is_completed && (
+                      <Ionicons name="checkmark" size={18} color={colors.white} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </SwipeableSetRow>
               );
             })}
 
@@ -1121,6 +1131,7 @@ export default function WorkoutScreen() {
         onClose={handleCloseHistoryModal}
       />
     </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -1222,6 +1233,69 @@ const SummaryStat = React.memo(function SummaryStat({ label, value, icon }: { la
       </View>
       <Text style={styles.summaryStatValue}>{value}</Text>
     </View>
+  );
+});
+
+interface SwipeableSetRowProps {
+  set: LocalSet;
+  setIdx: number;
+  blockIdx: number;
+  block: ExerciseBlock;
+  onDelete: (blockIdx: number, setIdx: number) => void;
+  children: React.ReactNode;
+}
+
+const SwipeableSetRow = React.memo(function SwipeableSetRow({
+  set,
+  setIdx,
+  blockIdx,
+  block,
+  onDelete,
+  children,
+}: SwipeableSetRowProps) {
+  const swipeableRef = useRef<Swipeable>(null);
+  const canDelete = block.sets.length > 1;
+
+  const renderRightActions = useCallback(() => {
+    if (!canDelete) return null;
+    return (
+      <TouchableOpacity
+        style={styles.swipeDeleteBtn}
+        onPress={() => {
+          swipeableRef.current?.close();
+          onDelete(blockIdx, setIdx);
+        }}
+      >
+        <Ionicons name="trash-outline" size={20} color={colors.white} />
+      </TouchableOpacity>
+    );
+  }, [canDelete, blockIdx, setIdx, onDelete]);
+
+  const handleSwipeableOpen = useCallback((direction: 'left' | 'right') => {
+    if (direction === 'right' && canDelete) {
+      swipeableRef.current?.close();
+      onDelete(blockIdx, setIdx);
+    }
+  }, [canDelete, blockIdx, setIdx, onDelete]);
+
+  if (!canDelete) {
+    return (
+      <View testID={`swipeable-set-${blockIdx}-${setIdx}`}>
+        {children}
+      </View>
+    );
+  }
+
+  return (
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={renderRightActions}
+      onSwipeableOpen={handleSwipeableOpen}
+      rightThreshold={40}
+      testID={`swipeable-set-${blockIdx}-${setIdx}`}
+    >
+      {children}
+    </Swipeable>
   );
 });
 
@@ -1432,6 +1506,15 @@ const styles = StyleSheet.create({
   setInputError: {
     borderColor: colors.error,
     backgroundColor: 'rgba(240, 82, 82, 0.08)',
+  },
+  swipeDeleteBtn: {
+    backgroundColor: colors.error,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '100%',
+    borderRadius: borderRadius.md,
+    marginLeft: spacing.xs,
   },
 
   // Checkbox
