@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import { createMockExercise, createMockSession } from '../../__tests__/helpers/factories';
 
 jest.mock('../../services/database', () => ({
   getExerciseHistory: jest.fn().mockResolvedValue([]),
@@ -15,31 +16,12 @@ jest.mock('react-native-chart-kit', () => {
 import ExerciseHistoryModal from '../ExerciseHistoryModal';
 import { getExerciseHistory } from '../../services/database';
 
-const mockExercise = {
-  id: 'ex1',
-  user_id: 'local',
-  name: 'Bench Press',
-  type: 'weighted' as const,
-  muscle_groups: ['Chest'],
-  training_goal: 'hypertrophy' as const,
-  description: '',
-  created_at: '2026-01-01',
-  notes: null,
-};
+const mockExercise = createMockExercise({ name: 'Bench Press' });
 
 const threeSessions = [
-  {
-    workout: { id: 'w1', started_at: '2026-01-20T10:00:00Z', finished_at: '2026-01-20T11:00:00Z' },
-    sets: [{ id: 's1', workout_id: 'w1', exercise_id: 'ex1', set_number: 1, weight: 135, reps: 10, tag: 'working', rpe: null, is_completed: true, notes: null }],
-  },
-  {
-    workout: { id: 'w2', started_at: '2026-01-22T10:00:00Z', finished_at: '2026-01-22T11:00:00Z' },
-    sets: [{ id: 's2', workout_id: 'w2', exercise_id: 'ex1', set_number: 1, weight: 145, reps: 8, tag: 'working', rpe: null, is_completed: true, notes: null }],
-  },
-  {
-    workout: { id: 'w3', started_at: '2026-01-25T10:00:00Z', finished_at: '2026-01-25T11:00:00Z' },
-    sets: [{ id: 's3', workout_id: 'w3', exercise_id: 'ex1', set_number: 1, weight: 150, reps: 6, tag: 'working', rpe: null, is_completed: true, notes: null }],
-  },
+  createMockSession('2026-01-20T10:00:00Z', [{ weight: 135, reps: 10 }]),
+  createMockSession('2026-01-22T10:00:00Z', [{ weight: 145, reps: 8 }]),
+  createMockSession('2026-01-25T10:00:00Z', [{ weight: 150, reps: 6 }]),
 ];
 
 describe('ExerciseHistoryModal', () => {
@@ -66,10 +48,7 @@ describe('ExerciseHistoryModal', () => {
 
   it('shows 2 more sessions needed message with 1 session', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
-      {
-        workout: { id: 'w1', started_at: '2026-01-20T10:00:00Z', finished_at: '2026-01-20T11:00:00Z' },
-        sets: [{ id: 's1', workout_id: 'w1', exercise_id: 'ex1', set_number: 1, weight: 135, reps: 10, tag: 'working', rpe: null, is_completed: true, notes: null }],
-      },
+      createMockSession('2026-01-20T10:00:00Z', [{ weight: 135, reps: 10 }]),
     ]);
 
     const { findByText } = render(
@@ -81,14 +60,8 @@ describe('ExerciseHistoryModal', () => {
 
   it('shows 1 more session needed message with 2 sessions', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
-      {
-        workout: { id: 'w1', started_at: '2026-01-20T10:00:00Z', finished_at: '2026-01-20T11:00:00Z' },
-        sets: [{ id: 's1', workout_id: 'w1', exercise_id: 'ex1', set_number: 1, weight: 135, reps: 10, tag: 'working', rpe: null, is_completed: true, notes: null }],
-      },
-      {
-        workout: { id: 'w2', started_at: '2026-01-22T10:00:00Z', finished_at: '2026-01-22T11:00:00Z' },
-        sets: [{ id: 's2', workout_id: 'w2', exercise_id: 'ex1', set_number: 1, weight: 140, reps: 8, tag: 'working', rpe: null, is_completed: true, notes: null }],
-      },
+      createMockSession('2026-01-20T10:00:00Z', [{ weight: 135, reps: 10 }]),
+      createMockSession('2026-01-22T10:00:00Z', [{ weight: 140, reps: 8 }]),
     ]);
 
     const { findByText } = render(
@@ -100,14 +73,8 @@ describe('ExerciseHistoryModal', () => {
 
   it('hides PR banner when less than 3 sessions', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
-      {
-        workout: { id: 'w1', started_at: '2026-01-20T10:00:00Z', finished_at: '2026-01-20T11:00:00Z' },
-        sets: [{ id: 's1', workout_id: 'w1', exercise_id: 'ex1', set_number: 1, weight: 135, reps: 10, tag: 'working', rpe: null, is_completed: true, notes: null }],
-      },
-      {
-        workout: { id: 'w2', started_at: '2026-01-22T10:00:00Z', finished_at: '2026-01-22T11:00:00Z' },
-        sets: [{ id: 's2', workout_id: 'w2', exercise_id: 'ex1', set_number: 1, weight: 140, reps: 8, tag: 'working', rpe: null, is_completed: true, notes: null }],
-      },
+      createMockSession('2026-01-20T10:00:00Z', [{ weight: 135, reps: 10 }]),
+      createMockSession('2026-01-22T10:00:00Z', [{ weight: 140, reps: 8 }]),
     ]);
 
     const { queryByText } = render(
@@ -148,28 +115,19 @@ describe('ExerciseHistoryModal', () => {
 
   it('shows best set per session in recent performances', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
-      {
-        workout: { id: 'w1', started_at: '2024-01-15T10:00:00Z', finished_at: '2024-01-15T11:00:00Z' },
-        sets: [
-          { id: 's1', workout_id: 'w1', exercise_id: 'ex1', set_number: 1, weight: 135, reps: 10, tag: 'working', rpe: null, is_completed: true, notes: null },
-          { id: 's2', workout_id: 'w1', exercise_id: 'ex1', set_number: 2, weight: 145, reps: 8, tag: 'working', rpe: null, is_completed: true, notes: null },
-          { id: 's3', workout_id: 'w1', exercise_id: 'ex1', set_number: 3, weight: 135, reps: 6, tag: 'working', rpe: null, is_completed: true, notes: null },
-        ],
-      },
+      createMockSession('2024-01-15T10:00:00Z', [
+        { weight: 135, reps: 10 },
+        { weight: 145, reps: 8 },
+        { weight: 135, reps: 6 },
+      ]),
     ]);
 
     const { getByText } = render(
-      <ExerciseHistoryModal
-        visible={true}
-        exercise={mockExercise}
-        onClose={jest.fn()}
-      />
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
     await waitFor(() => {
       // 145 × 8 has highest e1RM: 145 * (1 + 8/30) = 145 * 1.267 = 183.7
-      // 135 × 10 = 135 * 1.333 = 180.0
-      // 135 × 6 = 135 * 1.2 = 162.0
       expect(getByText(/Best: 145lb × 8/)).toBeTruthy();
     });
   });
