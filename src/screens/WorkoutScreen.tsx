@@ -631,7 +631,8 @@ export default function WorkoutScreen() {
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const newSeconds = Math.max(15, next[blockIdx].restSeconds + delta);
-      next[blockIdx] = { ...next[blockIdx], restSeconds: newSeconds };
+      // If adjusting, also ensure timer is enabled
+      next[blockIdx] = { ...next[blockIdx], restSeconds: newSeconds, restEnabled: true };
       return next;
     });
   }
@@ -1352,7 +1353,7 @@ const styles = StyleSheet.create({
   headerRestControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   headerRestBtn: {
     width: 36,
