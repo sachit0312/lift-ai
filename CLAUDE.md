@@ -18,7 +18,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser/expo-auth-session. Dark themed with barbell icon. Navigates to Signup.
 - **SignupScreen** (`src/screens/SignupScreen.tsx`): Email/password registration with confirm password validation. Navigates to Login.
 - **TemplatesScreen**: FlatList of templates, FAB to create, long-press to delete. Uses useFocusEffect to reload on focus. `renderItem` and `handleLongPress` wrapped in `useCallback`. Modal has `onRequestClose` for Android back button.
-- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with default set count and per-exercise rest timer (default 150s), navigate to exercise picker. `renderItem` and handlers (`handleEditDefaults`, `handleEditRestTimer`, `handleRemove`) wrapped in `useCallback`. Both modals have `onRequestClose` for Android back button.
+- **TemplateDetailScreen**: Edit template name, view/edit/remove exercises with inline stepper controls for sets (±1, barbell icon) and rest timer (±15s, timer icon). Steppers are tap-friendly with no text labels. Navigate to exercise picker. `renderItem` and stepper handlers wrapped in `useCallback`. Rename modal has `onRequestClose` for Android back button.
 - **ExercisePickerScreen**: Search + browse all exercises (by name or muscle group), tap to add to template. Scrollable inline form to create new exercises with type chips (single-select) and muscle group chips (multi-select from: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms) and description field. Training goal defaults to hypertrophy (managed via MCP). `renderItem` and `handlePick` wrapped in `useCallback`. Filtered exercises array memoized with `useMemo`. Search bar is hidden when create form is expanded for cleaner UX.
 
 ## Navigation Types
@@ -33,13 +33,13 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **Set Completion Validation**: Sets cannot be marked complete without entering both weight and reps. Red border appears on weight/reps inputs for 2 seconds when validation fails (no alert popup).
 - **Finish Workout Validation**: Cannot finish workout with 0 completed sets. Alert shown prompting user to complete at least one set.
 - Tags: tap set number to cycle (working → warmup W → failure F → drop D). Tagged sets show colored badge instead of number.
-- Long-press set number to delete set (except last set).
+- Long-press set number to delete set (except last set). Alternatively, swipe left on a set row to delete immediately (uses react-native-gesture-handler Swipeable).
 - Completed set rows get green-tinted background + green left border + haptic vibration feedback.
 - Rest timer: auto-starts on set completion when enabled. Per-exercise rest seconds from template (default 150s) override training_goal defaults (strength=180s, hypertrophy=90s, endurance=60s). Mid-workout added exercises use training_goal defaults. Shows exercise name that triggered it, progress bar, large countdown, +15s/-15s adjust buttons, Skip button. Vibrates when timer ends.
 - **Rest Timer Controls**: Timer controls are in the exercise header row (right side). Tap timer display to toggle on/off. − and + buttons adjust rest time by 15 seconds. Shows "1:30" format when enabled, "Off" when disabled. Disabled rest timers don't auto-start on set completion.
 - Add Exercise mid-workout: full-screen modal with search to add any existing exercise.
 - Finish: Modal confirmation dialog showing completed/total sets, then summary screen (duration, exercises, sets completed) with celebration vibration. Triggers `syncToSupabase()` after finishing.
-- Upcoming Workout: On idle screen, pulls upcoming workout from Supabase via `pullUpcomingWorkout()` (with 5s timeout to prevent hanging), then loads from local DB via `getUpcomingWorkoutForToday()`. Shows a "Workout Ready" card with exercise count and notes. Starting from upcoming workout pre-populates exercise blocks and enables a TARGET column (weight x reps) per set from the upcoming workout plan.
+- Upcoming Workout: Idle screen shows templates immediately; upcoming workout loads in background via `pullUpcomingWorkout()` (5s timeout) then `getUpcomingWorkoutForToday()` and animates in when ready. Shows a "Workout Ready" card with exercise count and notes. Starting from upcoming workout pre-populates exercise blocks and enables a TARGET column (weight x reps) per set from the upcoming workout plan. Template tap shows inline spinner on that card while loading.
 - TARGET column: Shown in set header/rows only when workout was started from an upcoming workout. Displays target weight x reps per set in a muted primary color.
 - Template name displayed in active workout header is stored in a separate `templateName` state variable (not mutated onto the Workout object) for type safety.
 - All set changes persist to SQLite immediately via `updateWorkoutSet()`.
@@ -53,7 +53,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 
 ## Components
 - **ErrorBoundary** (`src/components/ErrorBoundary.tsx`): Class component error boundary wrapping app content. Catches React errors, reports to Sentry with componentStack, shows dark-themed recovery UI with "Try Again" button.
-- **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with 1RM progression chart (react-native-chart-kit LineChart), structured PR banner (trophy icon, "Personal Record" label, large weight value, "1RM · date" subtext), and recent performances (last 3 sessions with best set). Requires 3+ sessions to display PR banner and chart; shows progress message otherwise. Accessible from HistoryScreen (tap exercise name), WorkoutScreen (tap exercise name during active workout), and ExercisesScreen (tap exercise card). Uses Epley formula: weight * (1 + reps/30).
+- **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with 1RM progression chart (react-native-chart-kit LineChart), structured PR banner (trophy icon, "Personal Record" label, large weight value, "1RM · date" subtext), and recent performances (last 3 sessions with best set displayed in side-by-side layout: date left, weight×reps right). Requires 3+ sessions to display PR banner and chart; shows progress message otherwise. Accessible from HistoryScreen (tap exercise name), WorkoutScreen (tap exercise name during active workout), and ExercisesScreen (tap exercise card). Uses Epley formula: weight * (1 + reps/30).
 
 ## MCP AI Coach
 Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching.
@@ -88,6 +88,7 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - Expo (React Native) with TypeScript
 - react-native-safe-area-context for safe area handling
 - @react-navigation/bottom-tabs + @react-navigation/native-stack
+- react-native-gesture-handler for swipe gestures
 - expo-sqlite for local-first data
 - @supabase/supabase-js with sync service (src/services/sync.ts) for push/pull
 - expo-web-browser + expo-auth-session for Google OAuth
