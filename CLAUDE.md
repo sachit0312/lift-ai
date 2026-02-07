@@ -5,10 +5,10 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 ## Architecture
 - **Navigation**: RootNavigator (`src/navigation/RootNavigator.tsx`) conditionally renders AuthStack (Login/Signup) or TabNavigator based on session state. TabNavigator has bottom tabs with a native stack nested inside Templates tab for list -> detail -> exercise picker flow.
 - **Authentication**: AuthContext (`src/contexts/AuthContext.tsx`) manages session via `supabase.auth.onAuthStateChange`. On `SIGNED_IN`, clears local SQLite and pulls upcoming workout from Supabase only when the user ID changes (not on token refresh), preventing accidental data loss.
-- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises (with notes column for sticky notes), templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets. Indexes on workout_sets(workout_id, exercise_id), workouts(finished_at, started_at), template_exercises(template_id) for query performance. Key functions (getExerciseById, getAllExercises, createExercise, getWorkoutHistory, getExerciseNotes, updateExerciseNotes) have try/catch with Sentry error reporting. Uses `safeJsonParse` helper for muscle_groups parsing to prevent crashes on malformed JSON.
+- **Database**: expo-sqlite with async API in src/services/database.ts. Tables: exercises (with notes column for sticky notes), templates, template_exercises, workouts, workout_sets, upcoming_workouts, upcoming_workout_exercises, upcoming_workout_sets. Indexes on workout_sets(workout_id, exercise_id), workouts(finished_at, started_at), template_exercises(template_id) for query performance. Key functions (getExerciseById, getAllExercises, createExercise, getWorkoutHistory, updateExerciseNotes) have try/catch with Sentry error reporting. Uses `safeJsonParse` helper for muscle_groups parsing to prevent crashes on malformed JSON. All `getAllAsync` calls use typed row interfaces (e.g. `ExerciseRow`, `WorkoutRow`, `WorkoutSetRow`, `TemplateExerciseJoinRow`, `CountRow`, `MaxOrderRow`, `ExerciseHistoryJoinRow`, `PRSetRow`, `UpcomingWorkoutRow`, `UpcomingExerciseJoinRow`) instead of `any` for type-safe SQLite query results. Sync service (`sync.ts`) similarly uses `SyncExerciseRow`, `SyncTemplateRow`, `SyncTemplateExerciseRow`, `SyncWorkoutRow`, `SyncWorkoutSetRow` for typed local queries before Supabase upsert.
 - **Sticky Exercise Notes**: Exercise notes are stored in the exercises table (notes column) and persist across workouts. When adding an exercise to a workout, existing notes are auto-loaded. Notes changes are saved via `updateExerciseNotes()` for persistence.
 - **Theme**: Dark theme constants in src/theme/index.ts (colors, spacing, fontSize, fontWeight, borderRadius, overlay).
-- **Constants**: Shared constants in src/constants/exercise.ts (MUSCLE_GROUPS, EXERCISE_TYPES, EXERCISE_TYPE_OPTIONS, EXERCISE_TYPE_OPTIONS_WITH_ICONS, REST_SECONDS, DEFAULT_REST_SECONDS).
+- **Constants**: Shared constants in src/constants/exercise.ts (MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, EXERCISE_TYPE_OPTIONS_WITH_ICONS, REST_SECONDS, DEFAULT_REST_SECONDS).
 - **Types**: All DB types in src/types/database.ts.
 - **Observability**: Sentry crash reporting (`@sentry/react-native`) initialized in `App.tsx` with `Sentry.wrap()`. Includes `tracesSampleRate` (1.0 dev, 0.2 prod) and `debug: __DEV__`. Navigation breadcrumbs added via `onStateChange` callback. Errors in sync.ts are reported via `Sentry.captureException()` alongside `console.error()`. User context set/cleared on login/logout in AuthContext. Sentry org: `sachit-goyal`, project: `react-native`. Disabled when `EXPO_PUBLIC_SENTRY_DSN` is not set.
 - **Error Handling**: `ErrorBoundary` class component (`src/components/ErrorBoundary.tsx`) wraps AuthProvider in App.tsx. Catches React errors via `getDerivedStateFromError`/`componentDidCatch`, reports to Sentry with componentStack, shows recovery UI with "Try Again" button. Uses theme colors for dark mode consistency.
@@ -46,17 +46,18 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - Uses `useFocusEffect` to check for active workouts on tab focus.
 - Keyboard dismisses on scroll (`keyboardDismissMode="on-drag"`).
 - **Performance optimizations**: Set counts (`completedSetsCount`, `totalSetsCount`) memoized with `useMemo`. Sub-components (`NoActiveWorkout`, `TargetCell`, `SummaryStat`) wrapped with `React.memo`. Modal `onRequestClose` handlers added for proper Android back button support. `handleCloseHistoryModal` wrapped in `useCallback`.
+- **Live Activity Rest Timer** (`src/services/liveActivity.ts`): iOS Live Activity shows rest timer countdown on lock screen + Dynamic Island. Uses `expo-live-activity` for the Live Activity (iOS-native countdown via `progressBar.date`) and `expo-notifications` for a local notification with vibration/sound when the timer ends. Service exports: `startRestTimerActivity(totalSeconds, exerciseName)`, `adjustRestTimerActivity(deltaSeconds)`, `stopRestTimerActivity()`, `requestNotificationPermissions()`. All functions no-op on Android. Module-level singleton state (one activity at a time). Tapping the Live Activity opens the app via `workout-enhanced://workout` deep link. Wired into WorkoutScreen's `startRestTimer`, `adjustRestTimer`, `dismissRest`, and timer completion. Deep link config in `App.tsx` via NavigationContainer `linking` prop.
 
 ## History & Profile
 - **HistoryScreen**: FlatList of completed workouts (date, template name, duration). Tap to expand sets grouped by exercise. Tap exercise name in expanded view to open ExerciseHistoryModal. `renderWorkout` wrapped in `useCallback` for FlatList performance.
-- **ProfileScreen**: Stats dashboard (total workouts, this month, PRs this week via Epley formula, streak). Shows user email. Logout button with confirmation alert. `statCards` array memoized with `useMemo`.
+- **ProfileScreen**: Stats dashboard (total workouts, this month, PRs this week via Epley formula, streak). Shows user email. "Get MCP Token" button opens modal with copyable JWT for Claude Desktop configuration. Logout button with confirmation alert. `statCards` array memoized with `useMemo`.
 
 ## Components
 - **ErrorBoundary** (`src/components/ErrorBoundary.tsx`): Class component error boundary wrapping app content. Catches React errors, reports to Sentry with componentStack, shows dark-themed recovery UI with "Try Again" button.
 - **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with 1RM progression chart (react-native-chart-kit LineChart), structured PR banner (trophy icon, "Personal Record" label, large weight value, "1RM · date" subtext), and recent performances (last 3 sessions with best set displayed in side-by-side layout: date left, weight×reps right). Requires 3+ sessions to display PR banner and chart; shows progress message otherwise. Accessible from HistoryScreen (tap exercise name), WorkoutScreen (tap exercise name during active workout), and ExercisesScreen (tap exercise card). Uses Epley formula: weight * (1 + reps/30).
 
 ## MCP AI Coach
-Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching.
+MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching. Supports local stdio mode and remote HTTP mode via Cloudflare Workers.
 
 **Architecture**: Phone app → Supabase ← MCP server → Claude Desktop
 - **Gym**: Phone app logs sets in real-time, syncs to Supabase on workout finish
@@ -66,6 +67,12 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 **MCP Tools (12 total)**:
 - Read: get_workout_history, get_workout_detail, get_exercise_list, get_all_templates, get_template, get_personal_records, get_exercise_history, get_upcoming_workout
 - Write: create_exercise, add_exercise_to_template, remove_exercise_from_template, create_upcoming_workout
+
+**Multi-User Support**: MCP server supports JWT authentication for multi-user access. Users get their JWT token from the "Get MCP Token" button in ProfileScreen. User-scoped tools filter by user_id; exercises are shared across users; `create_exercise` tracks creator via `user_id`.
+
+**Deployment Options**:
+- Local: `npm start` uses stdio transport with WORKOUT_USER_ID env var
+- Remote: Deploy to Cloudflare Workers via `npm run deploy`, uses Streamable HTTP transport with JWT auth
 
 **Supabase Sync** (`src/services/sync.ts`):
 - `syncToSupabase()` — pushes exercises, templates, finished workouts + sets to Supabase (auth-guarded, adds user_id)
@@ -92,6 +99,8 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - expo-sqlite for local-first data
 - @supabase/supabase-js with sync service (src/services/sync.ts) for push/pull
 - expo-web-browser + expo-auth-session for Google OAuth
+- expo-live-activity for iOS Live Activity (lock screen + Dynamic Island rest timer countdown)
+- expo-notifications for local notifications (rest timer end vibration/sound)
 - Supabase migrations in supabase/migrations/
 
 ## Building & Running
@@ -101,18 +110,27 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - `npx tsc --noEmit` — type-check without emitting
 - MCP server: `cd /Users/sachitgoyal/code/workout-mcp-server && npm run build && npm start`
 - iOS build uses Xcode DerivedData at default location
-- **Important**: Always test via native build on physical iPhone, not Expo Go
+- `npx expo prebuild --clean` — regenerates native projects (needed after adding plugins like expo-live-activity)
+- **Important**: Always test via native build on physical iPhone, not Expo Go. Live Activity requires a native build (not Expo Go).
 
 ## Testing
 - Jest with jest-expo preset. Run: `npm test` or `npx jest`
 - Config in `jest.config.js` — includes `clearMocks: true` (auto-clears mocks between tests), `setupFilesAfterEnv` pointing to `jest.setup.js`.
 - Shared test setup at `jest.setup.js` — mocks `@expo/vector-icons` (Ionicons), `react-native-chart-kit` (LineChart), and silences console.error for React warnings.
 - expo-sqlite mock at `src/__mocks__/expo-sqlite.ts` — provides `openDatabaseAsync` returning a mock db with `getAllAsync`, `getFirstAsync`, `runAsync`, `execAsync`. Mapped via `moduleNameMapper` in `jest.config.js`.
-- Database service tests at `src/services/__tests__/database.test.ts` — tests createExercise, getAllExercises, createTemplate, startWorkout, updateWorkoutSet, getPRsThisWeek.
+- expo-live-activity mock at `src/__mocks__/expo-live-activity.ts` — mocks `startActivity`, `updateActivity`, `stopActivity`. Mapped via `moduleNameMapper`.
+- expo-notifications mock at `src/__mocks__/expo-notifications.ts` — mocks `scheduleNotificationAsync`, `cancelScheduledNotificationAsync`, `requestPermissionsAsync`, `setNotificationHandler`, `SchedulableTriggerInputTypes`. Mapped via `moduleNameMapper`.
+- Database service tests at `src/services/__tests__/database.test.ts` — tests createExercise, getAllExercises, createTemplate, startWorkout, updateWorkoutSet, getPRsThisWeek, updateExerciseNotes (correct SQL + null clearing), getExerciseById (parsed result + not found).
+- Live Activity service tests at `src/services/__tests__/liveActivity.test.ts` — tests startRestTimerActivity (correct title/countdown, notification scheduling, stops previous activity), adjustRestTimerActivity (updates countdown, reschedules notification, no-ops when inactive), stopRestTimerActivity (stops activity + cancels notification, no-ops when inactive), requestNotificationPermissions (iOS only), platform guard (all no-op on Android), error handling (doesn't throw on failures).
+- Sync service tests at `src/services/__tests__/sync.test.ts` — tests syncToSupabase (session guard, exercise/template/workout/set upsert with user_id, muscle_groups JSON parsing, is_completed boolean conversion, empty array skip, error handling per table with early return, full sync), pullUpcomingWorkout (session guard, no upcoming workout, clears local tables in order, inserts workout/exercises/sets, Supabase error handling, continues on set fetch error, null data handling).
 - UUID utility tests at `src/utils/__tests__/uuid.test.ts` — uniqueness and v4 format.
-- Format utility tests at `src/utils/__tests__/format.test.ts` — formatDuration and formatDate.
+- Format utility tests at `src/utils/__tests__/format.test.ts` — formatDuration (null finishedAt, under 1h, hours+minutes, 0 duration, exactly 60min, large durations, multi-day, rounding) and formatDate (Today, Yesterday, weekday for 2-6 days ago, month+day for 7+ days same year, year included for different year, boundary at 6 days).
+- One rep max utility tests at `src/utils/__tests__/oneRepMax.test.ts` — Epley formula calculation, zero reps/weight, decimal weights, large values.
+- Exercise search utility tests at `src/utils/__tests__/exerciseSearch.test.ts` — name match, muscle group match, case insensitivity, partial match, empty search returns all, no match returns empty.
+- Exercise type color utility tests at `src/utils/__tests__/exerciseTypeColor.test.ts` — all 4 exercise types map to correct theme colors, undefined defaults to textMuted.
+- Set tag utility tests at `src/utils/__tests__/setTagUtils.test.ts` — getSetTagLabel (W/F/D/null) and getSetTagColor (warning/error/primary/undefined) for all tag types.
 - ExercisePickerScreen component tests at `src/screens/__tests__/ExercisePickerScreen.test.tsx` — renders search bar, muscle group chip toggle, validation error for empty name, search filtering, hides search bar when create form expanded. Uses @testing-library/react-native with mocked database, sync, navigation, and @expo/vector-icons.
-- WorkoutScreen component tests at `src/screens/__tests__/WorkoutScreen.test.tsx` — idle state rendering, starting empty workout, adding exercise + toggling checkbox completion (covers Maestro gap), finish modal (requires completed set), 0 sets validation (blocks finish), create exercise form in add-exercise modal, header two-row layout with timer and sets progress, empty set completion validation (blocks when weight/reps empty), rest timer toggle visibility.
+- WorkoutScreen component tests at `src/screens/__tests__/WorkoutScreen.test.tsx` — idle state rendering, starting empty workout, adding exercise + toggling checkbox completion (covers Maestro gap), finish modal (requires completed set), 0 sets validation (blocks finish), create exercise form in add-exercise modal, header two-row layout with timer and sets progress, empty set completion validation (blocks when weight/reps empty), rest timer toggle visibility, swipeable set rows, remove exercise button. Nested describes: Live Activity integration (notification permissions on mount, starts on rest timer, stops on dismiss, adjusts on +15s), set tag cycling (warmup tap, full cycle, badge text), rest timer auto-start (shows bar after set completion, no bar when toggled off), exercise notes (toggle on/off, updateExerciseNotes call, pre-expand with sticky notes), cancel workout (alert on X, discard confirms deleteWorkout, keep going preserves state), long-press set to delete (deletes with 2+ sets, blocks last set), template card starts workout, previous set data (PREV column shows weight×reps, dash when no data, placeholders from previous), upcoming workout TARGET column (TARGET header when started from upcoming, no TARGET for regular, target weight×reps display).
 - LoginScreen component tests at `src/screens/__tests__/LoginScreen.test.tsx` — renders inputs, validation error for empty fields, calls signInWithPassword, navigates to Signup.
 - TemplatesScreen component tests at `src/screens/__tests__/TemplatesScreen.test.tsx` — empty state, template list rendering, FAB button.
 - ProfileScreen component tests at `src/screens/__tests__/ProfileScreen.test.tsx` — renders title/email, stat cards, logout button, PRs This Week card, absence of Week Volume/Avg Duration.
@@ -122,20 +140,21 @@ Standalone MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects 
 - TemplateDetailScreen component tests at `src/screens/__tests__/TemplateDetailScreen.test.tsx` — renders template name (no label), exercise card with sets and rest timer pill, empty state, add exercise button.
 - SignupScreen component tests at `src/screens/__tests__/SignupScreen.test.tsx` — renders inputs, password match validation, password length validation, calls signUp, navigates to Login.
 - ErrorBoundary component tests at `src/components/__tests__/ErrorBoundary.test.tsx` — renders children, shows error UI on throw, reports to Sentry, recovery on Try Again.
+- AuthContext tests at `src/contexts/__tests__/AuthContext.test.tsx` — renders children, useAuth throws outside provider, loading lifecycle (true->false), initial session/user from getSession, SIGNED_IN updates session, SIGNED_OUT clears session, Sentry user set on login (initial + event), Sentry user cleared on logout, clearAllLocalData + pullUpcomingWorkout on new user sign-in, skips sync on token refresh (same user ID), sync errors reported to Sentry, getSession errors reported to Sentry, loading false even on getSession failure, unsubscribes on unmount, tracks user ID across sign-in/out, edge case with null user on SIGNED_IN.
 - Shared test helpers at `src/__tests__/helpers/renderWithProviders.tsx` — wraps components in NavigationContainer.
 - Shared test mocks at `src/__tests__/helpers/mocks.ts` — mockNavigation, mockRoute, mockUseFocusEffect.
-- Test data factories at `src/__tests__/helpers/factories.ts` — createMockExercise, createMockWorkoutSet, createMockWorkout, createMockSession.
+- Test data factories at `src/__tests__/helpers/factories.ts` — createMockExercise, createMockWorkoutSet, createMockWorkout, createMockSession, createMockUpcomingWorkout (with nested exercises and sets).
 
 ## E2E Testing (Maestro)
 - Maestro YAML flows in `maestro/` directory. Run: `maestro test maestro/<path>.yaml`
-- Flows: `setup/seed-exercises.yaml`, `templates/create-exercise.yaml`, `templates/view-template-detail.yaml`, `workout/start-empty.yaml`, `workout/start-and-finish.yaml`, `history/view-history.yaml`, `exercises/view-exercises.yaml`.
+- Flows: `setup/seed-exercises.yaml`, `templates/create-exercise.yaml`, `templates/view-template-detail.yaml`, `workout/start-empty.yaml`, `workout/start-and-finish.yaml`, `workout/exercise-notes.yaml`, `workout/rest-timer.yaml`, `workout/set-tag-cycling.yaml`, `workout/remove-exercise.yaml`, `history/view-history.yaml`, `exercises/view-exercises.yaml`.
 - Flows use `runFlow` for composition (e.g. start-and-finish runs start-empty).
 - Checkbox completion is tested via RNTL (Maestro has a known issue with TouchableOpacity tap inside ScrollView on iOS).
-- TestIDs used: login-email, login-password, login-btn, logout-btn, start-empty-workout, add-exercise-btn, finish-workout-btn, create-template-fab, create-exercise-toggle, exercise-name-input, exercise-search, save-exercise-btn, weight-{ex}-{set}, reps-{ex}-{set}, check-{ex}-{set}, muscle-{name}, exercise-type-picker, sets-progress, rest-timer-toggle-{blockIdx}, exercise-notes-{blockIdx}.
+- TestIDs used: login-email, login-password, login-btn, logout-btn, start-empty-workout, start-upcoming-workout, add-exercise-btn, finish-workout-btn, create-template-fab, create-exercise-toggle, exercise-name-input, exercise-search, save-exercise-btn, weight-{ex}-{set}, reps-{ex}-{set}, check-{ex}-{set}, muscle-{name}, exercise-type-picker, sets-progress, rest-timer-toggle-{blockIdx}, exercise-notes-{blockIdx}, set-tag-{blockIdx}-{setIdx}, cancel-workout-btn.
 
 ## Utils
 - `src/utils/uuid.ts` — UUID v4 generator.
-- `src/utils/format.ts` — formatDuration, formatVolume, formatDate.
+- `src/utils/format.ts` — formatDuration, formatDate.
 - `src/utils/exerciseTypeColor.ts` — exercise type → color mapping.
 - `src/utils/setTagUtils.ts` — getSetTagLabel, getSetTagColor for set tags (warmup/failure/drop).
 - `src/utils/exerciseSearch.ts` — filterExercises for search by name and muscle group.
