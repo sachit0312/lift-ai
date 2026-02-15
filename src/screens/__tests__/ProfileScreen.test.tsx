@@ -1,12 +1,17 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import * as Clipboard from 'expo-clipboard';
 
 jest.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
-    session: null,
+    session: { access_token: 'test-jwt-token-123' },
     user: { email: 'test@example.com' },
     loading: false,
   }),
+}));
+
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('../../services/supabase', () => ({
@@ -68,6 +73,82 @@ describe('ProfileScreen', () => {
     await waitFor(() => {
       expect(queryByText('Week Volume')).toBeNull();
       expect(queryByText('Avg Duration')).toBeNull();
+    });
+  });
+
+  it('renders MCP token button', async () => {
+    const { getByTestId } = render(<ProfileScreen />);
+    await waitFor(() => {
+      expect(getByTestId('mcp-token-btn')).toBeTruthy();
+    });
+  });
+
+  it('opens MCP token modal when button is tapped', async () => {
+    const { getByTestId, getByText, queryByText } = render(<ProfileScreen />);
+    await waitFor(() => {
+      expect(getByTestId('mcp-token-btn')).toBeTruthy();
+    });
+
+    // Modal should not be visible initially
+    expect(queryByText('MCP API Token')).toBeNull();
+
+    // Tap the button
+    fireEvent.press(getByTestId('mcp-token-btn'));
+
+    // Modal should now be visible
+    await waitFor(() => {
+      expect(getByText('MCP API Token')).toBeTruthy();
+      expect(getByText('Copy Token')).toBeTruthy();
+      expect(getByText('Done')).toBeTruthy();
+    });
+  });
+
+  it('copies token to clipboard when Copy Token is tapped', async () => {
+    const { getByTestId, getByText } = render(<ProfileScreen />);
+    await waitFor(() => {
+      expect(getByTestId('mcp-token-btn')).toBeTruthy();
+    });
+
+    // Open modal
+    fireEvent.press(getByTestId('mcp-token-btn'));
+
+    await waitFor(() => {
+      expect(getByText('Copy Token')).toBeTruthy();
+    });
+
+    // Tap copy button
+    fireEvent.press(getByText('Copy Token'));
+
+    // Verify clipboard was called with the token
+    await waitFor(() => {
+      expect(Clipboard.setStringAsync).toHaveBeenCalledWith('test-jwt-token-123');
+    });
+
+    // Button should show "Copied!"
+    await waitFor(() => {
+      expect(getByText('Copied!')).toBeTruthy();
+    });
+  });
+
+  it('closes MCP token modal when Done is tapped', async () => {
+    const { getByTestId, getByText, queryByText } = render(<ProfileScreen />);
+    await waitFor(() => {
+      expect(getByTestId('mcp-token-btn')).toBeTruthy();
+    });
+
+    // Open modal
+    fireEvent.press(getByTestId('mcp-token-btn'));
+
+    await waitFor(() => {
+      expect(getByText('MCP API Token')).toBeTruthy();
+    });
+
+    // Tap Done button
+    fireEvent.press(getByText('Done'));
+
+    // Modal should be closed
+    await waitFor(() => {
+      expect(queryByText('MCP API Token')).toBeNull();
     });
   });
 });

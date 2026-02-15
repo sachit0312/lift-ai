@@ -6,6 +6,8 @@ module.exports = {
   moduleNameMapper: {
     '^expo-sqlite$': '<rootDir>/src/__mocks__/expo-sqlite.ts',
     '^@sentry/react-native$': '<rootDir>/src/__mocks__/@sentry/react-native.ts',
+    '^expo-live-activity$': '<rootDir>/src/__mocks__/expo-live-activity.ts',
+    '^expo-notifications$': '<rootDir>/src/__mocks__/expo-notifications.ts',
   },
   testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/'],
   clearMocks: true,

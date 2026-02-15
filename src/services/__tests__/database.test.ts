@@ -13,6 +13,8 @@ import {
   startWorkout,
   updateWorkoutSet,
   getPRsThisWeek,
+  updateExerciseNotes,
+  getExerciseById,
 } from '../database';
 
 beforeEach(() => {
@@ -118,5 +120,50 @@ describe('getPRsThisWeek', () => {
 
     const result = await getPRsThisWeek();
     expect(result).toBe(0);
+  });
+});
+
+describe('updateExerciseNotes', () => {
+  it('updates notes with correct SQL', async () => {
+    await updateExerciseNotes('ex-1', 'Focus on form');
+
+    const call = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE exercises SET notes')
+    );
+    expect(call).toBeDefined();
+    expect(call![1]).toBe('Focus on form');
+    expect(call![2]).toBe('ex-1');
+  });
+
+  it('clears notes when passed null', async () => {
+    await updateExerciseNotes('ex-1', null);
+
+    const call = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE exercises SET notes')
+    );
+    expect(call).toBeDefined();
+    expect(call![1]).toBeNull();
+    expect(call![2]).toBe('ex-1');
+  });
+});
+
+describe('getExerciseById', () => {
+  it('returns parsed exercise when found', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { id: 'ex-1', name: 'Squat', type: 'weighted', muscle_groups: '["Quads","Glutes"]', training_goal: 'strength', description: 'Barbell squat', created_at: '2026-01-01', user_id: 'local', notes: null },
+    ]);
+
+    const result = await getExerciseById('ex-1');
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe('ex-1');
+    expect(result!.name).toBe('Squat');
+    expect(result!.muscle_groups).toEqual(['Quads', 'Glutes']);
+  });
+
+  it('returns null when exercise not found', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    const result = await getExerciseById('nonexistent');
+    expect(result).toBeNull();
   });
 });

@@ -1,0 +1,207 @@
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { __mockDb } = require('expo-sqlite') as { __mockDb: {
+  getAllAsync: jest.Mock;
+  getFirstAsync: jest.Mock;
+  runAsync: jest.Mock;
+  execAsync: jest.Mock;
+}};
+
+import * as Sentry from '@sentry/react-native';
+import {
+  getAllExercises,
+  getExerciseById,
+  createExercise,
+  getWorkoutHistory,
+  clearAllLocalData,
+} from '../database';
+
+beforeEach(() => {
+  __mockDb.getAllAsync.mockClear();
+  __mockDb.getFirstAsync.mockClear();
+  __mockDb.runAsync.mockClear();
+  __mockDb.execAsync.mockClear();
+  (Sentry.captureException as jest.Mock).mockClear();
+});
+
+// ─── DB Query Failures ───
+
+describe('DB query failures', () => {
+  it('getAllExercises — reports to Sentry and throws when getAllAsync fails', async () => {
+    const error = new Error('DB read failure');
+    __mockDb.getAllAsync.mockRejectedValueOnce(error);
+
+    await expect(getAllExercises()).rejects.toThrow('DB read failure');
+    expect(Sentry.captureException).toHaveBeenCalledWith(error);
+  });
+
+  it('getExerciseById — reports to Sentry and throws when getAllAsync fails', async () => {
+    const error = new Error('DB lookup failure');
+    __mockDb.getAllAsync.mockRejectedValueOnce(error);
+
+    await expect(getExerciseById('ex-1')).rejects.toThrow('DB lookup failure');
+    expect(Sentry.captureException).toHaveBeenCalledWith(error);
+  });
+
+  it('createExercise — reports to Sentry and propagates error when runAsync fails', async () => {
+    const error = new Error('DB insert failure');
+    __mockDb.runAsync.mockRejectedValueOnce(error);
+
+    await expect(
+      createExercise({
+        name: 'Deadlift',
+        type: 'weighted',
+        muscle_groups: ['back'],
+        training_goal: 'strength',
+        description: '',
+      })
+    ).rejects.toThrow('DB insert failure');
+    expect(Sentry.captureException).toHaveBeenCalledWith(error);
+  });
+
+  it('getWorkoutHistory — reports to Sentry and throws when getAllAsync fails', async () => {
+    const error = new Error('DB history failure');
+    __mockDb.getAllAsync.mockRejectedValueOnce(error);
+
+    await expect(getWorkoutHistory()).rejects.toThrow('DB history failure');
+    expect(Sentry.captureException).toHaveBeenCalledWith(error);
+  });
+});
+
+// ─── Malformed Data Handling (safeJsonParse) ───
+
+describe('malformed data handling', () => {
+  it('invalid JSON in muscle_groups — returns empty array, does not crash', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        id: '1', name: 'Curl', type: 'weighted',
+        muscle_groups: '{not valid json!!!',
+        training_goal: 'hypertrophy', description: '',
+        created_at: '2026-01-01', user_id: 'local', notes: null,
+      },
+    ]);
+
+    const result = await getAllExercises();
+    expect(result).toHaveLength(1);
+    expect(result[0].muscle_groups).toEqual([]);
+  });
+
+  it('null muscle_groups field — returns empty array', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        id: '2', name: 'Pullup', type: 'bodyweight',
+        muscle_groups: null,
+        training_goal: 'hypertrophy', description: '',
+        created_at: '2026-01-01', user_id: 'local', notes: null,
+      },
+    ]);
+
+    const result = await getAllExercises();
+    expect(result).toHaveLength(1);
+    expect(result[0].muscle_groups).toEqual([]);
+  });
+
+  it('empty string muscle_groups — returns empty array', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        id: '3', name: 'Dip', type: 'bodyweight',
+        muscle_groups: '',
+        training_goal: 'hypertrophy', description: '',
+        created_at: '2026-01-01', user_id: 'local', notes: null,
+      },
+    ]);
+
+    const result = await getAllExercises();
+    expect(result).toHaveLength(1);
+    expect(result[0].muscle_groups).toEqual([]);
+  });
+});
+
+// ─── Singleton Behavior ───
+
+describe('getDb singleton', () => {
+  it('returns the same database instance on multiple calls', async () => {
+    // getDb is already initialized from prior test calls in this file.
+    // We verify it returns the same mock db by calling two different
+    // database functions and checking they both use the same mock.
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    await getAllExercises();
+    await getWorkoutHistory();
+
+    // Both calls went through the same __mockDb — if getDb() returned
+    // different instances, the mock calls would not be registered here.
+    const allCalls = __mockDb.getAllAsync.mock.calls;
+    expect(allCalls.length).toBeGreaterThanOrEqual(2);
+
+    // First call is the exercises query, second is the workouts query
+    expect(allCalls[0][0]).toContain('exercises');
+    expect(allCalls[1][0]).toContain('workouts');
+  });
+
+  it('schema is initialized once — execAsync called during first getDb, not on subsequent calls', async () => {
+    // Since the module has already been loaded by other tests, getDb()
+    // has already been called and the db singleton is cached.
+    // We can verify that additional database operations do NOT trigger
+    // another execAsync call for schema init.
+    __mockDb.execAsync.mockClear();
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    await getAllExercises();
+
+    // execAsync should NOT be called again (schema already initialized)
+    expect(__mockDb.execAsync).not.toHaveBeenCalled();
+  });
+});
+
+// ─── clearAllLocalData ───
+
+describe('clearAllLocalData', () => {
+  it('deletes tables in correct dependency order', async () => {
+    await clearAllLocalData();
+
+    const deleteCalls = __mockDb.runAsync.mock.calls
+      .filter((c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).startsWith('DELETE FROM'))
+      .map((c: unknown[]) => {
+        const match = (c[0] as string).match(/DELETE FROM (\w+)/);
+        return match ? match[1] : null;
+      });
+
+    // Verify all 8 tables are cleared
+    expect(deleteCalls).toHaveLength(8);
+
+    // Verify dependency order:
+    // 1. upcoming_workout_sets before upcoming_workout_exercises before upcoming_workouts
+    const uSetsIdx = deleteCalls.indexOf('upcoming_workout_sets');
+    const uExIdx = deleteCalls.indexOf('upcoming_workout_exercises');
+    const uWorkoutsIdx = deleteCalls.indexOf('upcoming_workouts');
+    expect(uSetsIdx).toBeLessThan(uExIdx);
+    expect(uExIdx).toBeLessThan(uWorkoutsIdx);
+
+    // 2. workout_sets before workouts
+    const wSetsIdx = deleteCalls.indexOf('workout_sets');
+    const wIdx = deleteCalls.indexOf('workouts');
+    expect(wSetsIdx).toBeLessThan(wIdx);
+
+    // 3. template_exercises before templates
+    const teIdx = deleteCalls.indexOf('template_exercises');
+    const tIdx = deleteCalls.indexOf('templates');
+    expect(teIdx).toBeLessThan(tIdx);
+
+    // 4. exercises is last (everything depends on it)
+    const eIdx = deleteCalls.indexOf('exercises');
+    expect(eIdx).toBe(deleteCalls.length - 1);
+
+    // Verify the exact order matches the implementation
+    expect(deleteCalls).toEqual([
+      'upcoming_workout_sets',
+      'upcoming_workout_exercises',
+      'upcoming_workouts',
+      'workout_sets',
+      'workouts',
+      'template_exercises',
+      'templates',
+      'exercises',
+    ]);
+  });
+});
