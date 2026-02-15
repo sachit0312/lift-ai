@@ -60,5 +60,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         project: process.env.SENTRY_PROJECT || 'react-native',
       },
     ],
+    './plugins/withLocalNotificationsOnly',
   ],
 });
