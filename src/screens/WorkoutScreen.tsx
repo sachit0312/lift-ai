@@ -84,6 +84,7 @@ interface LocalSet {
   set_number: number;
   weight: string;
   reps: string;
+  rpe: string;
   tag: SetTag;
   is_completed: boolean;
   previous?: PreviousSetData | null;
@@ -273,6 +274,7 @@ export default function WorkoutScreen() {
           set_number: s.set_number,
           weight: s.weight != null && s.weight > 0 ? String(s.weight) : '',
           reps: s.reps != null ? String(s.reps) : '',
+          rpe: s.rpe != null ? String(s.rpe) : '',
           tag: s.tag,
           is_completed: s.is_completed,
           previous: previousSets[idx] ?? null,
@@ -454,6 +456,7 @@ export default function WorkoutScreen() {
         set_number: i,
         weight: '',
         reps: '',
+        rpe: '',
         tag: 'working',
         is_completed: false,
         previous: previousSets[i - 1] ?? null,
@@ -584,6 +587,7 @@ export default function WorkoutScreen() {
         set_number: 1,
         weight: '',
         reps: '',
+        rpe: '',
         tag: 'working',
         is_completed: false,
         previous: previousSets[0] ?? null,
@@ -624,7 +628,7 @@ export default function WorkoutScreen() {
   const handleSetChange = useCallback(async (
     blockIdx: number,
     setIdx: number,
-    field: 'weight' | 'reps',
+    field: 'weight' | 'reps' | 'rpe',
     value: string,
   ) => {
     const block = blocksRef.current[blockIdx];
@@ -744,6 +748,7 @@ export default function WorkoutScreen() {
         set_number: newSetNumber,
         weight: '',
         reps: '',
+        rpe: '',
         tag: 'working',
         is_completed: false,
         previous: previousSets[newSetNumber - 1] ?? null,
@@ -1500,7 +1505,7 @@ interface ExerciseBlockItemProps {
   onAdjustRest: (blockIdx: number, delta: number) => void;
   onCycleTag: (blockIdx: number, setIdx: number) => void;
   onDeleteSet: (blockIdx: number, setIdx: number) => void;
-  onSetChange: (blockIdx: number, setIdx: number, field: 'weight' | 'reps', value: string) => void;
+  onSetChange: (blockIdx: number, setIdx: number, field: 'weight' | 'reps' | 'rpe', value: string) => void;
   onToggleComplete: (blockIdx: number, setIdx: number) => void;
   onAddSet: (blockIdx: number) => void;
   onToggleNotes: (blockIdx: number) => void;
@@ -1568,6 +1573,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
         <Text style={[styles.setHeaderCell, styles.colPrev]}>PREV</Text>
         <Text style={[styles.setHeaderCell, styles.colFlex]}>LBS</Text>
         <Text style={[styles.setHeaderCell, styles.colFlex]}>REPS</Text>
+        <Text style={[styles.setHeaderCell, styles.colRpe]}>RPE</Text>
         <Text style={[styles.setHeaderCell, styles.checkCol]} />
       </View>
 
@@ -1637,6 +1643,15 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                 placeholder={repsPlaceholder}
                 placeholderTextColor={placeholderColor}
                 testID={`reps-${blockIdx}-${setIdx}`}
+              />
+              <TextInput
+                style={[styles.setInput, styles.colRpe]}
+                keyboardType="numeric"
+                value={set.rpe}
+                onChangeText={(v) => onSetChange(blockIdx, setIdx, 'rpe', v)}
+                placeholder="—"
+                placeholderTextColor={colors.textMuted}
+                testID={`rpe-${blockIdx}-${setIdx}`}
               />
               <TouchableOpacity
                 style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
@@ -1843,6 +1858,7 @@ const styles = StyleSheet.create({
   setNumCol: { width: 36, alignItems: 'center' as const, justifyContent: 'center' as const },
   colPrev: { flex: 1, marginHorizontal: spacing.xs },
   colFlex: { flex: 1, marginHorizontal: spacing.xs },
+  colRpe: { width: 40, marginHorizontal: spacing.xs },
   checkCol: { width: 44, alignItems: 'center' as const },
 
   // Set row

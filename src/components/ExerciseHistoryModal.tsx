@@ -5,7 +5,8 @@ import { LineChart } from 'react-native-chart-kit';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
 import { getExerciseHistory } from '../services/database';
 import { calculateEstimated1RM } from '../utils/oneRepMax';
-import type { Exercise, WorkoutSet } from '../types/database';
+import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
+import type { Exercise, SetTag } from '../types/database';
 
 interface Props {
   visible: boolean;
@@ -18,12 +19,24 @@ interface DataPoint {
   best1RM: number;
 }
 
+interface VolumePoint {
+  date: string;
+  volume: number;
+}
+
+interface RecentSession {
+  date: string;
+  sets: { weight: number; reps: number; tag: SetTag; rpe: number | null; set_number: number }[];
+}
+
 export default function ExerciseHistoryModal({ visible, exercise, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState<DataPoint[]>([]);
+  const [volumeData, setVolumeData] = useState<VolumePoint[]>([]);
   const [prValue, setPrValue] = useState(0);
   const [prDateFormatted, setPrDateFormatted] = useState('');
-  const [recentSessions, setRecentSessions] = useState<{ date: string; bestSet: WorkoutSet | null }[]>([]);
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+  const [isPlateaued, setIsPlateaued] = useState(false);
 
   useEffect(() => {
     if (!visible || !exercise) return;
@@ -49,6 +62,29 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
 
       setChartData(points);
 
+      // Volume data: sum weight * reps for all completed sets per session
+      const volPoints: VolumePoint[] = history
+        .map((h) => {
+          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
+          if (completedSets.length === 0) return null;
+          const volume = completedSets.reduce((sum, s) => sum + (s.weight ?? 0) * (s.reps ?? 0), 0);
+          const d = new Date(h.workout.started_at);
+          return { date: `${d.getMonth() + 1}/${d.getDate()}`, volume };
+        })
+        .filter(Boolean)
+        .reverse() as VolumePoint[];
+
+      setVolumeData(volPoints);
+
+      // Plateau detection
+      if (points.length >= 5) {
+        const recentMax = Math.max(...points.slice(-5).map(p => p.best1RM));
+        const fiveAgo = points[points.length - 5].best1RM;
+        setIsPlateaued(recentMax <= fiveAgo);
+      } else {
+        setIsPlateaued(false);
+      }
+
       if (points.length > 0) {
         let maxVal = 0;
         let maxDateFormatted = '';
@@ -73,20 +109,19 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
       }
 
       const recent = history.slice(0, 3).map(h => {
-        const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
-        // Find best set by estimated 1RM
-        let bestSet: WorkoutSet | null = null;
-        let best1RM = 0;
-        for (const s of completedSets) {
-          const e1rm = calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0);
-          if (e1rm > best1RM) {
-            best1RM = e1rm;
-            bestSet = s;
-          }
-        }
+        const completedSets = h.sets
+          .filter(s => s.is_completed && s.weight && s.reps)
+          .sort((a, b) => a.set_number - b.set_number)
+          .map(s => ({
+            weight: s.weight!,
+            reps: s.reps!,
+            tag: s.tag,
+            rpe: s.rpe,
+            set_number: s.set_number,
+          }));
         return {
           date: new Date(h.workout.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          bestSet,
+          sets: completedSets,
         };
       });
       setRecentSessions(recent);
@@ -125,6 +160,13 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                 </View>
               )}
 
+              {isPlateaued && chartData.length >= 5 && (
+                <View style={styles.plateauBanner} testID="plateau-badge">
+                  <Ionicons name="trending-down" size={16} color={colors.warning} />
+                  <Text style={styles.plateauText}>Plateau — 1RM unchanged for 5 sessions</Text>
+                </View>
+              )}
+
               {chartData.length >= 3 ? (
                 <View style={styles.chartContainer}>
                   <Text style={styles.sectionTitle}>1RM Progression</Text>
@@ -158,19 +200,53 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                 </Text>
               )}
 
+              {volumeData.length >= 3 && (
+                <View style={styles.chartContainer}>
+                  <Text style={styles.sectionTitle}>Volume Progression</Text>
+                  <LineChart
+                    data={{
+                      labels: volumeData.length <= 8
+                        ? volumeData.map(d => d.date)
+                        : volumeData.filter((_, i) => i % Math.ceil(volumeData.length / 6) === 0 || i === volumeData.length - 1).map(d => d.date),
+                      datasets: [{ data: volumeData.map(d => d.volume) }],
+                    }}
+                    width={screenWidth - spacing.md * 2}
+                    height={180}
+                    chartConfig={{
+                      backgroundColor: colors.surface,
+                      backgroundGradientFrom: colors.surface,
+                      backgroundGradientTo: colors.surface,
+                      decimalPlaces: 0,
+                      color: (opacity = 1) => `rgba(82, 199, 124, ${opacity})`,
+                      labelColor: () => colors.textMuted,
+                      propsForDots: { r: '4', strokeWidth: '2', stroke: colors.success },
+                    }}
+                    bezier
+                    style={{ borderRadius: borderRadius.md }}
+                  />
+                </View>
+              )}
+
               {recentSessions.length > 0 && (
                 <View style={styles.recentSection}>
                   <Text style={styles.sectionTitle}>Recent Performances</Text>
                   {recentSessions.map((session, i) => (
-                    <View key={i} style={styles.sessionRow} testID={`session-row-${i}`}>
-                      <Text style={styles.sessionDate} testID={`session-date-${i}`}>
-                        {session.date}
-                      </Text>
-                      {session.bestSet && (
-                        <Text style={styles.sessionBest} testID={`session-best-${i}`}>
-                          {session.bestSet.weight}lb × {session.bestSet.reps}
-                        </Text>
-                      )}
+                    <View key={i} style={styles.sessionCard} testID={`session-row-${i}`}>
+                      <Text style={styles.sessionDate} testID={`session-date-${i}`}>{session.date}</Text>
+                      {session.sets.map((s, j) => (
+                        <View key={j} style={styles.sessionSetRow}>
+                          <Text style={styles.sessionSetNum}>{s.set_number}.</Text>
+                          <Text style={styles.sessionSetDetail}>
+                            {s.weight}lb × {s.reps}
+                            {s.rpe != null ? ` @ RPE ${s.rpe}` : ''}
+                          </Text>
+                          {s.tag && s.tag !== 'working' && (
+                            <View style={[styles.sessionTagBadge, { backgroundColor: getSetTagColor(s.tag) }]}>
+                              <Text style={styles.sessionTagText}>{getSetTagLabel(s.tag)}</Text>
+                            </View>
+                          )}
+                        </View>
+                      ))}
                     </View>
                   ))}
                 </View>
@@ -264,10 +340,7 @@ const styles = StyleSheet.create({
   recentSection: {
     marginTop: spacing.lg,
   },
-  sessionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  sessionCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     padding: spacing.md,
@@ -277,10 +350,46 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
+    marginBottom: spacing.xs,
   },
-  sessionBest: {
+  sessionSetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xxs,
+  },
+  sessionSetNum: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    width: 24,
+  },
+  sessionSetDetail: {
     color: colors.text,
     fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  sessionTagBadge: {
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xxs,
+  },
+  sessionTagText: {
+    color: colors.white,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+  },
+  plateauBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  plateauText: {
+    color: colors.warning,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
 });

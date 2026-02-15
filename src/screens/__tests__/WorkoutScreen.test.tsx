@@ -1105,4 +1105,52 @@ describe('WorkoutScreen', () => {
       expect(weightInput.props.placeholderTextColor).toBe('rgba(107, 107, 114, 0.5)');
     });
   });
+
+  // ─── RPE Tracking ───
+
+  describe('RPE tracking', () => {
+    it('renders RPE column header in set row', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      await waitFor(() => {
+        expect(result.getByText('RPE')).toBeTruthy();
+      });
+    });
+
+    it('renders RPE input with correct testID', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      await waitFor(() => {
+        expect(result.getByTestId('rpe-0-0')).toBeTruthy();
+      });
+    });
+
+    it('calls updateWorkoutSet when RPE value is changed', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      await waitFor(() => expect(result.getByTestId('rpe-0-0')).toBeTruthy());
+
+      // Clear previous calls from set creation
+      (updateWorkoutSet as jest.Mock).mockClear();
+
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('rpe-0-0'), '8');
+      });
+
+      expect(updateWorkoutSet).toHaveBeenCalledWith('ws-1', { rpe: 8 });
+    });
+
+    it('RPE input shows placeholder dash', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      await waitFor(() => {
+        const rpeInput = result.getByTestId('rpe-0-0');
+        expect(rpeInput.props.placeholder).toBe('—');
+      });
+    });
+  });
 });

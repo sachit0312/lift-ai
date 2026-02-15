@@ -89,7 +89,7 @@ describe('ExerciseHistoryModal', () => {
   it('shows PR banner and chart with sufficient data', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue(threeSessions);
 
-    const { findByText, findAllByText, getByTestId } = render(
+    const { findByText, findAllByText, getAllByTestId } = render(
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
@@ -98,37 +98,119 @@ describe('ExerciseHistoryModal', () => {
     const oneRmElements = await findAllByText(/1RM/);
     expect(oneRmElements.length).toBeGreaterThan(0);
     await waitFor(() => {
-      expect(getByTestId('line-chart')).toBeTruthy();
+      expect(getAllByTestId('line-chart').length).toBeGreaterThan(0);
     });
     expect(await findByText('Recent Performances')).toBeTruthy();
   });
 
-  it('shows recent sessions with best set', async () => {
-    (getExerciseHistory as jest.Mock).mockResolvedValue(threeSessions);
+  it('shows all sets per session in recent performances', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue([
+      createMockSession('2026-01-25T10:00:00Z', [
+        { weight: 135, reps: 10, set_number: 1 },
+        { weight: 145, reps: 8, set_number: 2 },
+        { weight: 150, reps: 6, set_number: 3 },
+      ]),
+    ]);
 
     const { findByText } = render(
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
-    expect(await findByText('150lb × 6')).toBeTruthy();
+    // All three sets should be visible, not just the best
+    expect(await findByText(/135lb × 10/)).toBeTruthy();
+    expect(await findByText(/145lb × 8/)).toBeTruthy();
+    expect(await findByText(/150lb × 6/)).toBeTruthy();
   });
 
-  it('shows best set per session in recent performances', async () => {
+  it('shows RPE when present on a set', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
-      createMockSession('2024-01-15T10:00:00Z', [
-        { weight: 135, reps: 10 },
-        { weight: 145, reps: 8 },
-        { weight: 135, reps: 6 },
+      createMockSession('2026-01-25T10:00:00Z', [
+        { weight: 135, reps: 10, rpe: 8 },
       ]),
     ]);
 
-    const { getByText } = render(
+    const { findByText } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    expect(await findByText(/@ RPE 8/)).toBeTruthy();
+  });
+
+  it('shows tag badges for non-working sets', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue([
+      createMockSession('2026-01-25T10:00:00Z', [
+        { weight: 100, reps: 10, tag: 'warmup', set_number: 1 },
+        { weight: 135, reps: 8, tag: 'failure', set_number: 2 },
+      ]),
+    ]);
+
+    const { findByText } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    expect(await findByText('W')).toBeTruthy();
+    expect(await findByText('F')).toBeTruthy();
+  });
+
+  it('shows volume chart with 3+ sessions', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue(threeSessions);
+
+    const { findByText, findAllByTestId } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    expect(await findByText('Volume Progression')).toBeTruthy();
+    // Two charts: 1RM + Volume
+    const charts = await findAllByTestId('line-chart');
+    expect(charts.length).toBe(2);
+  });
+
+  it('shows plateau badge when 1RM unchanged for 5 sessions', async () => {
+    // 7 sessions reverse-chrono: oldest two have high 1RM, last 5 don't exceed the 5-ago value
+    // After .reverse() to chronological order and 1RM calc (weight * (1 + reps/30)):
+    // points[0] = 250*(1+1/30) = 258, points[1] = 240*(1+1/30) = 248
+    // points[2..6] = 180*(1+5/30) = 210 each
+    // fiveAgo = points[7-5] = points[2] = 210
+    // recentMax = max(points[2..6]) = 210 <= 210 -> plateaued
+    const plateauSessions = [
+      createMockSession('2026-01-20T10:00:00Z', [{ weight: 180, reps: 5 }]),
+      createMockSession('2026-01-18T10:00:00Z', [{ weight: 180, reps: 5 }]),
+      createMockSession('2026-01-16T10:00:00Z', [{ weight: 180, reps: 5 }]),
+      createMockSession('2026-01-14T10:00:00Z', [{ weight: 180, reps: 5 }]),
+      createMockSession('2026-01-12T10:00:00Z', [{ weight: 180, reps: 5 }]),
+      createMockSession('2026-01-08T10:00:00Z', [{ weight: 240, reps: 1 }]),
+      createMockSession('2026-01-05T10:00:00Z', [{ weight: 250, reps: 1 }]),
+    ];
+
+    (getExerciseHistory as jest.Mock).mockResolvedValue(plateauSessions);
+
+    const { findByTestId, findByText } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    expect(await findByTestId('plateau-badge')).toBeTruthy();
+    expect(await findByText(/Plateau/)).toBeTruthy();
+  });
+
+  it('does not show plateau badge when improving', async () => {
+    // 6 sessions with steady improvement
+    const improvingSessions = [
+      createMockSession('2026-01-10T10:00:00Z', [{ weight: 135, reps: 5 }]),
+      createMockSession('2026-01-12T10:00:00Z', [{ weight: 145, reps: 5 }]),
+      createMockSession('2026-01-14T10:00:00Z', [{ weight: 155, reps: 5 }]),
+      createMockSession('2026-01-16T10:00:00Z', [{ weight: 165, reps: 5 }]),
+      createMockSession('2026-01-18T10:00:00Z', [{ weight: 175, reps: 5 }]),
+      createMockSession('2026-01-20T10:00:00Z', [{ weight: 185, reps: 5 }]),
+    ];
+
+    (getExerciseHistory as jest.Mock).mockResolvedValue(improvingSessions);
+
+    const { queryByTestId } = render(
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
     await waitFor(() => {
-      // 145 × 8 has highest e1RM: 145 * (1 + 8/30) = 145 * 1.267 = 183.7
-      expect(getByText(/145lb × 8/)).toBeTruthy();
+      expect(queryByTestId('plateau-badge')).toBeNull();
     });
   });
 
@@ -145,24 +227,25 @@ describe('ExerciseHistoryModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('renders recent performances with side-by-side layout', async () => {
+  it('renders session cards with all sets and dates', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
       {
         workout: { id: 'w1', started_at: '2024-01-15T10:00:00Z' },
         sets: [
-          { id: 's1', set_number: 1, weight: 135, reps: 8, is_completed: true },
+          { id: 's1', set_number: 1, weight: 135, reps: 8, is_completed: true, tag: 'working', rpe: null, notes: null },
+          { id: 's2', set_number: 2, weight: 145, reps: 6, is_completed: true, tag: 'working', rpe: null, notes: null },
         ],
       },
       {
         workout: { id: 'w2', started_at: '2024-01-12T10:00:00Z' },
         sets: [
-          { id: 's2', set_number: 1, weight: 130, reps: 10, is_completed: true },
+          { id: 's3', set_number: 1, weight: 130, reps: 10, is_completed: true, tag: 'working', rpe: null, notes: null },
         ],
       },
       {
         workout: { id: 'w3', started_at: '2024-01-08T10:00:00Z' },
         sets: [
-          { id: 's3', set_number: 1, weight: 125, reps: 12, is_completed: true },
+          { id: 's4', set_number: 1, weight: 125, reps: 12, is_completed: true, tag: 'working', rpe: null, notes: null },
         ],
       },
     ]);
@@ -176,10 +259,8 @@ describe('ExerciseHistoryModal', () => {
     );
 
     await waitFor(() => {
-      // Each session row should have date and best set on same row
       expect(getByTestId('session-row-0')).toBeTruthy();
       expect(getByTestId('session-date-0')).toBeTruthy();
-      expect(getByTestId('session-best-0')).toBeTruthy();
     });
   });
 });
