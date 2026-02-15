@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -34,12 +34,13 @@ export default function HistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [exerciseMap, setExerciseMap] = useState<Record<string, Exercise>>({});
   const [historyModalExercise, setHistoryModalExercise] = useState<Exercise | null>(null);
+  const hasLoadedOnce = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        setLoading(true);
+        if (!hasLoadedOnce.current) setLoading(true);
         try {
           const [history, exercises] = await Promise.all([
             getWorkoutHistory(),
@@ -56,7 +57,10 @@ export default function HistoryScreen() {
           }));
           if (!cancelled) setWorkouts(enriched);
         } finally {
-          if (!cancelled) setLoading(false);
+          if (!cancelled) {
+            hasLoadedOnce.current = true;
+            setLoading(false);
+          }
         }
       })();
       return () => {

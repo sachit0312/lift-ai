@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -37,12 +37,13 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [tokenModalVisible, setTokenModalVisible] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const hasLoadedOnce = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        setLoading(true);
+        if (!hasLoadedOnce.current) setLoading(true);
         try {
           const history = await getWorkoutHistory();
 
@@ -109,7 +110,10 @@ export default function ProfileScreen() {
             });
           }
         } finally {
-          if (!cancelled) setLoading(false);
+          if (!cancelled) {
+            hasLoadedOnce.current = true;
+            setLoading(false);
+          }
         }
       })();
       return () => {

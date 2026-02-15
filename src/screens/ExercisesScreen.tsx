@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ export default function ExercisesScreen() {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [search, setSearch] = useState('');
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const hasLoadedOnce = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -30,11 +31,12 @@ export default function ExercisesScreen() {
   );
 
   async function loadExercises() {
-    setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
     try {
       const all = await getAllExercises();
       setExercises(all);
     } finally {
+      hasLoadedOnce.current = true;
       setLoading(false);
     }
   }

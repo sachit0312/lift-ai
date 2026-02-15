@@ -134,6 +134,7 @@ export default function WorkoutScreen() {
   const [previewExercises, setPreviewExercises] = useState<TemplateExercise[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
+  const hasLoadedOnce = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const workoutRef = useRef<Workout | null>(null);
@@ -154,7 +155,7 @@ export default function WorkoutScreen() {
   );
 
   async function loadState() {
-    setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
     let active: Workout | null = null;
     try {
       active = await getActiveWorkout();
@@ -164,6 +165,7 @@ export default function WorkoutScreen() {
       if (active) {
         setTemplateName(active.template_name ?? null);
         await loadActiveWorkout(active);
+        hasLoadedOnce.current = true;
         setLoading(false);
       } else {
         // Load templates immediately (fast, local only)
@@ -171,6 +173,7 @@ export default function WorkoutScreen() {
         setTemplates(t);
 
         // Show UI right away
+        hasLoadedOnce.current = true;
         setLoading(false);
 
         // Load upcoming workout in background (slow, network)
@@ -188,6 +191,7 @@ export default function WorkoutScreen() {
         startElapsedTimer(active.started_at);
         Alert.alert('Error', 'Failed to load workout exercises. You can cancel this workout or try again.');
       }
+      hasLoadedOnce.current = true;
       setLoading(false);
     }
   }
