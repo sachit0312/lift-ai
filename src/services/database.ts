@@ -57,7 +57,6 @@ interface TemplateExerciseJoinRow {
   sort_order: number;
   default_sets: number;
   rest_seconds: number | null;
-  target_rpe: number | null;
   exercise_name: string;
   exercise_type: string;
   exercise_muscle_groups: string;
@@ -282,8 +281,7 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // Migration: add notes column to exercises table for sticky notes
   await database.runAsync('ALTER TABLE exercises ADD COLUMN notes TEXT').catch(() => {});
 
-  // Migration: add target_rpe column for RPE prescription
-  await database.runAsync('ALTER TABLE template_exercises ADD COLUMN target_rpe REAL').catch(() => {});
+  // Migration: add target_rpe column for MCP-prescribed RPE per set
   await database.runAsync('ALTER TABLE upcoming_workout_sets ADD COLUMN target_rpe REAL').catch(() => {});
 }
 
@@ -429,7 +427,6 @@ export async function getTemplateExercises(templateId: string): Promise<Template
       order: r.sort_order,
       default_sets: r.default_sets,
       rest_seconds: r.rest_seconds ?? 150,
-      target_rpe: r.target_rpe ?? null,
       exercise: {
         id: r.exercise_id,
         user_id: 'local',
@@ -491,14 +488,13 @@ export async function removeExerciseFromTemplate(id: string): Promise<void> {
   }
 }
 
-export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number; target_rpe?: number | null }): Promise<void> {
+export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number }): Promise<void> {
   try {
     const database = await getDb();
     const parts: string[] = [];
-    const values: (string | number | null)[] = [];
+    const values: (string | number)[] = [];
     if (defaults.sets !== undefined) { parts.push('default_sets = ?'); values.push(defaults.sets); }
     if (defaults.rest_seconds !== undefined) { parts.push('rest_seconds = ?'); values.push(defaults.rest_seconds); }
-    if (defaults.target_rpe !== undefined) { parts.push('target_rpe = ?'); values.push(defaults.target_rpe); }
     if (parts.length === 0) return;
     values.push(id);
     await database.runAsync(`UPDATE template_exercises SET ${parts.join(', ')} WHERE id = ?`, ...values);

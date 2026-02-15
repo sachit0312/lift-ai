@@ -244,13 +244,13 @@ async function pullTemplates(): Promise<void> {
       await db.runAsync('DELETE FROM template_exercises WHERE template_id = ?', t.id);
     }
 
-    // Upsert each template_exercise, preserving local rest_seconds and target_rpe
+    // Upsert each template_exercise, preserving local rest_seconds
     for (const te of teList) {
       await db.runAsync(
-        `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds, target_rpe)
-         VALUES (?, ?, ?, ?, ?, COALESCE((SELECT rest_seconds FROM template_exercises WHERE id = ?), 150), COALESCE((SELECT target_rpe FROM template_exercises WHERE id = ?), NULL))
+        `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds)
+         VALUES (?, ?, ?, ?, ?, COALESCE((SELECT rest_seconds FROM template_exercises WHERE id = ?), 150))
          ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets`,
-        te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.id, te.id,
+        te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.id,
       );
     }
   }

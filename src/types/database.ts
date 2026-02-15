@@ -29,7 +29,6 @@ export interface TemplateExercise {
   order: number;
   default_sets: number;
   rest_seconds: number;
-  target_rpe?: number | null;
   exercise?: Exercise;
 }
 

@@ -115,23 +115,6 @@ export default function TemplateDetailScreen() {
     }
   }, [loadExercises]);
 
-  const handleIncreaseRpe = useCallback((item: TemplateExercise) => {
-    const current = item.target_rpe;
-    const newRpe = current == null ? 6 : Math.min(10, current + 1);
-    updateTemplateExerciseDefaults(item.id, { target_rpe: newRpe })
-      .then(loadExercises)
-      .catch((e) => console.error('Failed to update RPE', e));
-  }, [loadExercises]);
-
-  const handleDecreaseRpe = useCallback((item: TemplateExercise) => {
-    const current = item.target_rpe;
-    if (current == null) return;
-    const newRpe = current <= 1 ? null : current - 1;
-    updateTemplateExerciseDefaults(item.id, { target_rpe: newRpe })
-      .then(loadExercises)
-      .catch((e) => console.error('Failed to update RPE', e));
-  }, [loadExercises]);
-
   const handleRemove = useCallback((item: TemplateExercise) => {
     Alert.alert('Remove Exercise', `Remove "${item.exercise?.name}" from template?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -150,28 +133,21 @@ export default function TemplateDetailScreen() {
     <View style={styles.card}>
       <View style={[styles.cardAccent, { backgroundColor: exerciseTypeColor(item.exercise?.type) }]} />
       <View style={styles.cardBody}>
-        <View style={styles.cardHeader}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
-            {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
-              <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
-            )}
-          </View>
-          <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
-            <Ionicons name="trash-outline" size={18} color={colors.error} />
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
+        {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
+          <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
+        )}
         <View style={styles.steppersRow}>
           {/* Sets stepper */}
           <View style={styles.stepperGroup}>
-            <Ionicons name="barbell-outline" size={14} color={colors.textSecondary} style={styles.stepperIcon} />
+            <Ionicons name="barbell-outline" size={16} color={colors.textSecondary} style={styles.stepperIcon} />
             <TouchableOpacity
               testID={`sets-decrease-${index}`}
               style={styles.stepperBtn}
               onPress={() => handleDecreaseSets(item)}
               activeOpacity={0.7}
             >
-              <Ionicons name="remove" size={14} color={colors.text} />
+              <Ionicons name="remove" size={16} color={colors.text} />
             </TouchableOpacity>
             <Text testID={`sets-value-${index}`} style={styles.stepperValue}>{item.default_sets}</Text>
             <TouchableOpacity
@@ -180,20 +156,20 @@ export default function TemplateDetailScreen() {
               onPress={() => handleIncreaseSets(item)}
               activeOpacity={0.7}
             >
-              <Ionicons name="add" size={14} color={colors.text} />
+              <Ionicons name="add" size={16} color={colors.text} />
             </TouchableOpacity>
           </View>
 
           {/* Rest stepper */}
           <View style={styles.stepperGroup}>
-            <Ionicons name="timer-outline" size={14} color={colors.textSecondary} style={styles.stepperIcon} />
+            <Ionicons name="timer-outline" size={16} color={colors.textSecondary} style={styles.stepperIcon} />
             <TouchableOpacity
               testID={`rest-decrease-${index}`}
               style={styles.stepperBtn}
               onPress={() => handleDecreaseRest(item)}
               activeOpacity={0.7}
             >
-              <Ionicons name="remove" size={14} color={colors.text} />
+              <Ionicons name="remove" size={16} color={colors.text} />
             </TouchableOpacity>
             <Text testID={`rest-value-${index}`} style={styles.stepperValue}>{formatRestTime(item.rest_seconds)}</Text>
             <TouchableOpacity
@@ -202,37 +178,16 @@ export default function TemplateDetailScreen() {
               onPress={() => handleIncreaseRest(item)}
               activeOpacity={0.7}
             >
-              <Ionicons name="add" size={14} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          {/* RPE stepper */}
-          <View style={styles.stepperGroup}>
-            <Ionicons name="flame-outline" size={14} color={colors.textSecondary} style={styles.stepperIcon} />
-            <TouchableOpacity
-              testID={`rpe-decrease-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleDecreaseRpe(item)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="remove" size={14} color={colors.text} />
-            </TouchableOpacity>
-            <Text testID={`rpe-value-${index}`} style={styles.stepperValue}>
-              {item.target_rpe != null ? String(item.target_rpe) : 'Off'}
-            </Text>
-            <TouchableOpacity
-              testID={`rpe-increase-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleIncreaseRpe(item)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="add" size={14} color={colors.text} />
+              <Ionicons name="add" size={16} color={colors.text} />
             </TouchableOpacity>
           </View>
         </View>
       </View>
+      <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
+        <Ionicons name="trash-outline" size={18} color={colors.error} />
+      </TouchableOpacity>
     </View>
-  ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleDecreaseRpe, handleIncreaseRpe, handleRemove]);
+  ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
 
   return (
     <View style={styles.container}>
@@ -351,6 +306,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
     flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: spacing.sm,
     overflow: 'hidden',
   },
@@ -361,10 +317,6 @@ const styles = StyleSheet.create({
   cardBody: {
     flex: 1,
     padding: spacing.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
   },
   exerciseName: {
     color: colors.text,
@@ -379,21 +331,19 @@ const styles = StyleSheet.create({
   steppersRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     marginTop: spacing.sm,
-    gap: spacing.sm,
-    rowGap: spacing.xs,
+    gap: spacing.lg,
   },
   stepperGroup: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   stepperIcon: {
-    marginRight: 2,
+    marginRight: spacing.xs,
   },
   stepperBtn: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     borderRadius: borderRadius.full,
     backgroundColor: colors.surfaceLight,
     alignItems: 'center',
@@ -401,16 +351,17 @@ const styles = StyleSheet.create({
   },
   stepperValue: {
     color: colors.text,
-    fontSize: fontSize.sm,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
-    minWidth: 32,
+    minWidth: 40,
     textAlign: 'center',
   },
   removeBtn: {
-    width: 36,
-    height: 36,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: spacing.sm,
   },
   addBtn: {
     flexDirection: 'row',
