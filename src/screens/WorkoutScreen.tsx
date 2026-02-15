@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedStyle, SharedValue, interpolate, Extrapolation } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
@@ -1086,7 +1085,6 @@ export default function WorkoutScreen() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
@@ -1309,7 +1307,6 @@ export default function WorkoutScreen() {
         onClose={handleCloseHistoryModal}
       />
     </SafeAreaView>
-    </GestureHandlerRootView>
   );
 }
 
@@ -1649,8 +1646,8 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                 keyboardType="numeric"
                 value={set.rpe}
                 onChangeText={(v) => onSetChange(blockIdx, setIdx, 'rpe', v)}
-                placeholder="—"
-                placeholderTextColor={colors.textMuted}
+                placeholder={target?.target_rpe ? String(target.target_rpe) : '—'}
+                placeholderTextColor={target?.target_rpe ? 'rgba(124, 92, 252, 0.45)' : colors.textMuted}
                 testID={`rpe-${blockIdx}-${setIdx}`}
               />
               <TouchableOpacity

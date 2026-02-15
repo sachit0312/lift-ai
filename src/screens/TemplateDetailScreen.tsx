@@ -115,6 +115,23 @@ export default function TemplateDetailScreen() {
     }
   }, [loadExercises]);
 
+  const handleIncreaseRpe = useCallback((item: TemplateExercise) => {
+    const current = item.target_rpe;
+    const newRpe = current == null ? 6 : Math.min(10, current + 1);
+    updateTemplateExerciseDefaults(item.id, { target_rpe: newRpe })
+      .then(loadExercises)
+      .catch((e) => console.error('Failed to update RPE', e));
+  }, [loadExercises]);
+
+  const handleDecreaseRpe = useCallback((item: TemplateExercise) => {
+    const current = item.target_rpe;
+    if (current == null) return;
+    const newRpe = current <= 1 ? null : current - 1;
+    updateTemplateExerciseDefaults(item.id, { target_rpe: newRpe })
+      .then(loadExercises)
+      .catch((e) => console.error('Failed to update RPE', e));
+  }, [loadExercises]);
+
   const handleRemove = useCallback((item: TemplateExercise) => {
     Alert.alert('Remove Exercise', `Remove "${item.exercise?.name}" from template?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -181,13 +198,37 @@ export default function TemplateDetailScreen() {
               <Ionicons name="add" size={16} color={colors.text} />
             </TouchableOpacity>
           </View>
+
+          {/* RPE stepper */}
+          <View style={styles.stepperGroup}>
+            <Ionicons name="flame-outline" size={16} color={colors.textSecondary} style={styles.stepperIcon} />
+            <TouchableOpacity
+              testID={`rpe-decrease-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleDecreaseRpe(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="remove" size={16} color={colors.text} />
+            </TouchableOpacity>
+            <Text testID={`rpe-value-${index}`} style={styles.stepperValue}>
+              {item.target_rpe != null ? String(item.target_rpe) : 'Off'}
+            </Text>
+            <TouchableOpacity
+              testID={`rpe-increase-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleIncreaseRpe(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={16} color={colors.text} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
       <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
         <Ionicons name="trash-outline" size={18} color={colors.error} />
       </TouchableOpacity>
     </View>
-  ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
+  ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleDecreaseRpe, handleIncreaseRpe, handleRemove]);
 
   return (
     <View style={styles.container}>

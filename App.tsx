@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { LogBox } from 'react-native';
 import { NavigationContainer, DefaultTheme, NavigationState } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -73,20 +74,22 @@ const linking = {
 
 function App() {
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <AuthProvider>
-          <NavigationContainer
-            theme={navTheme}
-            onStateChange={handleNavigationStateChange}
-            linking={linking}
-          >
-            <RootNavigator />
-            <StatusBar style="light" />
-          </NavigationContainer>
-        </AuthProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <NavigationContainer
+              theme={navTheme}
+              onStateChange={handleNavigationStateChange}
+              linking={linking}
+            >
+              <RootNavigator />
+              <StatusBar style="light" />
+            </NavigationContainer>
+          </AuthProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

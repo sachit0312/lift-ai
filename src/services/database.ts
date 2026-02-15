@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import * as Sentry from '@sentry/react-native';
 import uuid from '../utils/uuid';
+import { calculateEstimated1RM } from '../utils/oneRepMax';
 import type {
   Exercise, Template, TemplateExercise, Workout, WorkoutSet,
   ExerciseType, TrainingGoal, SetTag,
@@ -56,6 +57,7 @@ interface TemplateExerciseJoinRow {
   sort_order: number;
   default_sets: number;
   rest_seconds: number | null;
+  target_rpe: number | null;
   exercise_name: string;
   exercise_type: string;
   exercise_muscle_groups: string;
@@ -101,11 +103,12 @@ interface ExerciseHistoryJoinRow {
   s_notes: string | null;
 }
 
-/** Row for PR calculation queries — exercise_id, weight, reps */
+/** Row for PR calculation queries — exercise_id, weight, reps, rpe */
 interface PRSetRow {
   exercise_id: string;
   weight: number;
   reps: number;
+  rpe: number | null;
 }
 
 /** Row from upcoming_workout_exercises joined with exercises */
@@ -278,6 +281,10 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 
   // Migration: add notes column to exercises table for sticky notes
   await database.runAsync('ALTER TABLE exercises ADD COLUMN notes TEXT').catch(() => {});
+
+  // Migration: add target_rpe column for RPE prescription
+  await database.runAsync('ALTER TABLE template_exercises ADD COLUMN target_rpe REAL').catch(() => {});
+  await database.runAsync('ALTER TABLE upcoming_workout_sets ADD COLUMN target_rpe REAL').catch(() => {});
 }
 
 // ─── Exercises ───
@@ -422,6 +429,7 @@ export async function getTemplateExercises(templateId: string): Promise<Template
       order: r.sort_order,
       default_sets: r.default_sets,
       rest_seconds: r.rest_seconds ?? 150,
+      target_rpe: r.target_rpe ?? null,
       exercise: {
         id: r.exercise_id,
         user_id: 'local',
@@ -483,13 +491,14 @@ export async function removeExerciseFromTemplate(id: string): Promise<void> {
   }
 }
 
-export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number }): Promise<void> {
+export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number; target_rpe?: number | null }): Promise<void> {
   try {
     const database = await getDb();
     const parts: string[] = [];
-    const values: (string | number)[] = [];
+    const values: (string | number | null)[] = [];
     if (defaults.sets !== undefined) { parts.push('default_sets = ?'); values.push(defaults.sets); }
     if (defaults.rest_seconds !== undefined) { parts.push('rest_seconds = ?'); values.push(defaults.rest_seconds); }
+    if (defaults.target_rpe !== undefined) { parts.push('target_rpe = ?'); values.push(defaults.target_rpe); }
     if (parts.length === 0) return;
     values.push(id);
     await database.runAsync(`UPDATE template_exercises SET ${parts.join(', ')} WHERE id = ?`, ...values);
@@ -723,7 +732,7 @@ export async function getPRsThisWeek(): Promise<number> {
 
     // Get this week's sets
     const weekSets = await database.getAllAsync<PRSetRow>(
-      `SELECT ws.exercise_id, ws.weight, ws.reps
+      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe
        FROM workout_sets ws
        JOIN workouts w ON ws.workout_id = w.id
        WHERE w.finished_at IS NOT NULL
@@ -741,7 +750,7 @@ export async function getPRsThisWeek(): Promise<number> {
     // Get all prior sets in a single query (only for exercises that have sets this week)
     const placeholders = exerciseIds.map(() => '?').join(',');
     const priorSets = await database.getAllAsync<PRSetRow>(
-      `SELECT ws.exercise_id, ws.weight, ws.reps
+      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe
        FROM workout_sets ws
        JOIN workouts w ON ws.workout_id = w.id
        WHERE w.finished_at IS NOT NULL
@@ -756,7 +765,7 @@ export async function getPRsThisWeek(): Promise<number> {
     // Group prior sets by exercise_id and calculate best e1RM for each
     const priorBestByExercise = new Map<string, number>();
     for (const s of priorSets) {
-      const e1rm = s.weight * (1 + s.reps / 30);
+      const e1rm = calculateEstimated1RM(s.weight, s.reps, s.rpe);
       const current = priorBestByExercise.get(s.exercise_id) ?? 0;
       if (e1rm > current) {
         priorBestByExercise.set(s.exercise_id, e1rm);
@@ -769,7 +778,7 @@ export async function getPRsThisWeek(): Promise<number> {
       const weekBest = weekSets
         .filter((s: PRSetRow) => s.exercise_id === exId)
         .reduce((max: number, s: PRSetRow) => {
-          const e1rm = s.weight * (1 + s.reps / 30);
+          const e1rm = calculateEstimated1RM(s.weight, s.reps, s.rpe);
           return e1rm > max ? e1rm : max;
         }, 0);
 

@@ -29,6 +29,7 @@ export interface TemplateExercise {
   order: number;
   default_sets: number;
   rest_seconds: number;
+  target_rpe?: number | null;
   exercise?: Exercise;
 }
 
@@ -81,4 +82,5 @@ export interface UpcomingWorkoutSet {
   set_number: number;
   target_weight: number;
   target_reps: number;
+  target_rpe?: number | null;
 }

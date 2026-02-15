@@ -34,4 +34,30 @@ describe('calculateEstimated1RM', () => {
     // 67.5 * (1 + 8/30) = 67.5 * 1.2666... = 85.5
     expect(calculateEstimated1RM(67.5, 8)).toBeCloseTo(85.5, 1);
   });
+
+  it('adjusts for RPE when provided', () => {
+    // RPE 8 → RIR = 2, effective_reps = 5 + 2 = 7
+    // 100 * (1 + 7/30) = 100 * 1.2333... = 123.33...
+    expect(calculateEstimated1RM(100, 5, 8)).toBeCloseTo(123.33, 1);
+  });
+
+  it('uses standard Epley when RPE is null', () => {
+    // Same as without RPE: 100 * (1 + 5/30) = 116.67
+    expect(calculateEstimated1RM(100, 5, null)).toBeCloseTo(116.67, 1);
+  });
+
+  it('uses standard Epley when RPE is undefined', () => {
+    expect(calculateEstimated1RM(100, 5, undefined)).toBeCloseTo(116.67, 1);
+  });
+
+  it('handles RPE 10 (no reps in reserve)', () => {
+    // RPE 10 → RIR = 0, effective_reps = reps + 0 = reps (same as standard)
+    expect(calculateEstimated1RM(100, 5, 10)).toBeCloseTo(116.67, 1);
+  });
+
+  it('handles RPE 6 (4 reps in reserve)', () => {
+    // RPE 6 → RIR = 4, effective_reps = 5 + 4 = 9
+    // 100 * (1 + 9/30) = 100 * 1.3 = 130
+    expect(calculateEstimated1RM(100, 5, 6)).toBe(130);
+  });
 });
