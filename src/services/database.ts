@@ -268,6 +268,7 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
     CREATE INDEX IF NOT EXISTS idx_workouts_finished_at ON workouts(finished_at);
     CREATE INDEX IF NOT EXISTS idx_workouts_started_at ON workouts(started_at);
     CREATE INDEX IF NOT EXISTS idx_template_exercises_template_id ON template_exercises(template_id);
+    CREATE INDEX IF NOT EXISTS idx_template_exercises_exercise_id ON template_exercises(exercise_id);
   `);
 
   // Migration: drop columns that may exist from older schema
@@ -711,74 +712,80 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
 // ─── PRs This Week ───
 
 export async function getPRsThisWeek(): Promise<number> {
-  const database = await getDb();
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - dayOfWeek);
-  weekStart.setHours(0, 0, 0, 0);
-  const weekStartISO = weekStart.toISOString();
+  try {
+    const database = await getDb();
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - dayOfWeek);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartISO = weekStart.toISOString();
 
-  // Get this week's sets
-  const weekSets = await database.getAllAsync<PRSetRow>(
-    `SELECT ws.exercise_id, ws.weight, ws.reps
-     FROM workout_sets ws
-     JOIN workouts w ON ws.workout_id = w.id
-     WHERE w.finished_at IS NOT NULL
-       AND w.started_at >= ?
-       AND ws.is_completed = 1
-       AND ws.weight IS NOT NULL
-       AND ws.reps IS NOT NULL`,
-    weekStartISO,
-  );
+    // Get this week's sets
+    const weekSets = await database.getAllAsync<PRSetRow>(
+      `SELECT ws.exercise_id, ws.weight, ws.reps
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND w.started_at >= ?
+         AND ws.is_completed = 1
+         AND ws.weight IS NOT NULL
+         AND ws.reps IS NOT NULL`,
+      weekStartISO,
+    );
 
-  if (weekSets.length === 0) return 0;
+    if (weekSets.length === 0) return 0;
 
-  const exerciseIds = Array.from(new Set(weekSets.map((s: PRSetRow) => s.exercise_id)));
+    const exerciseIds = Array.from(new Set(weekSets.map((s: PRSetRow) => s.exercise_id)));
 
-  // Get all prior sets in a single query (only for exercises that have sets this week)
-  const placeholders = exerciseIds.map(() => '?').join(',');
-  const priorSets = await database.getAllAsync<PRSetRow>(
-    `SELECT ws.exercise_id, ws.weight, ws.reps
-     FROM workout_sets ws
-     JOIN workouts w ON ws.workout_id = w.id
-     WHERE w.finished_at IS NOT NULL
-       AND w.started_at < ?
-       AND ws.exercise_id IN (${placeholders})
-       AND ws.is_completed = 1
-       AND ws.weight IS NOT NULL
-       AND ws.reps IS NOT NULL`,
-    weekStartISO, ...exerciseIds,
-  );
+    // Get all prior sets in a single query (only for exercises that have sets this week)
+    const placeholders = exerciseIds.map(() => '?').join(',');
+    const priorSets = await database.getAllAsync<PRSetRow>(
+      `SELECT ws.exercise_id, ws.weight, ws.reps
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND w.started_at < ?
+         AND ws.exercise_id IN (${placeholders})
+         AND ws.is_completed = 1
+         AND ws.weight IS NOT NULL
+         AND ws.reps IS NOT NULL`,
+      weekStartISO, ...exerciseIds,
+    );
 
-  // Group prior sets by exercise_id and calculate best e1RM for each
-  const priorBestByExercise = new Map<string, number>();
-  for (const s of priorSets) {
-    const e1rm = s.weight * (1 + s.reps / 30);
-    const current = priorBestByExercise.get(s.exercise_id) ?? 0;
-    if (e1rm > current) {
-      priorBestByExercise.set(s.exercise_id, e1rm);
+    // Group prior sets by exercise_id and calculate best e1RM for each
+    const priorBestByExercise = new Map<string, number>();
+    for (const s of priorSets) {
+      const e1rm = s.weight * (1 + s.reps / 30);
+      const current = priorBestByExercise.get(s.exercise_id) ?? 0;
+      if (e1rm > current) {
+        priorBestByExercise.set(s.exercise_id, e1rm);
+      }
     }
-  }
 
-  // Calculate week best for each exercise and count PRs
-  let prCount = 0;
-  for (const exId of exerciseIds) {
-    const weekBest = weekSets
-      .filter((s: PRSetRow) => s.exercise_id === exId)
-      .reduce((max: number, s: PRSetRow) => {
-        const e1rm = s.weight * (1 + s.reps / 30);
-        return e1rm > max ? e1rm : max;
-      }, 0);
+    // Calculate week best for each exercise and count PRs
+    let prCount = 0;
+    for (const exId of exerciseIds) {
+      const weekBest = weekSets
+        .filter((s: PRSetRow) => s.exercise_id === exId)
+        .reduce((max: number, s: PRSetRow) => {
+          const e1rm = s.weight * (1 + s.reps / 30);
+          return e1rm > max ? e1rm : max;
+        }, 0);
 
-    const priorBest = priorBestByExercise.get(exId) ?? 0;
+      const priorBest = priorBestByExercise.get(exId) ?? 0;
 
-    if (weekBest > priorBest && priorBest > 0) {
-      prCount++;
+      if (weekBest > priorBest && priorBest > 0) {
+        prCount++;
+      }
     }
-  }
 
-  return prCount;
+    return prCount;
+  } catch (error) {
+    console.error('getPRsThisWeek error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 // ─── Upcoming Workouts ───
@@ -787,71 +794,83 @@ export async function getUpcomingWorkoutForToday(): Promise<{
   workout: UpcomingWorkout;
   exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[];
 } | null> {
-  const database = await getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const database = await getDb();
+    const today = new Date().toISOString().slice(0, 10);
 
-  const workouts = await database.getAllAsync<UpcomingWorkoutRow>(
-    'SELECT * FROM upcoming_workouts WHERE date = ? ORDER BY created_at DESC LIMIT 1',
-    today,
-  );
-  if (workouts.length === 0) return null;
+    const workouts = await database.getAllAsync<UpcomingWorkoutRow>(
+      'SELECT * FROM upcoming_workouts WHERE date = ? ORDER BY created_at DESC LIMIT 1',
+      today,
+    );
+    if (workouts.length === 0) return null;
 
-  const workout: UpcomingWorkout = workouts[0];
+    const workout: UpcomingWorkout = workouts[0];
 
-  const exerciseRows = await database.getAllAsync<UpcomingExerciseJoinRow>(
-    `SELECT ue.*, e.id as e_id, e.user_id as e_user_id, e.name as e_name, e.type as e_type,
-            e.muscle_groups as e_muscle_groups, e.training_goal as e_training_goal,
-            e.description as e_description, e.created_at as e_created_at, e.notes as e_notes
-     FROM upcoming_workout_exercises ue
-     JOIN exercises e ON ue.exercise_id = e.id
-     WHERE ue.upcoming_workout_id = ?
-     ORDER BY ue.sort_order`,
-    workout.id,
-  );
-
-  const exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] = [];
-
-  for (const r of exerciseRows) {
-    const sets = await database.getAllAsync<UpcomingWorkoutSet>(
-      'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
-      r.id,
+    const exerciseRows = await database.getAllAsync<UpcomingExerciseJoinRow>(
+      `SELECT ue.*, e.id as e_id, e.user_id as e_user_id, e.name as e_name, e.type as e_type,
+              e.muscle_groups as e_muscle_groups, e.training_goal as e_training_goal,
+              e.description as e_description, e.created_at as e_created_at, e.notes as e_notes
+       FROM upcoming_workout_exercises ue
+       JOIN exercises e ON ue.exercise_id = e.id
+       WHERE ue.upcoming_workout_id = ?
+       ORDER BY ue.sort_order`,
+      workout.id,
     );
 
-    exercises.push({
-      id: r.id,
-      upcoming_workout_id: r.upcoming_workout_id,
-      exercise_id: r.exercise_id,
-      order: r.sort_order,
-      rest_seconds: r.rest_seconds,
-      notes: r.notes,
-      exercise: {
-        id: r.e_id,
-        user_id: r.e_user_id,
-        name: r.e_name,
-        type: r.e_type as ExerciseType,
-        muscle_groups: safeJsonParse(r.e_muscle_groups, []),
-        training_goal: r.e_training_goal as TrainingGoal,
-        description: r.e_description,
-        created_at: r.e_created_at,
-        notes: r.e_notes ?? null,
-      },
-      sets,
-    });
-  }
+    const exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] = [];
 
-  return { workout, exercises };
+    for (const r of exerciseRows) {
+      const sets = await database.getAllAsync<UpcomingWorkoutSet>(
+        'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
+        r.id,
+      );
+
+      exercises.push({
+        id: r.id,
+        upcoming_workout_id: r.upcoming_workout_id,
+        exercise_id: r.exercise_id,
+        order: r.sort_order,
+        rest_seconds: r.rest_seconds,
+        notes: r.notes,
+        exercise: {
+          id: r.e_id,
+          user_id: r.e_user_id,
+          name: r.e_name,
+          type: r.e_type as ExerciseType,
+          muscle_groups: safeJsonParse(r.e_muscle_groups, []),
+          training_goal: r.e_training_goal as TrainingGoal,
+          description: r.e_description,
+          created_at: r.e_created_at,
+          notes: r.e_notes ?? null,
+        },
+        sets,
+      });
+    }
+
+    return { workout, exercises };
+  } catch (error) {
+    console.error('getUpcomingWorkoutForToday error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 // ─── Clear All ───
 
 export async function clearAllLocalData(): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('DELETE FROM upcoming_workout_sets');
-  await database.runAsync('DELETE FROM upcoming_workout_exercises');
-  await database.runAsync('DELETE FROM upcoming_workouts');
-  await database.runAsync('DELETE FROM workout_sets');
-  await database.runAsync('DELETE FROM workouts');
-  await database.runAsync('DELETE FROM template_exercises');
-  await database.runAsync('DELETE FROM templates');
-  await database.runAsync('DELETE FROM exercises');
+  try {
+    const database = await getDb();
+    await database.runAsync('DELETE FROM upcoming_workout_sets');
+    await database.runAsync('DELETE FROM upcoming_workout_exercises');
+    await database.runAsync('DELETE FROM upcoming_workouts');
+    await database.runAsync('DELETE FROM workout_sets');
+    await database.runAsync('DELETE FROM workouts');
+    await database.runAsync('DELETE FROM template_exercises');
+    await database.runAsync('DELETE FROM templates');
+    await database.runAsync('DELETE FROM exercises');
+  } catch (error) {
+    console.error('clearAllLocalData error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
