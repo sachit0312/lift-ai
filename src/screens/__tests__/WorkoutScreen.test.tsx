@@ -826,24 +826,21 @@ describe('WorkoutScreen', () => {
     });
   });
 
-  // ─── Batch 3: Template card starts workout ───
+  // ─── Batch 3: Template card starts workout via preview modal ───
 
-  describe('template card starts workout', () => {
-    it('starts workout from template and shows exercise blocks', async () => {
-      // Setup: return a template in idle state
-      (getAllTemplates as jest.Mock).mockResolvedValueOnce([
-        { id: 't1', name: 'Push Day', user_id: 'local', created_at: '2026-01-01', updated_at: '2026-01-01' },
-      ]);
-      // Mock getTemplateExercises to return an exercise
-      (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
-        {
-          id: 'te1', template_id: 't1', exercise_id: 'ex1', order: 1, default_sets: 3, rest_seconds: 90,
-          exercise: { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, user_id: 'local', created_at: '2026-01-01' },
-        },
-      ]);
-      (startWorkout as jest.Mock).mockResolvedValueOnce({
-        id: 'w1', started_at: new Date().toISOString(), finished_at: null, template_id: 't1',
-      });
+  describe('template preview modal', () => {
+    const pushDayTemplate = { id: 't1', name: 'Push Day', user_id: 'local', created_at: '2026-01-01', updated_at: '2026-01-01' };
+    const benchExercise = { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, user_id: 'local', created_at: '2026-01-01' };
+    const templateExercises = [
+      {
+        id: 'te1', template_id: 't1', exercise_id: 'ex1', order: 1, default_sets: 3, rest_seconds: 90,
+        exercise: benchExercise,
+      },
+    ];
+
+    it('shows preview modal with exercises on template tap', async () => {
+      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
 
       const result = render(<WorkoutScreen />);
 
@@ -853,13 +850,111 @@ describe('WorkoutScreen', () => {
       // Tap template card
       await act(async () => { fireEvent.press(result.getByText('Push Day')); });
 
+      // Preview modal should show template name and exercise
+      await waitFor(() => {
+        expect(result.getByText('Bench Press')).toBeTruthy();
+        expect(result.getByText('3 sets · Chest')).toBeTruthy();
+        expect(result.getByTestId('start-from-template-btn')).toBeTruthy();
+      });
+
+      // Workout should NOT have started yet
+      expect(startWorkout).not.toHaveBeenCalled();
+    });
+
+    it('starts workout when Start Workout is pressed in preview', async () => {
+      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
+      // Second call for when handleStartFromTemplate calls getTemplateExercises
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
+      (startWorkout as jest.Mock).mockResolvedValueOnce({
+        id: 'w1', started_at: new Date().toISOString(), finished_at: null, template_id: 't1',
+      });
+
+      const result = render(<WorkoutScreen />);
+
+      // Wait for template and tap it
+      await waitFor(() => expect(result.getByText('Push Day')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Push Day')); });
+
+      // Wait for preview modal, then tap Start Workout
+      await waitFor(() => expect(result.getByTestId('start-from-template-btn')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByTestId('start-from-template-btn')); });
+
       // Active workout should start
       await waitFor(() => {
         expect(result.getByTestId('finish-workout-btn')).toBeTruthy();
       });
 
-      // startWorkout should have been called with template id
       expect(startWorkout).toHaveBeenCalledWith('t1');
+    });
+
+    it('closes modal on Cancel without starting workout', async () => {
+      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
+
+      const result = render(<WorkoutScreen />);
+
+      // Wait for template and tap it
+      await waitFor(() => expect(result.getByText('Push Day')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Push Day')); });
+
+      // Wait for preview modal
+      await waitFor(() => expect(result.getByTestId('start-from-template-btn')).toBeTruthy());
+
+      // Tap Cancel
+      await act(async () => { fireEvent.press(result.getByText('Cancel')); });
+
+      // Modal should close, workout should not start
+      await waitFor(() => {
+        expect(result.queryByTestId('start-from-template-btn')).toBeNull();
+      });
+      expect(startWorkout).not.toHaveBeenCalled();
+    });
+
+    it('shows empty state when template has no exercises', async () => {
+      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce([]);
+
+      const result = render(<WorkoutScreen />);
+
+      // Wait for template and tap it
+      await waitFor(() => expect(result.getByText('Push Day')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Push Day')); });
+
+      // Empty state message should appear
+      await waitFor(() => {
+        expect(result.getByText('No exercises in this template')).toBeTruthy();
+      });
+    });
+
+    it('displays exercise sets and muscle groups', async () => {
+      const multiExercises = [
+        {
+          id: 'te1', template_id: 't1', exercise_id: 'ex1', order: 1, default_sets: 3, rest_seconds: 90,
+          exercise: { ...benchExercise, muscle_groups: ['Chest', 'Triceps'] },
+        },
+      ];
+      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce(multiExercises);
+
+      const result = render(<WorkoutScreen />);
+
+      await waitFor(() => expect(result.getByText('Push Day')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Push Day')); });
+
+      await waitFor(() => {
+        expect(result.getByText('3 sets · Chest, Triceps')).toBeTruthy();
+      });
+    });
+
+    it('shows template card testID', async () => {
+      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+
+      const result = render(<WorkoutScreen />);
+
+      await waitFor(() => {
+        expect(result.getByTestId('template-card-t1')).toBeTruthy();
+      });
     });
   });
 

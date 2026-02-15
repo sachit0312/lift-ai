@@ -5,6 +5,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
@@ -127,6 +128,9 @@ export default function WorkoutScreen() {
   const [upcomingWorkout, setUpcomingWorkout] = useState<Awaited<ReturnType<typeof getUpcomingWorkoutForToday>>>(null);
   const [upcomingTargets, setUpcomingTargets] = useState<(UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
+  const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
+  const [previewExercises, setPreviewExercises] = useState<TemplateExercise[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -441,6 +445,20 @@ export default function WorkoutScreen() {
       setStartingTemplateId(null);
     }
   }
+
+  const handleTemplatePress = useCallback(async (template: Template) => {
+    setPreviewTemplate(template);
+    setLoadingPreview(true);
+    try {
+      const exercises = await getTemplateExercises(template.id);
+      setPreviewExercises(exercises);
+    } catch (e: unknown) {
+      console.error('Failed to load template exercises:', e);
+      setPreviewExercises([]);
+    } finally {
+      setLoadingPreview(false);
+    }
+  }, []);
 
   async function handleStartEmpty() {
     try {
@@ -896,7 +914,82 @@ export default function WorkoutScreen() {
   }
 
   if (!activeWorkout) {
-    return <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleStartFromTemplate} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} startingTemplateId={startingTemplateId} />;
+    return (
+      <>
+        <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleTemplatePress} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} startingTemplateId={startingTemplateId} />
+        <Modal
+          visible={!!previewTemplate}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPreviewTemplate(null)}
+        >
+          <TouchableOpacity
+            style={modalStyles.overlay}
+            activeOpacity={1}
+            onPress={() => setPreviewTemplate(null)}
+          >
+            <TouchableOpacity activeOpacity={1} style={[modalStyles.card, { maxHeight: '70%' }]}>
+              <Text style={modalStyles.title}>{previewTemplate?.name}</Text>
+
+              {loadingPreview ? (
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.xl }} />
+              ) : (
+                <FlatList
+                  data={previewExercises}
+                  keyExtractor={(item) => item.id}
+                  style={{ marginVertical: spacing.md }}
+                  renderItem={({ item, index }) => (
+                    <View style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingVertical: spacing.sm,
+                      borderBottomWidth: index < previewExercises.length - 1 ? 1 : 0,
+                      borderBottomColor: colors.border,
+                    }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: fontSize.md }}>
+                          {item.exercise?.name}
+                        </Text>
+                        <Text style={{ color: colors.textMuted, fontSize: fontSize.sm }}>
+                          {item.default_sets} sets · {item.exercise?.muscle_groups?.join(', ') || item.exercise?.type}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                  ListEmptyComponent={
+                    <Text style={{ color: colors.textMuted, textAlign: 'center' as const, marginVertical: spacing.lg }}>
+                      No exercises in this template
+                    </Text>
+                  }
+                />
+              )}
+
+              <View style={modalStyles.actions}>
+                <TouchableOpacity
+                  style={modalStyles.cancelBtn}
+                  onPress={() => setPreviewTemplate(null)}
+                >
+                  <Text style={modalStyles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[modalStyles.confirmBtn, { backgroundColor: colors.primary }]}
+                  onPress={() => {
+                    if (previewTemplate) {
+                      setPreviewTemplate(null);
+                      handleStartFromTemplate(previewTemplate);
+                    }
+                  }}
+                  testID="start-from-template-btn"
+                >
+                  <Text style={modalStyles.confirmText}>Start Workout</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      </>
+    );
   }
 
   return (
@@ -1332,6 +1425,7 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
                   style={[styles.templateCard, isLoading && styles.templateCardDisabled]}
                   onPress={() => onStartTemplate(t)}
                   disabled={isLoading}
+                  testID={`template-card-${t.id}`}
                 >
                   <View style={styles.templateCardLeft} />
                   <View style={styles.templateCardBody}>
