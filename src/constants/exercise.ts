@@ -6,8 +6,6 @@ export const MUSCLE_GROUPS = [
   'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Forearms',
 ] as const;
 
-export const EXERCISE_TYPES: ExerciseType[] = ['weighted', 'bodyweight', 'machine', 'cable'];
-
 export const EXERCISE_TYPE_OPTIONS: { value: ExerciseType; label: string }[] = [
   { value: 'weighted', label: 'Weighted' },
   { value: 'bodyweight', label: 'Bodyweight' },

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -39,7 +39,7 @@ export default function ExercisesScreen() {
     }
   }
 
-  const filtered = filterExercises(exercises, search);
+  const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
   const renderExercise = useCallback(({ item }: { item: Exercise }) => (
     <TouchableOpacity
@@ -160,6 +160,6 @@ const styles = StyleSheet.create({
   exerciseMeta: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
-    marginTop: 2,
+    marginTop: spacing.xxs,
   },
 });

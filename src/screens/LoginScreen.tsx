@@ -120,9 +120,9 @@ export default function LoginScreen({ navigation }: Props) {
           throw new Error('Unexpected OAuth result');
         }
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (__DEV__) console.error('[OAuth] Exception:', e);
-      setError(e.message ?? 'Google sign-in failed.');
+      setError(e instanceof Error ? e.message : 'Google sign-in failed.');
     }
     setGoogleLoading(false);
   };
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: fontSize.md,
     borderWidth: 1,
-    borderColor: colors.surfaceBorder,
+    borderColor: colors.border,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,

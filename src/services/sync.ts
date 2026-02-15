@@ -2,6 +2,55 @@ import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
 import { getDb } from './database';
 
+// ─── Row Interfaces (raw SQLite rows for sync queries) ───
+
+/** Exercise row for sync — subset of columns selected */
+interface SyncExerciseRow {
+  id: string;
+  name: string;
+  type: string;
+  muscle_groups: string;
+  training_goal: string;
+  description: string;
+}
+
+/** Template row for sync — subset of columns selected */
+interface SyncTemplateRow {
+  id: string;
+  name: string;
+}
+
+/** Template exercise row for sync — subset of columns selected */
+interface SyncTemplateExerciseRow {
+  id: string;
+  template_id: string;
+  exercise_id: string;
+  sort_order: number;
+  default_sets: number;
+}
+
+/** Workout row for sync — subset of columns selected */
+interface SyncWorkoutRow {
+  id: string;
+  template_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+  ai_summary: string | null;
+  notes: string | null;
+}
+
+/** Workout set row for sync — is_completed is 0/1 integer in SQLite */
+interface SyncWorkoutSetRow {
+  id: string;
+  workout_id: string;
+  exercise_id: string;
+  set_number: number;
+  reps: number | null;
+  weight: number | null;
+  tag: string;
+  is_completed: number;
+}
+
 export async function syncToSupabase(): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -10,9 +59,9 @@ export async function syncToSupabase(): Promise<void> {
     const db = await getDb();
 
     // Exercises — select specific columns, parse muscle_groups
-    const exercises = await db.getAllAsync<any>('SELECT id, name, type, muscle_groups, training_goal, description FROM exercises');
+    const exercises = await db.getAllAsync<SyncExerciseRow>('SELECT id, name, type, muscle_groups, training_goal, description FROM exercises');
     if (exercises.length > 0) {
-      const parsed = exercises.map((e) => ({
+      const parsed = exercises.map((e: SyncExerciseRow) => ({
         id: e.id,
         user_id: session.user.id,
         name: e.name,
@@ -26,37 +75,37 @@ export async function syncToSupabase(): Promise<void> {
     }
 
     // Templates — select specific columns
-    const templates = await db.getAllAsync<any>('SELECT id, name FROM templates');
+    const templates = await db.getAllAsync<SyncTemplateRow>('SELECT id, name FROM templates');
     if (templates.length > 0) {
-      const mapped = templates.map((t) => ({ ...t, user_id: session.user.id }));
+      const mapped = templates.map((t: SyncTemplateRow) => ({ ...t, user_id: session.user.id }));
       const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
       if (error) { console.error('Sync templates error:', error); Sentry.captureException(error); return; }
     }
 
     // Template exercises — select specific columns
-    const templateExercises = await db.getAllAsync<any>('SELECT id, template_id, exercise_id, sort_order, default_sets FROM template_exercises');
+    const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, sort_order, default_sets FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
       if (error) { console.error('Sync template_exercises error:', error); Sentry.captureException(error); return; }
     }
 
     // Workouts (only finished) — select specific columns
-    const workouts = await db.getAllAsync<any>('SELECT id, template_id, started_at, finished_at, ai_summary, notes FROM workouts WHERE finished_at IS NOT NULL');
+    const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, started_at, finished_at, ai_summary, notes FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
-      const mappedWorkouts = workouts.map((w) => ({ ...w, user_id: session.user.id }));
+      const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({ ...w, user_id: session.user.id }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
       if (error) { console.error('Sync workouts error:', error); Sentry.captureException(error); return; }
     }
 
     // Workout sets — only for finished workouts, convert is_completed to boolean
-    const workoutSets = await db.getAllAsync<any>(
+    const workoutSets = await db.getAllAsync<SyncWorkoutSetRow>(
       `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.is_completed
        FROM workout_sets ws
        JOIN workouts w ON ws.workout_id = w.id
        WHERE w.finished_at IS NOT NULL`
     );
     if (workoutSets.length > 0) {
-      const mapped = workoutSets.map((s) => ({
+      const mapped = workoutSets.map((s: SyncWorkoutSetRow) => ({
         ...s,
         is_completed: !!s.is_completed,
       }));

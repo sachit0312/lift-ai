@@ -11,18 +11,27 @@ import {
   Modal,
   Vibration,
   Alert,
+  LayoutAnimation,
+  UIManager,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Animated, { useAnimatedStyle, SharedValue } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, SharedValue, interpolate, Extrapolation } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
 import { syncToSupabase, pullUpcomingWorkout } from '../services/sync';
+import {
+  startRestTimerActivity,
+  adjustRestTimerActivity,
+  stopRestTimerActivity,
+  requestNotificationPermissions,
+} from '../services/liveActivity';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
 import {
@@ -53,6 +62,11 @@ import type {
   TrainingGoal,
   ExerciseType,
 } from '../types/database';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // ─── Types for local state ───
 
@@ -117,6 +131,10 @@ export default function WorkoutScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const workoutRef = useRef<Workout | null>(null);
+
+  // Notes debouncing
+  const pendingNotesRef = useRef<Map<string, { notes: string; setId: string | null }>>(new Map());
+  const notesTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // ─── Check for active workout on focus ───
 
@@ -266,11 +284,17 @@ export default function WorkoutScreen() {
     setRestTotal(total);
     setRestSeconds(total);
     setRestExerciseName(exerciseName);
+
+    // Start Live Activity on lock screen
+    startRestTimerActivity(total, exerciseName);
+
     restRef.current = setInterval(() => {
       setRestSeconds((prev) => {
         if (prev <= 1) {
           if (restRef.current) clearInterval(restRef.current);
           restRef.current = null;
+          // Stop Live Activity when timer ends
+          stopRestTimerActivity();
           // Vibrate when timer ends
           try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
           return 0;
@@ -290,12 +314,64 @@ export default function WorkoutScreen() {
       return next;
     });
     setRestTotal((prev) => Math.max(prev + delta, 1));
+
+    // Update Live Activity countdown
+    adjustRestTimerActivity(delta);
   }
 
   function dismissRest() {
     if (restRef.current) clearInterval(restRef.current);
     restRef.current = null;
     setRestSeconds(0);
+
+    // Stop Live Activity + cancel notification
+    stopRestTimerActivity();
+  }
+
+  // ─── Notes debouncing helpers ───
+
+  function flushPendingNotes() {
+    for (const timerId of notesTimerRef.current.values()) {
+      clearTimeout(timerId);
+    }
+    notesTimerRef.current.clear();
+
+    for (const [exerciseId, { notes, setId }] of pendingNotesRef.current.entries()) {
+      updateExerciseNotes(exerciseId, notes || null);
+      if (setId) {
+        updateWorkoutSet(setId, { notes });
+      }
+    }
+    pendingNotesRef.current.clear();
+  }
+
+  function clearPendingNotes() {
+    for (const timerId of notesTimerRef.current.values()) {
+      clearTimeout(timerId);
+    }
+    notesTimerRef.current.clear();
+    pendingNotesRef.current.clear();
+  }
+
+  function debouncedSaveNotes(exerciseId: string, notes: string, setId: string | null) {
+    pendingNotesRef.current.set(exerciseId, { notes, setId });
+
+    const existing = notesTimerRef.current.get(exerciseId);
+    if (existing) clearTimeout(existing);
+
+    const timerId = setTimeout(() => {
+      const pending = pendingNotesRef.current.get(exerciseId);
+      if (pending) {
+        updateExerciseNotes(exerciseId, pending.notes || null);
+        if (pending.setId) {
+          updateWorkoutSet(pending.setId, { notes: pending.notes });
+        }
+        pendingNotesRef.current.delete(exerciseId);
+      }
+      notesTimerRef.current.delete(exerciseId);
+    }, 500);
+
+    notesTimerRef.current.set(exerciseId, timerId);
   }
 
   // ─── Build exercise blocks helper ───
@@ -597,7 +673,13 @@ export default function WorkoutScreen() {
     // Don't allow deleting the last set
     if (block.sets.length <= 1) return;
 
+    Vibration.vibrate(10);
     await deleteWorkoutSet(set.id);
+    LayoutAnimation.configureNext({
+      duration: 250,
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const b = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
@@ -633,6 +715,11 @@ export default function WorkoutScreen() {
             for (const set of block.sets) {
               await deleteWorkoutSet(set.id);
             }
+            LayoutAnimation.configureNext({
+              duration: 300,
+              update: { type: LayoutAnimation.Types.easeInEaseOut },
+              delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+            });
             setExerciseBlocks((prev) => prev.filter((_, idx) => idx !== blockIdx));
           },
         },
@@ -675,6 +762,7 @@ export default function WorkoutScreen() {
               await deleteWorkout(workout.id);
             }
             if (timerRef.current) clearInterval(timerRef.current);
+            clearPendingNotes();
             dismissRest();
             setActiveWorkout(null);
             workoutRef.current = null;
@@ -706,6 +794,9 @@ export default function WorkoutScreen() {
     setShowFinishModal(false);
     const workout = workoutRef.current;
     if (!workout) return;
+
+    // Flush any pending debounced notes before finishing
+    flushPendingNotes();
 
     let totalSets = 0;
     let exerciseCount = exerciseBlocks.length;
@@ -752,12 +843,19 @@ export default function WorkoutScreen() {
     setHistoryExercise(null);
   }, []);
 
+  // ─── Notification permissions (one-time) ───
+
+  useEffect(() => {
+    requestNotificationPermissions();
+  }, []);
+
   // ─── Cleanup ───
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (restRef.current) clearInterval(restRef.current);
+      flushPendingNotes();
     };
   }, []);
 
@@ -807,7 +905,7 @@ export default function WorkoutScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow1}>
-          <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} testID="cancel-workout-btn">
             <Ionicons name="close" size={24} color={colors.textMuted} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -902,6 +1000,7 @@ export default function WorkoutScreen() {
                     onPress={() => handleCycleTag(blockIdx, setIdx)}
                     onLongPress={() => handleDeleteSet(blockIdx, setIdx)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    testID={`set-tag-${blockIdx}-${setIdx}`}
                   >
                     {tagLabel ? (
                       <View style={[styles.setNumBadge, { backgroundColor: tagColor }]}>
@@ -983,13 +1082,9 @@ export default function WorkoutScreen() {
                     next[blockIdx] = { ...next[blockIdx], notes: v };
                     return next;
                   });
-                  // Persist notes to the exercise (sticky notes)
-                  updateExerciseNotes(block.exercise.id, v || null);
-                  // Also persist on the first set for backward compatibility
+                  // Debounced persist to exercise (sticky notes) + first set
                   const firstSet = exerciseBlocks[blockIdx]?.sets[0];
-                  if (firstSet) {
-                    updateWorkoutSet(firstSet.id, { notes: v });
-                  }
+                  debouncedSaveNotes(block.exercise.id, v, firstSet?.id ?? null);
                 }}
                 placeholder="Exercise notes..."
                 placeholderTextColor={colors.textMuted}
@@ -1151,18 +1246,18 @@ export default function WorkoutScreen() {
 
       {/* Finish confirmation modal */}
       <Modal visible={showFinishModal} transparent animationType="fade" onRequestClose={() => setShowFinishModal(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowFinishModal(false)}>
-          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Finish Workout</Text>
-            <Text style={styles.modalSub}>
+        <TouchableOpacity style={modalStyles.overlay} activeOpacity={1} onPress={() => setShowFinishModal(false)}>
+          <TouchableOpacity activeOpacity={1} style={modalStyles.card}>
+            <Text style={modalStyles.title}>Finish Workout</Text>
+            <Text style={modalStyles.subtitle}>
               {completedSetsCount} of {totalSetsCount} sets completed. Finish this workout?
             </Text>
-            <View style={styles.modalActions}>
-              <TouchableOpacity onPress={() => setShowFinishModal(false)} style={styles.modalCancelBtn}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
+            <View style={[modalStyles.actions, { marginTop: 0 }]}>
+              <TouchableOpacity onPress={() => setShowFinishModal(false)} style={modalStyles.cancelBtn}>
+                <Text style={modalStyles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={confirmFinish} style={styles.modalFinishBtn}>
-                <Text style={styles.modalFinishText}>Finish</Text>
+              <TouchableOpacity onPress={confirmFinish} style={[modalStyles.confirmBtn, { backgroundColor: colors.error }]}>
+                <Text style={modalStyles.confirmText}>Finish</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -1206,7 +1301,7 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
         </View>
 
         {upcomingWorkout && (
-          <TouchableOpacity style={styles.upcomingCard} onPress={onStartUpcoming}>
+          <TouchableOpacity style={styles.upcomingCard} onPress={onStartUpcoming} testID="start-upcoming-workout">
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <Ionicons name="sparkles" size={20} color={colors.primary} style={{ marginRight: 8 }} />
               <Text style={styles.upcomingTitle}>Workout Ready</Text>
@@ -1299,15 +1394,28 @@ interface SwipeableSetRowProps {
   children: React.ReactNode;
 }
 
-// Swipe-to-delete: red expands with swipe, trash icon fixed at left edge
-const RightAction = React.memo(function RightAction({ drag }: { drag: SharedValue<number> }) {
-  const animatedStyle = useAnimatedStyle(() => ({
-    width: Math.max(80, -drag.value),
-  }));
+// Swipe-to-delete: red expands with swipe, trash icon fades in as you swipe further
+const SetRightAction = React.memo(function SetRightAction({ drag }: { drag: SharedValue<number> }) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const dragVal = -drag.value;
+    return {
+      width: Math.max(80, dragVal),
+    };
+  });
+
+  const iconStyle = useAnimatedStyle(() => {
+    const dragVal = -drag.value;
+    const opacity = interpolate(dragVal, [0, 60, 100], [0, 0.6, 1], Extrapolation.CLAMP);
+    const scale = interpolate(dragVal, [0, 60, 100], [0.5, 0.85, 1], Extrapolation.CLAMP);
+    return { opacity, transform: [{ scale }] };
+  });
 
   return (
     <Animated.View style={[styles.swipeDeleteContainer, animatedStyle]}>
-      <Ionicons name="trash-outline" size={22} color={colors.white} />
+      <Animated.View style={[styles.swipeDeleteContent, iconStyle]}>
+        <Ionicons name="trash" size={20} color={colors.white} />
+        <Text style={styles.swipeDeleteLabel}>Delete</Text>
+      </Animated.View>
     </Animated.View>
   );
 });
@@ -1324,14 +1432,13 @@ const SwipeableSetRow = React.memo(function SwipeableSetRow({
   const renderRightActions = useCallback(
     (_progress: SharedValue<number>, drag: SharedValue<number>) => {
       if (!canDelete) return null;
-      return <RightAction drag={drag} />;
+      return <SetRightAction drag={drag} />;
     },
     [canDelete]
   );
 
   const handleSwipeableWillOpen = useCallback(
     (direction: 'left' | 'right') => {
-      // direction is the swipe direction: 'left' when swiping left to reveal right actions
       if (direction === 'left' && canDelete) {
         onDelete(blockIdx, setIdx);
       }
@@ -1351,13 +1458,15 @@ const SwipeableSetRow = React.memo(function SwipeableSetRow({
     <ReanimatedSwipeable
       renderRightActions={renderRightActions}
       onSwipeableWillOpen={handleSwipeableWillOpen}
-      rightThreshold={280}
+      rightThreshold={120}
+      overshootRight={false}
       testID={`swipeable-set-${blockIdx}-${setIdx}`}
     >
       {children}
     </ReanimatedSwipeable>
   );
 });
+
 
 // ─── Styles ───
 
@@ -1438,8 +1547,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     paddingBottom: 200,
     maxWidth: 500,
-    alignSelf: 'center' as any,
-    width: '100%' as any,
+    alignSelf: 'center' as const,
+    width: '100%' as const,
   },
 
   // Exercise card
@@ -1507,18 +1616,18 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     textAlign: 'center',
     letterSpacing: 1,
-    textTransform: 'uppercase' as any,
+    textTransform: 'uppercase' as const,
   },
-  setNumCol: { width: 36, alignItems: 'center' as any, justifyContent: 'center' as any },
-  colPrev: { flex: 1, marginHorizontal: 4 },
-  colFlex: { flex: 1, marginHorizontal: 4 },
-  checkCol: { width: 44, alignItems: 'center' as any },
+  setNumCol: { width: 36, alignItems: 'center' as const, justifyContent: 'center' as const },
+  colPrev: { flex: 1, marginHorizontal: spacing.xs },
+  colFlex: { flex: 1, marginHorizontal: spacing.xs },
+  checkCol: { width: 44, alignItems: 'center' as const },
 
   // Set row
   setRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
     paddingVertical: 10,
     paddingHorizontal: spacing.sm,
     borderRadius: borderRadius.md,
@@ -1538,8 +1647,8 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    alignItems: 'center' as any,
-    justifyContent: 'center' as any,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
   },
   setNumBadgeText: {
     color: colors.white,
@@ -1558,7 +1667,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
     borderRadius: borderRadius.sm,
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: spacing.xs,
     textAlign: 'center',
     borderWidth: 1,
     borderColor: 'transparent',
@@ -1571,8 +1680,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.error,
     height: '100%',
     justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingLeft: 28,
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
+  },
+  swipeDeleteContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  swipeDeleteLabel: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: fontWeight.semibold,
+    letterSpacing: 0.5,
   },
 
   // Checkbox
@@ -1610,13 +1730,13 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
-    marginLeft: 4,
+    marginLeft: spacing.xs,
   },
   actionBtnTextMuted: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
-    marginLeft: 4,
+    marginLeft: spacing.xs,
   },
   removeExerciseBtn: {
     width: 40,
@@ -1842,60 +1962,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
   },
-  // Modals
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    width: '85%',
-    maxWidth: 340,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
-    marginBottom: spacing.sm,
-  },
-  modalSub: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    marginBottom: spacing.lg,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-  },
-  modalCancelBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
-  },
-  modalCancelText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  modalFinishBtn: {
-    backgroundColor: colors.error,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.md,
-  },
-  modalFinishText: {
-    color: colors.white,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-  },
-
   // Add exercise modal
   addExerciseModal: {
     flex: 1,
@@ -1944,7 +2010,7 @@ const styles = StyleSheet.create({
   addExerciseItemMeta: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
-    marginTop: 2,
+    marginTop: spacing.xxs,
   },
 
   // Upcoming workout card

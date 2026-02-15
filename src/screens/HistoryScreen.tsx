@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { Workout, WorkoutSet, Exercise } from '../types/database';
 
-interface WorkoutWithVolume extends Workout {
+interface WorkoutWithDuration extends Workout {
   duration: string;
 }
 
@@ -28,7 +28,7 @@ interface GroupedSets {
 }
 
 export default function HistoryScreen() {
-  const [workouts, setWorkouts] = useState<WorkoutWithVolume[]>([]);
+  const [workouts, setWorkouts] = useState<WorkoutWithDuration[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSets, setExpandedSets] = useState<GroupedSets[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +50,7 @@ export default function HistoryScreen() {
           for (const e of exercises) map[e.id] = e;
           if (!cancelled) setExerciseMap(map);
 
-          const enriched: WorkoutWithVolume[] = history.map((w) => ({
+          const enriched: WorkoutWithDuration[] = history.map((w) => ({
             ...w,
             duration: formatDuration(w.started_at, w.finished_at),
           }));
@@ -94,7 +94,11 @@ export default function HistoryScreen() {
     [expandedId, exerciseMap],
   );
 
-  const renderWorkout = useCallback(({ item }: { item: WorkoutWithVolume }) => {
+  const handleCloseHistoryModal = useCallback(() => {
+    setHistoryModalExercise(null);
+  }, []);
+
+  const renderWorkout = useCallback(({ item }: { item: WorkoutWithDuration }) => {
     const isExpanded = expandedId === item.id;
     return (
       <TouchableOpacity
@@ -202,7 +206,7 @@ export default function HistoryScreen() {
       <ExerciseHistoryModal
         visible={!!historyModalExercise}
         exercise={historyModalExercise}
-        onClose={() => setHistoryModalExercise(null)}
+        onClose={handleCloseHistoryModal}
       />
     </SafeAreaView>
   );
@@ -283,7 +287,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xxs,
-    gap: 4,
+    gap: spacing.xs,
   },
   pillText: {
     color: colors.text,
@@ -309,7 +313,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: spacing.sm,
-    marginBottom: 3,
+    marginBottom: spacing.xxs,
   },
   setDot: {
     width: 6,
@@ -325,8 +329,8 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    alignItems: 'center' as any,
-    justifyContent: 'center' as any,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
     marginLeft: spacing.sm,
   },
   setTagBadgeText: {

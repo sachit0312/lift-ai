@@ -7,6 +7,135 @@ import type {
   UpcomingWorkout, UpcomingWorkoutExercise, UpcomingWorkoutSet,
 } from '../types/database';
 
+// ─── Row Interfaces (raw SQLite rows before transformation) ───
+
+/** Raw row from exercises table — muscle_groups is a JSON string, not parsed array */
+interface ExerciseRow {
+  id: string;
+  user_id: string;
+  name: string;
+  type: string;
+  muscle_groups: string;
+  training_goal: string;
+  description: string;
+  created_at: string;
+  notes: string | null;
+}
+
+/** Raw row from workouts table, optionally joined with template name */
+interface WorkoutRow {
+  id: string;
+  user_id: string;
+  template_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+  ai_summary: string | null;
+  notes: string | null;
+  template_name?: string;
+}
+
+/** Raw row from workout_sets table — is_completed is 0/1 integer in SQLite */
+interface WorkoutSetRow {
+  id: string;
+  workout_id: string;
+  exercise_id: string;
+  set_number: number;
+  reps: number | null;
+  weight: number | null;
+  tag: string;
+  rpe: number | null;
+  is_completed: number;
+  notes: string | null;
+}
+
+/** Row from template_exercises joined with exercises table */
+interface TemplateExerciseJoinRow {
+  id: string;
+  template_id: string;
+  exercise_id: string;
+  sort_order: number;
+  default_sets: number;
+  rest_seconds: number | null;
+  exercise_name: string;
+  exercise_type: string;
+  exercise_muscle_groups: string;
+  exercise_training_goal: string;
+  exercise_description: string;
+  exercise_created_at: string;
+  exercise_notes: string | null;
+}
+
+/** For COUNT(*) queries */
+interface CountRow {
+  count: number;
+}
+
+/** For MAX(sort_order) queries */
+interface MaxOrderRow {
+  max_order: number | null;
+}
+
+/** For SELECT DISTINCT w.id queries (workout ID only) */
+interface WorkoutIdRow {
+  id: string;
+}
+
+/** Joined row from workouts + workout_sets for exercise history */
+interface ExerciseHistoryJoinRow {
+  w_id: string;
+  w_user_id: string;
+  w_template_id: string | null;
+  w_started_at: string;
+  w_finished_at: string | null;
+  w_ai_summary: string | null;
+  w_notes: string | null;
+  s_id: string;
+  s_workout_id: string;
+  s_exercise_id: string;
+  s_set_number: number;
+  s_reps: number | null;
+  s_weight: number | null;
+  s_tag: string;
+  s_rpe: number | null;
+  s_is_completed: number;
+  s_notes: string | null;
+}
+
+/** Row for PR calculation queries — exercise_id, weight, reps */
+interface PRSetRow {
+  exercise_id: string;
+  weight: number;
+  reps: number;
+}
+
+/** Row from upcoming_workout_exercises joined with exercises */
+interface UpcomingExerciseJoinRow {
+  id: string;
+  upcoming_workout_id: string;
+  exercise_id: string;
+  sort_order: number;
+  rest_seconds: number;
+  notes: string | null;
+  e_id: string;
+  e_user_id: string;
+  e_name: string;
+  e_type: string;
+  e_muscle_groups: string;
+  e_training_goal: string;
+  e_description: string;
+  e_created_at: string;
+  e_notes: string | null;
+}
+
+/** Raw row from upcoming_workouts table */
+interface UpcomingWorkoutRow {
+  id: string;
+  date: string;
+  template_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 // ─── Helpers ───
 
 function safeJsonParse<T>(str: string | null, fallback: T): T {
@@ -18,10 +147,12 @@ function safeJsonParse<T>(str: string | null, fallback: T): T {
   }
 }
 
-function parseExercise(r: any): Exercise {
+function parseExercise(r: ExerciseRow): Exercise {
   return {
     ...r,
+    type: r.type as ExerciseType,
     muscle_groups: safeJsonParse(r.muscle_groups, []),
+    training_goal: r.training_goal as TrainingGoal,
     notes: r.notes ?? null,
   };
 }
@@ -153,7 +284,7 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 export async function getExerciseById(id: string): Promise<Exercise | null> {
   try {
     const database = await getDb();
-    const rows = await database.getAllAsync('SELECT * FROM exercises WHERE id = ?', id) as any[];
+    const rows = await database.getAllAsync<ExerciseRow>('SELECT * FROM exercises WHERE id = ?', id);
     if (rows.length === 0) return null;
     return parseExercise(rows[0]);
   } catch (error) {
@@ -166,7 +297,7 @@ export async function getExerciseById(id: string): Promise<Exercise | null> {
 export async function getAllExercises(): Promise<Exercise[]> {
   try {
     const database = await getDb();
-    const rows = await database.getAllAsync<any>('SELECT * FROM exercises ORDER BY name');
+    const rows = await database.getAllAsync<ExerciseRow>('SELECT * FROM exercises ORDER BY name');
     return rows.map(parseExercise);
   } catch (error) {
     console.error('getAllExercises error:', error);
@@ -191,17 +322,6 @@ export async function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'creat
     Sentry.captureException(error);
     throw error;
   }
-}
-
-export async function deleteExercise(id: string): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('DELETE FROM exercises WHERE id = ?', id);
-}
-
-export async function getExerciseNotes(exerciseId: string): Promise<string | null> {
-  const database = await getDb();
-  const rows = await database.getAllAsync<any>('SELECT notes FROM exercises WHERE id = ?', exerciseId);
-  return rows[0]?.notes ?? null;
 }
 
 export async function updateExerciseNotes(exerciseId: string, notes: string | null): Promise<void> {
@@ -239,7 +359,7 @@ export async function deleteTemplate(id: string): Promise<void> {
 
 export async function getTemplateExercises(templateId: string): Promise<TemplateExercise[]> {
   const database = await getDb();
-  const rows = await database.getAllAsync<any>(
+  const rows = await database.getAllAsync<TemplateExerciseJoinRow>(
     `SELECT te.*, e.name as exercise_name, e.type as exercise_type, e.muscle_groups as exercise_muscle_groups, e.training_goal as exercise_training_goal, e.description as exercise_description, e.created_at as exercise_created_at, e.notes as exercise_notes
      FROM template_exercises te
      JOIN exercises e ON te.exercise_id = e.id
@@ -247,7 +367,7 @@ export async function getTemplateExercises(templateId: string): Promise<Template
      ORDER BY te.sort_order`,
     templateId,
   );
-  return rows.map((r: any) => ({
+  return rows.map((r: TemplateExerciseJoinRow) => ({
     id: r.id,
     template_id: r.template_id,
     exercise_id: r.exercise_id,
@@ -270,14 +390,14 @@ export async function getTemplateExercises(templateId: string): Promise<Template
 
 export async function getTemplateExerciseCount(templateId: string): Promise<number> {
   const database = await getDb();
-  const rows = await database.getAllAsync<any>('SELECT COUNT(*) as count FROM template_exercises WHERE template_id = ?', templateId);
+  const rows = await database.getAllAsync<CountRow>('SELECT COUNT(*) as count FROM template_exercises WHERE template_id = ?', templateId);
   return rows[0]?.count ?? 0;
 }
 
 export async function addExerciseToTemplate(templateId: string, exerciseId: string, defaults?: { sets?: number; rest_seconds?: number }): Promise<TemplateExercise> {
   const database = await getDb();
   const id = uuid();
-  const existing = await database.getAllAsync<any>('SELECT MAX(sort_order) as max_order FROM template_exercises WHERE template_id = ?', templateId);
+  const existing = await database.getAllAsync<MaxOrderRow>('SELECT MAX(sort_order) as max_order FROM template_exercises WHERE template_id = ?', templateId);
   const order = (existing[0]?.max_order ?? -1) + 1;
   const restSec = defaults?.rest_seconds ?? 150;
   await database.runAsync(
@@ -295,7 +415,7 @@ export async function removeExerciseFromTemplate(id: string): Promise<void> {
 export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number }): Promise<void> {
   const database = await getDb();
   const parts: string[] = [];
-  const values: any[] = [];
+  const values: (string | number)[] = [];
   if (defaults.sets !== undefined) { parts.push('default_sets = ?'); values.push(defaults.sets); }
   if (defaults.rest_seconds !== undefined) { parts.push('rest_seconds = ?'); values.push(defaults.rest_seconds); }
   if (parts.length === 0) return;
@@ -321,7 +441,7 @@ export async function finishWorkout(id: string, summary?: string, notes?: string
 export async function getWorkoutHistory(): Promise<Workout[]> {
   try {
     const database = await getDb();
-    const rows = await database.getAllAsync<any>(
+    const rows = await database.getAllAsync<WorkoutRow>(
       `SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NOT NULL ORDER BY w.started_at DESC`
     );
     return rows;
@@ -334,7 +454,7 @@ export async function getWorkoutHistory(): Promise<Workout[]> {
 
 export async function getActiveWorkout(): Promise<Workout | null> {
   const database = await getDb();
-  const rows = await database.getAllAsync<any>(
+  const rows = await database.getAllAsync<WorkoutRow>(
     'SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NULL ORDER BY w.started_at DESC LIMIT 1'
   );
   return rows[0] ?? null;
@@ -350,11 +470,11 @@ export async function deleteWorkout(id: string): Promise<void> {
 
 export async function getWorkoutSets(workoutId: string): Promise<WorkoutSet[]> {
   const database = await getDb();
-  const rows = await database.getAllAsync<any>(
+  const rows = await database.getAllAsync<WorkoutSetRow>(
     'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_id, set_number',
     workoutId,
   );
-  return rows.map((r: any) => ({ ...r, is_completed: !!r.is_completed, tag: r.tag as SetTag }));
+  return rows.map((r: WorkoutSetRow) => ({ ...r, is_completed: !!r.is_completed, tag: r.tag as SetTag }));
 }
 
 export async function addWorkoutSet(set: Omit<WorkoutSet, 'id'>): Promise<WorkoutSet> {
@@ -370,7 +490,7 @@ export async function addWorkoutSet(set: Omit<WorkoutSet, 'id'>): Promise<Workou
 export async function updateWorkoutSet(id: string, updates: Partial<WorkoutSet>): Promise<void> {
   const database = await getDb();
   const parts: string[] = [];
-  const values: any[] = [];
+  const values: (string | number | null)[] = [];
   if (updates.reps !== undefined) { parts.push('reps = ?'); values.push(updates.reps); }
   if (updates.weight !== undefined) { parts.push('weight = ?'); values.push(updates.weight); }
   if (updates.tag !== undefined) { parts.push('tag = ?'); values.push(updates.tag); }
@@ -391,7 +511,7 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
   const database = await getDb();
 
   // Get workout IDs first (needed for LIMIT on workouts, not sets)
-  const workoutIds = await database.getAllAsync<any>(
+  const workoutIds = await database.getAllAsync<WorkoutIdRow>(
     `SELECT DISTINCT w.id FROM workouts w
      INNER JOIN workout_sets ws ON ws.workout_id = w.id
      WHERE ws.exercise_id = ? AND w.finished_at IS NOT NULL
@@ -402,11 +522,11 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
 
   if (workoutIds.length === 0) return [];
 
-  const ids = workoutIds.map((w: any) => w.id);
+  const ids = workoutIds.map((w: WorkoutIdRow) => w.id);
   const placeholders = ids.map(() => '?').join(',');
 
   // Single JOIN query for workouts and sets
-  const rows = await database.getAllAsync<any>(
+  const rows = await database.getAllAsync<ExerciseHistoryJoinRow>(
     `SELECT
        w.id as w_id, w.user_id as w_user_id, w.template_id as w_template_id,
        w.started_at as w_started_at, w.finished_at as w_finished_at,
@@ -470,7 +590,7 @@ export async function getPRsThisWeek(): Promise<number> {
   const weekStartISO = weekStart.toISOString();
 
   // Get this week's sets
-  const weekSets = await database.getAllAsync<any>(
+  const weekSets = await database.getAllAsync<PRSetRow>(
     `SELECT ws.exercise_id, ws.weight, ws.reps
      FROM workout_sets ws
      JOIN workouts w ON ws.workout_id = w.id
@@ -484,11 +604,11 @@ export async function getPRsThisWeek(): Promise<number> {
 
   if (weekSets.length === 0) return 0;
 
-  const exerciseIds = Array.from(new Set(weekSets.map((s: any) => s.exercise_id)));
+  const exerciseIds = Array.from(new Set(weekSets.map((s: PRSetRow) => s.exercise_id)));
 
   // Get all prior sets in a single query (only for exercises that have sets this week)
   const placeholders = exerciseIds.map(() => '?').join(',');
-  const priorSets = await database.getAllAsync<any>(
+  const priorSets = await database.getAllAsync<PRSetRow>(
     `SELECT ws.exercise_id, ws.weight, ws.reps
      FROM workout_sets ws
      JOIN workouts w ON ws.workout_id = w.id
@@ -515,8 +635,8 @@ export async function getPRsThisWeek(): Promise<number> {
   let prCount = 0;
   for (const exId of exerciseIds) {
     const weekBest = weekSets
-      .filter((s: any) => s.exercise_id === exId)
-      .reduce((max: number, s: any) => {
+      .filter((s: PRSetRow) => s.exercise_id === exId)
+      .reduce((max: number, s: PRSetRow) => {
         const e1rm = s.weight * (1 + s.reps / 30);
         return e1rm > max ? e1rm : max;
       }, 0);
@@ -540,7 +660,7 @@ export async function getUpcomingWorkoutForToday(): Promise<{
   const database = await getDb();
   const today = new Date().toISOString().slice(0, 10);
 
-  const workouts = await database.getAllAsync<any>(
+  const workouts = await database.getAllAsync<UpcomingWorkoutRow>(
     'SELECT * FROM upcoming_workouts WHERE date = ? ORDER BY created_at DESC LIMIT 1',
     today,
   );
@@ -548,7 +668,7 @@ export async function getUpcomingWorkoutForToday(): Promise<{
 
   const workout: UpcomingWorkout = workouts[0];
 
-  const exerciseRows = await database.getAllAsync<any>(
+  const exerciseRows = await database.getAllAsync<UpcomingExerciseJoinRow>(
     `SELECT ue.*, e.id as e_id, e.user_id as e_user_id, e.name as e_name, e.type as e_type,
             e.muscle_groups as e_muscle_groups, e.training_goal as e_training_goal,
             e.description as e_description, e.created_at as e_created_at, e.notes as e_notes

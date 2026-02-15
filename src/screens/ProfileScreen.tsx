@@ -7,11 +7,14 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Alert,
+  Modal,
+  Platform,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
 import { getWorkoutHistory, getPRsThisWeek } from '../services/database';
@@ -24,7 +27,7 @@ interface Stats {
 }
 
 export default function ProfileScreen() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [stats, setStats] = useState<Stats>({
     totalWorkouts: 0,
     thisMonth: 0,
@@ -32,6 +35,8 @@ export default function ProfileScreen() {
     streak: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [tokenModalVisible, setTokenModalVisible] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -127,6 +132,18 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const handleGetMCPToken = () => {
+    setTokenCopied(false);
+    setTokenModalVisible(true);
+  };
+
+  const handleCopyToken = async () => {
+    if (session?.access_token) {
+      await Clipboard.setStringAsync(session.access_token);
+      setTokenCopied(true);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -157,11 +174,68 @@ export default function ProfileScreen() {
         ))}
       </View>
 
+      <TouchableOpacity style={styles.mcpTokenButton} onPress={handleGetMCPToken} testID="mcp-token-btn">
+        <Ionicons name="key-outline" size={20} color={colors.primary} />
+        <Text style={styles.mcpTokenText}>Get MCP Token</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} testID="logout-btn">
         <Ionicons name="log-out-outline" size={20} color={colors.error} />
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
       </ScrollView>
+
+      {/* MCP Token Modal */}
+      <Modal
+        visible={tokenModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTokenModalVisible(false)}
+      >
+        <View style={[modalStyles.overlay, { padding: spacing.lg }]}>
+          <View style={styles.modalContent}>
+            <Text style={[modalStyles.title, { textAlign: 'center' }]}>MCP API Token</Text>
+            <Text style={styles.modalDescription}>
+              Use this token to connect Claude Desktop to your workout data.
+              The token expires when you log out.
+            </Text>
+
+            <View style={styles.tokenBox}>
+              <Text style={styles.tokenText} numberOfLines={3} ellipsizeMode="middle">
+                {session?.access_token ?? 'No token available'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.copyButton, tokenCopied && styles.copyButtonSuccess]}
+              onPress={handleCopyToken}
+            >
+              <Ionicons
+                name={tokenCopied ? 'checkmark' : 'copy-outline'}
+                size={20}
+                color={tokenCopied ? colors.success : colors.text}
+              />
+              <Text style={[styles.copyButtonText, tokenCopied && styles.copyButtonTextSuccess]}>
+                {tokenCopied ? 'Copied!' : 'Copy Token'}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.instructionsTitle}>Claude Desktop Setup:</Text>
+            <Text style={styles.instructionsText}>
+              1. Open ~/.claude/claude_desktop_config.json{'\n'}
+              2. Add the MCP server config with this token{'\n'}
+              3. Restart Claude Desktop
+            </Text>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setTokenModalVisible(false)}
+            >
+              <Text style={styles.closeButtonText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -217,7 +291,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
-    width: '48%' as any,
+    width: '48%' as const,
     flexGrow: 1,
     alignItems: 'center',
   },
@@ -231,6 +305,21 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
   },
+  mcpTokenButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.lg,
+  },
+  mcpTokenText: {
+    color: colors.primary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -243,5 +332,73 @@ const styles = StyleSheet.create({
     color: colors.error,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalDescription: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  tokenBox: {
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  tokenText: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  copyButtonSuccess: {
+    backgroundColor: colors.success + '20',
+  },
+  copyButtonText: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  copyButtonTextSuccess: {
+    color: colors.success,
+  },
+  instructionsTitle: {
+    color: colors.text,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.xs,
+  },
+  instructionsText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+  },
+  closeButton: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
 });

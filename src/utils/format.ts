@@ -8,11 +8,6 @@ export function formatDuration(startedAt: string, finishedAt: string | null): st
   return `${h}h ${m}m`;
 }
 
-export function formatVolume(volume: number): string {
-  if (volume >= 1000) return `${(volume / 1000).toFixed(1)}k lb`;
-  return `${volume} lb`;
-}
-
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
