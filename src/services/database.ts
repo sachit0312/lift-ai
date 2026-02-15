@@ -514,7 +514,7 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
   const workoutIds = await database.getAllAsync<WorkoutIdRow>(
     `SELECT DISTINCT w.id FROM workouts w
      INNER JOIN workout_sets ws ON ws.workout_id = w.id
-     WHERE ws.exercise_id = ? AND w.finished_at IS NOT NULL
+     WHERE ws.exercise_id = ? AND w.finished_at IS NOT NULL AND ws.is_completed = 1
      ORDER BY w.started_at DESC
      LIMIT ?`,
     exerciseId, limit,

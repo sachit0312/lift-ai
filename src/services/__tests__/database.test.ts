@@ -15,6 +15,7 @@ import {
   getPRsThisWeek,
   updateExerciseNotes,
   getExerciseById,
+  getExerciseHistory,
 } from '../database';
 
 beforeEach(() => {
@@ -165,5 +166,37 @@ describe('getExerciseById', () => {
 
     const result = await getExerciseById('nonexistent');
     expect(result).toBeNull();
+  });
+});
+
+describe('getExerciseHistory', () => {
+  it('skips workouts with only uncompleted sets for the exercise', async () => {
+    // First call: workout ID query — should only find workouts with completed sets
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { id: 'w-old' },
+    ]);
+    // Second call: JOIN query for sets
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        w_id: 'w-old', w_user_id: 'u1', w_template_id: null,
+        w_started_at: '2026-02-04T10:00:00Z', w_finished_at: '2026-02-04T11:00:00Z',
+        w_ai_summary: null, w_notes: null,
+        s_id: 's1', s_workout_id: 'w-old', s_exercise_id: 'ex-1',
+        s_set_number: 1, s_reps: 3, s_weight: 2,
+        s_tag: null, s_rpe: null, s_is_completed: 1, s_notes: null,
+      },
+    ]);
+
+    const result = await getExerciseHistory('ex-1', 1);
+
+    // Verify the first query includes is_completed = 1 filter
+    const workoutIdQuery = __mockDb.getAllAsync.mock.calls[0][0] as string;
+    expect(workoutIdQuery).toContain('is_completed = 1');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].workout.id).toBe('w-old');
+    expect(result[0].sets).toHaveLength(1);
+    expect(result[0].sets[0].weight).toBe(2);
+    expect(result[0].sets[0].reps).toBe(3);
   });
 });
