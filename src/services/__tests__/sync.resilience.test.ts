@@ -20,7 +20,7 @@ jest.mock('../supabase', () => ({
 }));
 
 // Import after mocks are set up
-import { syncToSupabase, pullUpcomingWorkout } from '../sync';
+import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates } from '../sync';
 import { supabase } from '../supabase';
 
 // Cast for type safety
@@ -414,5 +414,83 @@ describe('pullUpcomingWorkout resilience', () => {
     expect(Sentry.captureException).not.toHaveBeenCalled();
 
     consoleSpy.mockRestore();
+  });
+});
+
+// ============================================================
+// pullExercisesAndTemplates — network resilience
+// ============================================================
+
+describe('pullExercisesAndTemplates resilience', () => {
+  it('handles network offline: getSession throws TypeError without crashing', async () => {
+    const networkError = new TypeError('Network request failed');
+    mockGetSession.mockRejectedValue(networkError);
+
+    await pullExercisesAndTemplates(); // should not throw
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(networkError);
+    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('Supabase exercises query returns error — reports to Sentry and returns early from pullExercises', async () => {
+    setSessionAuthenticated();
+
+    const supabaseError = { message: 'exercises table not found', code: '42P01' };
+    const exerciseBuilder = mockQueryBuilder(null, supabaseError);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    // Templates should still be attempted
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await pullExercisesAndTemplates();
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
+    // No exercise inserts
+    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+  });
+
+  it('Supabase template_exercises query error for one template — continues to next template', async () => {
+    setSessionAuthenticated();
+
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const mockTemplates = [
+      { id: 'tpl-1', user_id: 'user-123', name: 'Push', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+      { id: 'tpl-2', user_id: 'user-123', name: 'Pull', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const templateBuilder = mockQueryBuilder(mockTemplates, null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    const teError = { message: 'timeout on template_exercises', code: 'PGRST301' };
+    let teCallCount = 0;
+    const teBuilder: any = {};
+    teBuilder.select = jest.fn().mockReturnValue(teBuilder);
+    teBuilder.eq = jest.fn().mockImplementation(() => {
+      teCallCount++;
+      if (teCallCount === 1) {
+        const errorBuilder: any = {};
+        errorBuilder.order = jest.fn().mockResolvedValue({ data: null, error: teError });
+        return errorBuilder;
+      } else {
+        const successBuilder: any = {};
+        successBuilder.order = jest.fn().mockResolvedValue({ data: [], error: null });
+        return successBuilder;
+      }
+    });
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await pullExercisesAndTemplates();
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(teError);
+
+    // Both templates should be upserted (continue, not return)
+    const tplInserts = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO templates'),
+    );
+    expect(tplInserts).toHaveLength(2);
   });
 });

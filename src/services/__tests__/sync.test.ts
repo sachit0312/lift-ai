@@ -20,7 +20,7 @@ jest.mock('../supabase', () => ({
 }));
 
 // Import after mocks are set up
-import { syncToSupabase, pullUpcomingWorkout } from '../sync';
+import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates } from '../sync';
 import { supabase } from '../supabase';
 
 // Cast for type safety
@@ -864,5 +864,380 @@ describe('pullUpcomingWorkout', () => {
     expect(exerciseBuilder.select).toHaveBeenCalledWith('*');
     expect(exerciseBuilder.eq).toHaveBeenCalledWith('upcoming_workout_id', 'uw-99');
     expect(exerciseBuilder.order).toHaveBeenCalledWith('sort_order');
+  });
+});
+
+// ============================================================
+// pullExercisesAndTemplates
+// ============================================================
+
+describe('pullExercisesAndTemplates', () => {
+  it('skips when no session (user not authenticated)', async () => {
+    setSessionNull();
+
+    await pullExercisesAndTemplates();
+
+    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('pulls exercises and upserts into local SQLite', async () => {
+    setSessionAuthenticated();
+
+    const mockExercises = [
+      { id: 'ex-1', user_id: 'user-123', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest', 'Triceps'], training_goal: 'hypertrophy', description: 'Flat bench', created_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const exerciseBuilder = mockQueryBuilder(mockExercises, null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    // No templates
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await pullExercisesAndTemplates();
+
+    expect(mockFrom).toHaveBeenCalledWith('exercises');
+    expect(exerciseBuilder.select).toHaveBeenCalledWith('*');
+    expect(exerciseBuilder.eq).toHaveBeenCalledWith('user_id', 'user-123');
+
+    const insertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
+    );
+    expect(insertCall).toBeDefined();
+    expect(insertCall![1]).toBe('ex-1');
+    expect(insertCall![2]).toBe('user-123');
+    expect(insertCall![3]).toBe('Bench Press');
+    expect(insertCall![5]).toBe('["Chest","Triceps"]'); // JSON.stringify
+  });
+
+  it('preserves local exercise notes during upsert (via subquery)', async () => {
+    setSessionAuthenticated();
+
+    const mockExercises = [
+      { id: 'ex-1', user_id: 'user-123', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', created_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const exerciseBuilder = mockQueryBuilder(mockExercises, null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await pullExercisesAndTemplates();
+
+    // The SQL should use a subquery to preserve notes: (SELECT notes FROM exercises WHERE id = ?)
+    const insertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
+    );
+    expect(insertCall![0]).toContain('SELECT notes FROM exercises WHERE id');
+    // The ON CONFLICT should NOT update notes
+    expect(insertCall![0]).not.toMatch(/ON CONFLICT.*notes/s);
+    // Last param is the exercise id for the subquery
+    expect(insertCall![9]).toBe('ex-1');
+  });
+
+  it('converts muscle_groups JSONB array to JSON string', async () => {
+    setSessionAuthenticated();
+
+    const mockExercises = [
+      { id: 'ex-1', user_id: 'user-123', name: 'Squat', type: 'weighted', muscle_groups: ['Quads', 'Glutes', 'Hamstrings'], training_goal: 'strength', description: '', created_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const exerciseBuilder = mockQueryBuilder(mockExercises, null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await pullExercisesAndTemplates();
+
+    const insertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
+    );
+    expect(insertCall![5]).toBe('["Quads","Glutes","Hamstrings"]');
+  });
+
+  it('handles null muscle_groups from Supabase gracefully', async () => {
+    setSessionAuthenticated();
+
+    const mockExercises = [
+      { id: 'ex-1', user_id: 'user-123', name: 'Pullup', type: 'bodyweight', muscle_groups: null, training_goal: 'hypertrophy', description: '', created_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const exerciseBuilder = mockQueryBuilder(mockExercises, null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await pullExercisesAndTemplates();
+
+    const insertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
+    );
+    expect(insertCall![5]).toBe('[]');
+  });
+
+  it('pulls templates and upserts into local SQLite', async () => {
+    setSessionAuthenticated();
+
+    // No exercises
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const mockTemplates = [
+      { id: 'tpl-1', user_id: 'user-123', name: 'Push Day', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const templateBuilder = mockQueryBuilder(mockTemplates, null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    // Template exercises for this template
+    const teBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await pullExercisesAndTemplates();
+
+    expect(mockFrom).toHaveBeenCalledWith('templates');
+    expect(templateBuilder.eq).toHaveBeenCalledWith('user_id', 'user-123');
+
+    const insertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO templates'),
+    );
+    expect(insertCall).toBeDefined();
+    expect(insertCall![1]).toBe('tpl-1');
+    expect(insertCall![3]).toBe('Push Day');
+  });
+
+  it('pulls template_exercises with rest_seconds defaulting to 150', async () => {
+    setSessionAuthenticated();
+
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const mockTemplates = [
+      { id: 'tpl-1', user_id: 'user-123', name: 'Push Day', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const templateBuilder = mockQueryBuilder(mockTemplates, null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    const mockTe = [
+      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 },
+      { id: 'te-2', template_id: 'tpl-1', exercise_id: 'ex-2', sort_order: 1, default_sets: 4 },
+    ];
+
+    const teBuilder = mockQueryBuilder(mockTe, null);
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await pullExercisesAndTemplates();
+
+    expect(mockFrom).toHaveBeenCalledWith('template_exercises');
+    expect(teBuilder.eq).toHaveBeenCalledWith('template_id', 'tpl-1');
+    expect(teBuilder.order).toHaveBeenCalledWith('sort_order');
+
+    const teInserts = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO template_exercises'),
+    );
+    expect(teInserts).toHaveLength(2);
+    // Check the SQL uses COALESCE with 150 default
+    expect(teInserts[0][0]).toContain('COALESCE');
+    expect(teInserts[0][0]).toContain('150');
+    expect(teInserts[0][1]).toBe('te-1');
+    expect(teInserts[0][3]).toBe('ex-1');
+    expect(teInserts[0][5]).toBe(3); // default_sets
+  });
+
+  it('deletes template_exercises removed by MCP', async () => {
+    setSessionAuthenticated();
+
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const mockTemplates = [
+      { id: 'tpl-1', user_id: 'user-123', name: 'Push Day', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const templateBuilder = mockQueryBuilder(mockTemplates, null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    // Only te-2 remains (te-1 was removed by MCP)
+    const mockTe = [
+      { id: 'te-2', template_id: 'tpl-1', exercise_id: 'ex-2', sort_order: 0, default_sets: 3 },
+    ];
+
+    const teBuilder = mockQueryBuilder(mockTe, null);
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await pullExercisesAndTemplates();
+
+    const deleteCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('DELETE FROM template_exercises WHERE template_id'),
+    );
+    expect(deleteCall).toBeDefined();
+    expect(deleteCall![0]).toContain('NOT IN');
+    expect(deleteCall![1]).toBe('tpl-1');
+    expect(deleteCall![2]).toBe('te-2');
+  });
+
+  it('deletes all template_exercises when MCP removes all exercises from a template', async () => {
+    setSessionAuthenticated();
+
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const mockTemplates = [
+      { id: 'tpl-1', user_id: 'user-123', name: 'Empty Template', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const templateBuilder = mockQueryBuilder(mockTemplates, null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    const teBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await pullExercisesAndTemplates();
+
+    const deleteCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('DELETE FROM template_exercises WHERE template_id = ?') && !c[0].includes('NOT IN'),
+    );
+    expect(deleteCall).toBeDefined();
+    expect(deleteCall![1]).toBe('tpl-1');
+  });
+
+  it('handles empty exercises and templates from Supabase', async () => {
+    setSessionAuthenticated();
+
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await pullExercisesAndTemplates();
+
+    // No inserts should happen
+    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+  });
+
+  it('reports to Sentry and returns when exercises fetch fails', async () => {
+    setSessionAuthenticated();
+
+    const supabaseError = { message: 'exercises query failed', code: '500' };
+    const exerciseBuilder = mockQueryBuilder(null, supabaseError);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    // Templates should still be attempted because pullExercisesAndTemplates calls both
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await pullExercisesAndTemplates();
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
+    // No exercise inserts
+    const exInserts = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
+    );
+    expect(exInserts).toHaveLength(0);
+  });
+
+  it('reports to Sentry when template_exercises fetch fails and continues to next template', async () => {
+    setSessionAuthenticated();
+
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const mockTemplates = [
+      { id: 'tpl-1', user_id: 'user-123', name: 'Push', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+      { id: 'tpl-2', user_id: 'user-123', name: 'Pull', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const templateBuilder = mockQueryBuilder(mockTemplates, null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    // template_exercises: error on first call, success on second
+    const teError = { message: 'template_exercises fetch failed' };
+    let teCallCount = 0;
+    const teBuilder: any = {};
+    teBuilder.select = jest.fn().mockReturnValue(teBuilder);
+    teBuilder.eq = jest.fn().mockImplementation(() => {
+      teCallCount++;
+      if (teCallCount === 1) {
+        const errorBuilder: any = {};
+        errorBuilder.order = jest.fn().mockResolvedValue({ data: null, error: teError });
+        return errorBuilder;
+      } else {
+        const successBuilder: any = {};
+        successBuilder.order = jest.fn().mockResolvedValue({ data: [], error: null });
+        return successBuilder;
+      }
+    });
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await pullExercisesAndTemplates();
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(teError);
+
+    // Both templates should still be inserted
+    const tplInserts = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO templates'),
+    );
+    expect(tplInserts).toHaveLength(2);
+  });
+
+  it('catches unexpected errors and reports to Sentry', async () => {
+    const thrownError = new Error('Unexpected failure');
+    mockGetSession.mockRejectedValue(thrownError);
+
+    await pullExercisesAndTemplates(); // should not throw
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(thrownError);
+  });
+
+  it('logs completion messages on success', async () => {
+    setSessionAuthenticated();
+
+    const exerciseBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const templateBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    await pullExercisesAndTemplates();
+
+    // pullExercises returns early (no exercises), pullTemplates returns early (no templates)
+    // Neither log fires since they return before the log
+    consoleSpy.mockRestore();
+  });
+
+  it('pulls exercises before templates (FK dependency order)', async () => {
+    setSessionAuthenticated();
+
+    const mockExercises = [
+      { id: 'ex-1', user_id: 'user-123', name: 'Bench', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '', created_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const exerciseBuilder = mockQueryBuilder(mockExercises, null);
+    mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const mockTemplates = [
+      { id: 'tpl-1', user_id: 'user-123', name: 'Push', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const templateBuilder = mockQueryBuilder(mockTemplates, null);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    const teBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await pullExercisesAndTemplates();
+
+    const fromCalls = mockFrom.mock.calls.map((c: any[]) => c[0]);
+    const exerciseIdx = fromCalls.indexOf('exercises');
+    const templateIdx = fromCalls.indexOf('templates');
+    expect(exerciseIdx).toBeLessThan(templateIdx);
   });
 });

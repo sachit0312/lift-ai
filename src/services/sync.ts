@@ -120,6 +120,152 @@ export async function syncToSupabase(): Promise<void> {
   }
 }
 
+// ─── Pull Row Interfaces (Supabase → local SQLite) ───
+
+/** Exercise row from Supabase (muscle_groups is JSONB array) */
+interface PullExerciseRow {
+  id: string;
+  user_id: string;
+  name: string;
+  type: string;
+  muscle_groups: string[];
+  training_goal: string;
+  description: string;
+  created_at: string;
+}
+
+/** Template row from Supabase */
+interface PullTemplateRow {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Template exercise row from Supabase */
+interface PullTemplateExerciseRow {
+  id: string;
+  template_id: string;
+  exercise_id: string;
+  sort_order: number;
+  default_sets: number;
+}
+
+// ─── Pull Exercises & Templates from Supabase ───
+
+async function pullExercises(): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+
+  const db = await getDb();
+
+  const { data: exercises, error } = await supabase
+    .from('exercises')
+    .select('*')
+    .eq('user_id', session.user.id);
+
+  if (error) {
+    console.error('Pull exercises error:', error);
+    Sentry.captureException(error);
+    return;
+  }
+  if (!exercises || exercises.length === 0) return;
+
+  for (const ex of exercises as PullExerciseRow[]) {
+    await db.runAsync(
+      `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT notes FROM exercises WHERE id = ?))
+       ON CONFLICT(id) DO UPDATE SET
+         user_id=excluded.user_id, name=excluded.name, type=excluded.type,
+         muscle_groups=excluded.muscle_groups, training_goal=excluded.training_goal,
+         description=excluded.description, created_at=excluded.created_at`,
+      ex.id, ex.user_id, ex.name, ex.type,
+      JSON.stringify(ex.muscle_groups ?? []),
+      ex.training_goal, ex.description, ex.created_at, ex.id,
+    );
+  }
+
+  console.log('Pull exercises complete');
+}
+
+async function pullTemplates(): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+
+  const db = await getDb();
+
+  const { data: templates, error: tErr } = await supabase
+    .from('templates')
+    .select('*')
+    .eq('user_id', session.user.id);
+
+  if (tErr) {
+    console.error('Pull templates error:', tErr);
+    Sentry.captureException(tErr);
+    return;
+  }
+  if (!templates || templates.length === 0) return;
+
+  for (const t of templates as PullTemplateRow[]) {
+    await db.runAsync(
+      `INSERT INTO templates (id, user_id, name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, name=excluded.name, updated_at=excluded.updated_at`,
+      t.id, t.user_id, t.name, t.created_at, t.updated_at,
+    );
+
+    // Fetch template_exercises for this template
+    const { data: templateExercises, error: teErr } = await supabase
+      .from('template_exercises')
+      .select('*')
+      .eq('template_id', t.id)
+      .order('sort_order');
+
+    if (teErr) {
+      console.error(`Pull template_exercises error for template ${t.id}:`, teErr);
+      Sentry.captureException(teErr);
+      continue;
+    }
+
+    const teList = (templateExercises ?? []) as PullTemplateExerciseRow[];
+
+    // Delete template_exercises removed by MCP
+    if (teList.length > 0) {
+      const placeholders = teList.map(() => '?').join(', ');
+      await db.runAsync(
+        `DELETE FROM template_exercises WHERE template_id = ? AND id NOT IN (${placeholders})`,
+        t.id, ...teList.map(te => te.id),
+      );
+    } else {
+      // If MCP removed all exercises from this template, delete them all locally
+      await db.runAsync('DELETE FROM template_exercises WHERE template_id = ?', t.id);
+    }
+
+    // Upsert each template_exercise, preserving local rest_seconds
+    for (const te of teList) {
+      await db.runAsync(
+        `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds)
+         VALUES (?, ?, ?, ?, ?, COALESCE((SELECT rest_seconds FROM template_exercises WHERE id = ?), 150))
+         ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets`,
+        te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.id,
+      );
+    }
+  }
+
+  console.log('Pull templates complete');
+}
+
+export async function pullExercisesAndTemplates(): Promise<void> {
+  try {
+    await pullExercises();   // exercises first (FK dependency)
+    await pullTemplates();
+  } catch (err) {
+    console.error('pullExercisesAndTemplates failed:', err);
+    Sentry.captureException(err);
+  }
+}
+
 export async function pullUpcomingWorkout(): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();

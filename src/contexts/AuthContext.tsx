@@ -3,7 +3,7 @@ import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../services/supabase';
 import { clearAllLocalData } from '../services/database';
-import { pullUpcomingWorkout } from '../services/sync';
+import { pullUpcomingWorkout, pullExercisesAndTemplates } from '../services/sync';
 
 interface AuthContextValue {
   session: Session | null;
@@ -48,6 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (newUserId !== prevUserId) {
             try {
               await clearAllLocalData();
+              await pullExercisesAndTemplates();
               await pullUpcomingWorkout();
             } catch (error) {
               Sentry.captureException(error);

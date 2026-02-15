@@ -26,7 +26,7 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
-import { syncToSupabase, pullUpcomingWorkout } from '../services/sync';
+import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates } from '../services/sync';
 import {
   startRestTimerActivity,
   adjustRestTimerActivity,
@@ -177,6 +177,20 @@ export default function WorkoutScreen() {
   }
 
   async function loadUpcomingWorkoutInBackground() {
+    // Pull exercises & templates from Supabase (MCP changes)
+    try {
+      await Promise.race([
+        pullExercisesAndTemplates(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+      // Reload templates since pull may have added/modified them
+      const t = await getAllTemplates();
+      setTemplates(t);
+    } catch (e) {
+      console.error('pullExercisesAndTemplates failed or timed out', e);
+    }
+
+    // Pull upcoming workout from Supabase
     try {
       await Promise.race([
         pullUpcomingWorkout(),

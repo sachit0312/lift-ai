@@ -35,6 +35,7 @@ jest.mock('../../services/database', () => ({
 jest.mock('../../services/sync', () => ({
   syncToSupabase: jest.fn().mockResolvedValue(undefined),
   pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
+  pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/liveActivity', () => ({
@@ -839,7 +840,7 @@ describe('WorkoutScreen', () => {
     ];
 
     it('shows preview modal with exercises on template tap', async () => {
-      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getAllTemplates as jest.Mock).mockResolvedValue([pushDayTemplate]);
       (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
 
       const result = render(<WorkoutScreen />);
@@ -862,7 +863,7 @@ describe('WorkoutScreen', () => {
     });
 
     it('starts workout when Start Workout is pressed in preview', async () => {
-      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getAllTemplates as jest.Mock).mockResolvedValue([pushDayTemplate]);
       (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
       // Second call for when handleStartFromTemplate calls getTemplateExercises
       (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
@@ -889,7 +890,7 @@ describe('WorkoutScreen', () => {
     });
 
     it('closes modal on Cancel without starting workout', async () => {
-      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getAllTemplates as jest.Mock).mockResolvedValue([pushDayTemplate]);
       (getTemplateExercises as jest.Mock).mockResolvedValueOnce(templateExercises);
 
       const result = render(<WorkoutScreen />);
@@ -912,7 +913,7 @@ describe('WorkoutScreen', () => {
     });
 
     it('shows empty state when template has no exercises', async () => {
-      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getAllTemplates as jest.Mock).mockResolvedValue([pushDayTemplate]);
       (getTemplateExercises as jest.Mock).mockResolvedValueOnce([]);
 
       const result = render(<WorkoutScreen />);
@@ -934,7 +935,7 @@ describe('WorkoutScreen', () => {
           exercise: { ...benchExercise, muscle_groups: ['Chest', 'Triceps'] },
         },
       ];
-      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getAllTemplates as jest.Mock).mockResolvedValue([pushDayTemplate]);
       (getTemplateExercises as jest.Mock).mockResolvedValueOnce(multiExercises);
 
       const result = render(<WorkoutScreen />);
@@ -948,7 +949,7 @@ describe('WorkoutScreen', () => {
     });
 
     it('shows template card testID', async () => {
-      (getAllTemplates as jest.Mock).mockResolvedValueOnce([pushDayTemplate]);
+      (getAllTemplates as jest.Mock).mockResolvedValue([pushDayTemplate]);
 
       const result = render(<WorkoutScreen />);
 
