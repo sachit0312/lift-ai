@@ -933,7 +933,7 @@ export default function WorkoutScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centered}>
+      <SafeAreaView style={styles.centered} edges={['top']}>
         <ActivityIndicator color={colors.primary} size="large" />
       </SafeAreaView>
     );
@@ -941,7 +941,7 @@ export default function WorkoutScreen() {
 
   if (showSummary) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.summaryContainer}>
           <Ionicons name="checkmark-circle" size={64} color={colors.success} style={{ alignSelf: 'center', marginBottom: spacing.md }} />
           <Text style={styles.summaryTitle}>Workout Complete!</Text>
@@ -1039,7 +1039,7 @@ export default function WorkoutScreen() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow1}>
@@ -1441,7 +1441,7 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
   startingTemplateId: string | null;
 }) {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.noActiveContent}>
         <View style={styles.heroSection}>
           <Ionicons name="barbell-outline" size={48} color={colors.primary} />

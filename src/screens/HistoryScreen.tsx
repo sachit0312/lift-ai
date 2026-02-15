@@ -174,14 +174,14 @@ export default function HistoryScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centered}>
+      <SafeAreaView style={styles.centered} edges={['top']}>
         <ActivityIndicator color={colors.primary} size="large" />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.titleSection}>
         <Text style={styles.title}>History</Text>
         <Text style={styles.subtitle}>Your workout journey</Text>
