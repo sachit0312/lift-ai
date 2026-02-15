@@ -305,7 +305,9 @@ export async function pullWorkoutHistory(): Promise<void> {
       .from('workouts')
       .select('*')
       .eq('user_id', session.user.id)
-      .not('finished_at', 'is', null);
+      .not('finished_at', 'is', null)
+      .order('finished_at', { ascending: false })
+      .limit(200);
 
     if (wErr) {
       console.error('Pull workouts error:', wErr);
