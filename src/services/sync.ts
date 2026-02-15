@@ -266,6 +266,99 @@ export async function pullExercisesAndTemplates(): Promise<void> {
   }
 }
 
+// ─── Pull Workout History from Supabase ───
+
+/** Finished workout row from Supabase */
+interface PullWorkoutRow {
+  id: string;
+  user_id: string;
+  template_id: string | null;
+  started_at: string;
+  finished_at: string;
+  ai_summary: string | null;
+  notes: string | null;
+}
+
+/** Workout set row from Supabase (is_completed is boolean in Supabase) */
+interface PullWorkoutSetRow {
+  id: string;
+  workout_id: string;
+  exercise_id: string;
+  set_number: number;
+  reps: number | null;
+  weight: number | null;
+  tag: string;
+  rpe: number | null;
+  is_completed: boolean;
+  notes: string | null;
+}
+
+export async function pullWorkoutHistory(): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const db = await getDb();
+
+    // Fetch finished workouts from Supabase
+    const { data: workouts, error: wErr } = await supabase
+      .from('workouts')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .not('finished_at', 'is', null);
+
+    if (wErr) {
+      console.error('Pull workouts error:', wErr);
+      Sentry.captureException(wErr);
+      return;
+    }
+    if (!workouts || workouts.length === 0) return;
+
+    // Upsert workouts into local SQLite
+    for (const w of workouts as PullWorkoutRow[]) {
+      await db.runAsync(
+        `INSERT INTO workouts (id, user_id, template_id, started_at, finished_at, ai_summary, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id=excluded.user_id, template_id=excluded.template_id,
+           started_at=excluded.started_at, finished_at=excluded.finished_at,
+           ai_summary=excluded.ai_summary, notes=excluded.notes`,
+        w.id, w.user_id, w.template_id, w.started_at, w.finished_at, w.ai_summary, w.notes,
+      );
+    }
+
+    // Fetch workout_sets for those workouts
+    const workoutIds = (workouts as PullWorkoutRow[]).map(w => w.id);
+    const { data: sets, error: sErr } = await supabase
+      .from('workout_sets')
+      .select('*')
+      .in('workout_id', workoutIds);
+
+    if (sErr) {
+      console.error('Pull workout_sets error:', sErr);
+      Sentry.captureException(sErr);
+      return;
+    }
+
+    for (const s of (sets ?? []) as PullWorkoutSetRow[]) {
+      await db.runAsync(
+        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
+           set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
+           tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes`,
+        s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
+      );
+    }
+
+    console.log('Pull workout history complete');
+  } catch (err) {
+    console.error('pullWorkoutHistory failed:', err);
+    Sentry.captureException(err);
+  }
+}
+
 export async function pullUpcomingWorkout(): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();

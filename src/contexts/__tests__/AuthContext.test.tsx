@@ -27,13 +27,14 @@ jest.mock('../../services/database', () => ({
 jest.mock('../../services/sync', () => ({
   pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
   pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
+  pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Sentry is mocked globally via moduleNameMapper, but we import it to assert on calls
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../../services/supabase';
 import { clearAllLocalData } from '../../services/database';
-import { pullUpcomingWorkout, pullExercisesAndTemplates } from '../../services/sync';
+import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../../services/sync';
 import { AuthProvider, useAuth } from '../AuthContext';
 
 // --- Helpers ---
@@ -322,6 +323,7 @@ describe('AuthContext', () => {
 
     expect(clearAllLocalData).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
+    expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
     expect(pullUpcomingWorkout).toHaveBeenCalledTimes(1);
   });
 
@@ -355,6 +357,7 @@ describe('AuthContext', () => {
 
     expect(clearAllLocalData).not.toHaveBeenCalled();
     expect(pullExercisesAndTemplates).not.toHaveBeenCalled();
+    expect(pullWorkoutHistory).not.toHaveBeenCalled();
     expect(pullUpcomingWorkout).not.toHaveBeenCalled();
   });
 
@@ -486,6 +489,7 @@ describe('AuthContext', () => {
     // Should call clearAllLocalData again because user changed (null -> user-B)
     expect(clearAllLocalData).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
+    expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
     expect(pullUpcomingWorkout).toHaveBeenCalledTimes(1);
   });
 

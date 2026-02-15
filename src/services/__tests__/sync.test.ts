@@ -20,7 +20,7 @@ jest.mock('../supabase', () => ({
 }));
 
 // Import after mocks are set up
-import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates } from '../sync';
+import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../sync';
 import { supabase } from '../supabase';
 
 // Cast for type safety
@@ -50,6 +50,8 @@ function mockQueryBuilder(resolvedData: any = [], resolvedError: any = null) {
   const builder: any = {};
   builder.select = jest.fn().mockReturnValue(builder);
   builder.eq = jest.fn().mockReturnValue(builder);
+  builder.not = jest.fn().mockReturnValue(builder);
+  builder.in = jest.fn().mockReturnValue(builder);
   builder.order = jest.fn().mockReturnValue(builder);
   builder.limit = jest.fn().mockResolvedValue({ data: resolvedData, error: resolvedError });
   builder.upsert = jest.fn().mockResolvedValue({ error: null });
@@ -1239,5 +1241,172 @@ describe('pullExercisesAndTemplates', () => {
     const exerciseIdx = fromCalls.indexOf('exercises');
     const templateIdx = fromCalls.indexOf('templates');
     expect(exerciseIdx).toBeLessThan(templateIdx);
+  });
+});
+
+// ============================================================
+// pullWorkoutHistory
+// ============================================================
+
+describe('pullWorkoutHistory', () => {
+  it('skips pull when no session (user not authenticated)', async () => {
+    setSessionNull();
+
+    await pullWorkoutHistory();
+
+    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('pulls finished workouts and inserts into local SQLite', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', user_id: 'user-123', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: 'Good session', notes: 'Felt strong' },
+      { id: 'w-2', user_id: 'user-123', template_id: null, started_at: '2026-01-02T10:00:00Z', finished_at: '2026-01-02T11:00:00Z', ai_summary: null, notes: null },
+    ];
+
+    const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    const setsBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['workout_sets'] = setsBuilder;
+
+    await pullWorkoutHistory();
+
+    expect(mockFrom).toHaveBeenCalledWith('workouts');
+    expect(workoutBuilder.select).toHaveBeenCalledWith('*');
+    expect(workoutBuilder.eq).toHaveBeenCalledWith('user_id', 'user-123');
+    expect(workoutBuilder.not).toHaveBeenCalledWith('finished_at', 'is', null);
+
+    const insertCalls = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workouts'),
+    );
+    expect(insertCalls).toHaveLength(2);
+    expect(insertCalls[0][1]).toBe('w-1');
+    expect(insertCalls[0][2]).toBe('user-123');
+    expect(insertCalls[0][3]).toBe('tpl-1');
+    expect(insertCalls[0][6]).toBe('Good session');
+    expect(insertCalls[0][7]).toBe('Felt strong');
+    expect(insertCalls[1][1]).toBe('w-2');
+    expect(insertCalls[1][3]).toBeNull(); // template_id null
+  });
+
+  it('pulls workout_sets and inserts with is_completed boolean→integer conversion', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, notes: null },
+    ];
+
+    const mockSets = [
+      { id: 'ws-1', workout_id: 'w-1', exercise_id: 'ex-1', set_number: 1, reps: 10, weight: 135, tag: 'working', rpe: 8, is_completed: true, notes: 'Heavy' },
+      { id: 'ws-2', workout_id: 'w-1', exercise_id: 'ex-1', set_number: 2, reps: 8, weight: 140, tag: 'failure', rpe: null, is_completed: false, notes: null },
+    ];
+
+    const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    const setsBuilder = mockQueryBuilder(mockSets, null);
+    mockFromHandlers['workout_sets'] = setsBuilder;
+
+    await pullWorkoutHistory();
+
+    expect(mockFrom).toHaveBeenCalledWith('workout_sets');
+    expect(setsBuilder.select).toHaveBeenCalledWith('*');
+    expect(setsBuilder.in).toHaveBeenCalledWith('workout_id', ['w-1']);
+
+    const setInserts = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets'),
+    );
+    expect(setInserts).toHaveLength(2);
+    // is_completed: true → 1
+    expect(setInserts[0][1]).toBe('ws-1');
+    expect(setInserts[0][9]).toBe(1);
+    expect(setInserts[0][10]).toBe('Heavy');
+    // is_completed: false → 0
+    expect(setInserts[1][1]).toBe('ws-2');
+    expect(setInserts[1][9]).toBe(0);
+    expect(setInserts[1][10]).toBeNull();
+  });
+
+  it('handles Supabase error on workouts query', async () => {
+    setSessionAuthenticated();
+
+    const supabaseError = { message: 'workouts query failed', code: '500' };
+    const workoutBuilder = mockQueryBuilder(null, supabaseError);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    await pullWorkoutHistory();
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
+    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+  });
+
+  it('handles Supabase error on workout_sets query', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, notes: null },
+    ];
+
+    const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    const setsError = { message: 'workout_sets query failed' };
+    const setsBuilder = mockQueryBuilder(null, setsError);
+    mockFromHandlers['workout_sets'] = setsBuilder;
+
+    await pullWorkoutHistory();
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(setsError);
+    // Workouts should still have been inserted
+    const workoutInserts = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workouts'),
+    );
+    expect(workoutInserts).toHaveLength(1);
+  });
+
+  it('does nothing when no finished workouts exist', async () => {
+    setSessionAuthenticated();
+
+    const workoutBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    await pullWorkoutHistory();
+
+    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+    // Should not attempt to fetch workout_sets
+    expect(mockFrom).not.toHaveBeenCalledWith('workout_sets');
+  });
+
+  it('catches unexpected errors and reports to Sentry', async () => {
+    const thrownError = new Error('Network failure');
+    mockGetSession.mockRejectedValue(thrownError);
+
+    await pullWorkoutHistory(); // should not throw
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(thrownError);
+  });
+
+  it('logs pull complete on success', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, notes: null },
+    ];
+
+    const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    const setsBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['workout_sets'] = setsBuilder;
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    await pullWorkoutHistory();
+
+    expect(consoleSpy).toHaveBeenCalledWith('Pull workout history complete');
+    consoleSpy.mockRestore();
   });
 });

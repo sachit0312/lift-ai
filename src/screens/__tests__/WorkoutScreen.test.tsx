@@ -36,6 +36,7 @@ jest.mock('../../services/sync', () => ({
   syncToSupabase: jest.fn().mockResolvedValue(undefined),
   pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
   pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
+  pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/liveActivity', () => ({
@@ -1078,7 +1079,7 @@ describe('WorkoutScreen', () => {
 
       await waitFor(() => {
         const weightInput = result.getByTestId('weight-0-0');
-        expect(weightInput.props.placeholderTextColor).toBe('#9B85FF');
+        expect(weightInput.props.placeholderTextColor).toBe('rgba(124, 92, 252, 0.45)');
       });
     });
 
@@ -1099,9 +1100,9 @@ describe('WorkoutScreen', () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
-      // Regular workout should use previous data placeholders with muted color
+      // Regular workout should use muted previous data placeholder color
       const weightInput = result.getByTestId('weight-0-0');
-      expect(weightInput.props.placeholderTextColor).not.toBe('#9B85FF');
+      expect(weightInput.props.placeholderTextColor).toBe('rgba(107, 107, 114, 0.5)');
     });
   });
 });

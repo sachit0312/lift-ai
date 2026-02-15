@@ -26,7 +26,7 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
-import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates } from '../services/sync';
+import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 import {
   startRestTimerActivity,
   adjustRestTimerActivity,
@@ -188,6 +188,16 @@ export default function WorkoutScreen() {
       setTemplates(t);
     } catch (e) {
       console.error('pullExercisesAndTemplates failed or timed out', e);
+    }
+
+    // Pull workout history from Supabase (for PREV data)
+    try {
+      await Promise.race([
+        pullWorkoutHistory(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+    } catch (e) {
+      console.error('pullWorkoutHistory failed or timed out', e);
     }
 
     // Pull upcoming workout from Supabase
@@ -1128,7 +1138,7 @@ export default function WorkoutScreen() {
                       ?.sets?.find(s => s.set_number === set.set_number);
                     const weightPlaceholder = target ? String(target.target_weight) : (set.previous ? String(set.previous.weight) : '');
                     const repsPlaceholder = target ? String(target.target_reps) : (set.previous ? String(set.previous.reps) : '');
-                    const placeholderColor = target ? colors.primaryLight : colors.textMuted;
+                    const placeholderColor = target ? 'rgba(124, 92, 252, 0.45)' : 'rgba(107, 107, 114, 0.5)';
                     return (
                       <>
                         <TextInput
@@ -1764,6 +1774,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: fontSize.sm,
     textAlign: 'center',
+    opacity: 0.5,
   },
   setInput: {
     backgroundColor: colors.surfaceLight,
