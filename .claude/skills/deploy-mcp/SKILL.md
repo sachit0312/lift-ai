@@ -1,7 +1,6 @@
 ---
 name: deploy-mcp
 description: Build, deploy, and verify the workout MCP server to Cloudflare Workers
-disable-model-invocation: true
 ---
 
 # Deploy MCP Server

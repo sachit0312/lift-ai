@@ -1,7 +1,6 @@
 ---
 name: run-on-device
 description: Build native iOS app and install on physical iPhone for testing
-disable-model-invocation: true
 ---
 
 # Run on Device
@@ -10,9 +9,12 @@ Build and install the native iOS app on a physical iPhone.
 
 ## Arguments
 
-- No args → build and run on connected device
+- No args → build dev and run on connected device
+- `prod` → build with production env (`.env.production`)
 - `clean` → prebuild clean first, then build and run
 - `sim` → run on simulator instead of device
+
+Arguments can be combined: `prod clean` → clean prebuild + production build.
 
 ## Steps
 
@@ -27,11 +29,17 @@ Build and install the native iOS app on a physical iPhone.
 
 2. **Build and run**
    ```bash
-   # Physical device (default, preferred)
-   npx expo run:ios --device
+   # Physical device, dev (default — loads .env.development)
+   npx expo run:ios --device "iPhone"
 
-   # Simulator
+   # Physical device, production (loads .env.production)
+   npx expo run:ios --device "iPhone" --configuration Release
+
+   # Simulator, dev
    npx expo run:ios
+
+   # Simulator, production
+   npx expo run:ios --configuration Release
    ```
 
 3. **Report** — Show:
