@@ -1,0 +1,55 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Debug"
+      },
+      "channel": "development",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://gcpnqpqqwcwvyzoivolp.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjcG5xcHFxd2N3dnl6b2l2b2xwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5OTcwNTMsImV4cCI6MjA4NTU3MzA1M30.BPIgkJnfOUEl4D2PcM27f9GawiI_k-3n2vEFlLrFsOY",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://89d91514396593731f67d318299dfa3c@o4510814011260928.ingest.us.sentry.io/4510814021156864"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "channel": "preview",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://gcpnqpqqwcwvyzoivolp.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjcG5xcHFxd2N3dnl6b2l2b2xwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5OTcwNTMsImV4cCI6MjA4NTU3MzA1M30.BPIgkJnfOUEl4D2PcM27f9GawiI_k-3n2vEFlLrFsOY",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://89d91514396593731f67d318299dfa3c@o4510814011260928.ingest.us.sentry.io/4510814021156864"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "channel": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://lgnkxjiqzsqiwrqrsxww.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxnbmt4amlxenNxaXdycXJzeHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4MjExNjgsImV4cCI6MjA4NTM5NzE2OH0.C4087O7D2YBRItllrmSCw9QR1bDjZe8plgc0dz0PvG0",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://89d91514396593731f67d318299dfa3c@o4510814011260928.ingest.us.sentry.io/4510814021156864"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "574YNGX64S"
+      }
+    }
+  }
+}

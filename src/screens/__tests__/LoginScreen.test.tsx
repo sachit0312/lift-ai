@@ -16,7 +16,7 @@ jest.mock('expo-web-browser', () => ({
 }));
 
 jest.mock('expo-auth-session', () => ({
-  makeRedirectUri: jest.fn().mockReturnValue('workout-enhanced://redirect'),
+  makeRedirectUri: jest.fn().mockReturnValue('liftai://redirect'),
 }));
 
 jest.mock('@expo/vector-icons', () => {

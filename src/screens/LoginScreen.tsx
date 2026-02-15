@@ -79,9 +79,9 @@ export default function LoginScreen({ navigation }: Props) {
     try {
       // For native builds, use the native scheme directly with a path
       const redirectTo = Platform.select({
-        ios: 'workout-enhanced://auth/callback',
-        android: 'workout-enhanced://auth/callback',
-        default: makeRedirectUri({ scheme: 'workout-enhanced' }),
+        ios: 'liftai://auth/callback',
+        android: 'liftai://auth/callback',
+        default: makeRedirectUri({ scheme: 'liftai' }),
       });
       if (__DEV__) console.log('[OAuth] Redirect URI:', redirectTo);
 

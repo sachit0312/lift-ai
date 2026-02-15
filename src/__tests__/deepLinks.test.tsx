@@ -152,9 +152,9 @@ describe('Deep link handling', () => {
     jest.clearAllMocks();
   });
 
-  it('navigates to Workout tab when deep link workout-enhanced://workout is received', async () => {
+  it('navigates to Workout tab when deep link liftai://workout is received', async () => {
     // Mock getInitialURL to simulate opening the app via deep link
-    const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL').mockResolvedValue('workout-enhanced://workout');
+    const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL').mockResolvedValue('liftai://workout');
 
     const { getByText } = render(<App />);
 
@@ -166,7 +166,7 @@ describe('Deep link handling', () => {
   });
 
   it('does not crash on an unknown deep link path', async () => {
-    const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL').mockResolvedValue('workout-enhanced://unknown-path');
+    const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL').mockResolvedValue('liftai://unknown-path');
 
     // Should render without throwing
     const { toJSON } = render(<App />);

@@ -13,7 +13,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **Observability**: Sentry crash reporting (`@sentry/react-native`) initialized in `App.tsx` with `Sentry.wrap()`. Includes `tracesSampleRate` (1.0 dev, 0.2 prod) and `debug: __DEV__`. Navigation breadcrumbs added via `onStateChange` callback. Errors in sync.ts are reported via `Sentry.captureException()` alongside `console.error()`. User context set/cleared on login/logout in AuthContext. Sentry org: `sachit-goyal`, project: `react-native`. Disabled when `EXPO_PUBLIC_SENTRY_DSN` is not set.
 - **Gesture Handler**: `GestureHandlerRootView` wraps the entire app in `App.tsx` (outermost wrapper), enabling swipe gestures in all screens and modals.
 - **Error Handling**: `ErrorBoundary` class component (`src/components/ErrorBoundary.tsx`) wraps AuthProvider in App.tsx. Catches React errors via `getDerivedStateFromError`/`componentDidCatch`, reports to Sentry with componentStack, shows recovery UI with "Try Again" button. Uses theme colors for dark mode consistency.
-- **Environment Config**: `app.config.ts` (dynamic Expo config, replaces app.json). `.env` (dev default), `.env.development`, `.env.production` for Supabase URL/key separation. All env files gitignored. Dev Supabase project: `workout-enhanced-dev` (ref: `gcpnqpqqwcwvyzoivolp`). Prod Supabase project: `lift.ai` (ref: `lgnkxjiqzsqiwrqrsxww`). Env switching: `npx expo start` → dev (loads `.env.development`), `npx expo start --no-dev` → prod (loads `.env.production`). Use `.env.local` (gitignored, highest priority) for temporary overrides.
+- **Environment Config**: `app.config.ts` (dynamic Expo config, replaces app.json). `.env` (dev default), `.env.development`, `.env.production` for Supabase URL/key separation (local dev). All env files gitignored. Dev Supabase project: `workout-enhanced-dev` (ref: `gcpnqpqqwcwvyzoivolp`). Prod Supabase project: `lift.ai` (ref: `lgnkxjiqzsqiwrqrsxww`). Env switching: `npx expo start` → dev (loads `.env.development`), `npx expo start --no-dev` → prod (loads `.env.production`). Use `.env.local` (gitignored, highest priority) for temporary overrides. EAS cloud builds use env vars inlined in `eas.json` profiles (cloud can't read local `.env` files).
 
 ## Screens
 - **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser/expo-auth-session. Dark themed with barbell icon. "Forgot Password?" link calls `supabase.auth.resetPasswordForEmail` and shows green success text. Navigates to Signup.
@@ -48,7 +48,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - Keyboard dismisses on scroll (`keyboardDismissMode="on-drag"`).
 - **Performance optimizations**: Set counts (`completedSetsCount`, `totalSetsCount`) memoized with `useMemo`. Sub-components (`NoActiveWorkout`, `TargetCell`, `SummaryStat`) wrapped with `React.memo`. Modal `onRequestClose` handlers added for proper Android back button support. `handleCloseHistoryModal` wrapped in `useCallback`. `loadActiveWorkout` uses `getBulkExercises()` to fetch all exercises in one query instead of per-exercise loops (avoiding N+1).
 - **Error Handling**: All workout start functions (`handleStartFromTemplate`, `handleStartEmpty`, `handleStartFromUpcoming`) show user-facing error alerts on failure. `loadState` catch block reports to Sentry and gracefully handles failure by showing empty blocks with cancel option, allowing user to dismiss the broken workout.
-- **Live Activity Rest Timer** (`src/services/liveActivity.ts`): iOS Live Activity shows rest timer countdown on lock screen + Dynamic Island. Uses `expo-live-activity` for the Live Activity (iOS-native countdown via `progressBar.date`) and `expo-notifications` for a local notification with vibration/sound when the timer ends. Service exports: `startRestTimerActivity(totalSeconds, exerciseName)`, `adjustRestTimerActivity(deltaSeconds)`, `stopRestTimerActivity()`, `requestNotificationPermissions()`. All functions no-op on Android. Module-level singleton state (one activity at a time, stores `currentExerciseName` for title persistence on adjust). Tapping the Live Activity opens the app via `workout-enhanced://workout` deep link. Wired into WorkoutScreen's `startRestTimer`, `adjustRestTimer`, `dismissRest`, and timer completion. Deep link config in `App.tsx` via NavigationContainer `linking` prop.
+- **Live Activity Rest Timer** (`src/services/liveActivity.ts`): iOS Live Activity shows rest timer countdown on lock screen + Dynamic Island. Uses `expo-live-activity` for the Live Activity (iOS-native countdown via `progressBar.date`) and `expo-notifications` for a local notification with vibration/sound when the timer ends. Service exports: `startRestTimerActivity(totalSeconds, exerciseName)`, `adjustRestTimerActivity(deltaSeconds)`, `stopRestTimerActivity()`, `requestNotificationPermissions()`. All functions no-op on Android. Module-level singleton state (one activity at a time, stores `currentExerciseName` for title persistence on adjust). Tapping the Live Activity opens the app via `liftai://workout` deep link. Wired into WorkoutScreen's `startRestTimer`, `adjustRestTimer`, `dismissRest`, and timer completion. Deep link config in `App.tsx` via NavigationContainer `linking` prop.
 - **ExerciseBlockItem** (`src/screens/WorkoutScreen.tsx`): Extracted `React.memo` component for exercise blocks in active workout. Receives block data and callbacks via props. Prevents unnecessary re-renders when typing in one exercise block (only the changed block re-renders). Key callbacks (`handleSetChange`, `handleToggleComplete`, etc.) wrapped in `useCallback` with stable deps.
 
 ## History & Profile
@@ -90,7 +90,7 @@ MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude D
 - Email/password auth via `supabase.auth.signInWithPassword` / `supabase.auth.signUp`
 - Google OAuth via expo-web-browser + expo-auth-session (extracts tokens from redirect URL fragment)
 - Session persisted in expo-secure-store, auto-refreshed
-- **Google OAuth setup required**: Enable Google provider in Supabase dashboard, set Client ID/Secret from Google Cloud Console, add Expo redirect URI to allowed URLs. App uses `scheme: "workout-enhanced"` in app.json for deep linking; `makeRedirectUri({ scheme: 'workout-enhanced' })` generates the correct redirect URI for Expo Go on physical devices.
+- **Google OAuth setup required**: Enable Google provider in Supabase dashboard, set Client ID/Secret from Google Cloud Console, add Expo redirect URI to allowed URLs. App uses `scheme: "liftai"` in app.config.ts for deep linking; `makeRedirectUri({ scheme: 'liftai' })` generates the correct redirect URI for Expo Go on physical devices.
 
 ## Layout
 - All screens wrapped in SafeAreaView from react-native-safe-area-context (prevents content behind notch/home indicator).
@@ -106,17 +106,30 @@ MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude D
 - expo-web-browser + expo-auth-session for Google OAuth
 - expo-live-activity for iOS Live Activity (lock screen + Dynamic Island rest timer countdown)
 - expo-notifications for local notifications (rest timer end vibration/sound)
+- expo-updates for OTA updates (JS-only hotfixes without App Store review)
+- EAS Build for cloud builds + App Store submission
 - Supabase migrations in supabase/migrations/
 
 ## Building & Running
-- `npx expo run:ios --device` — builds native iOS app and installs directly on physical iPhone (PREFERRED for testing)
-- `npx expo run:ios` — builds native iOS app and launches in simulator (bundle ID: `com.anonymous.workout-enhanced`)
+- `npx expo run:ios --device` — builds native iOS app and installs directly on physical iPhone (PREFERRED for dev testing)
+- `npx expo run:ios` — builds native iOS app and launches in simulator (bundle ID: `com.sachitgoyal.liftai`)
 - `npx expo start --ios` — starts Metro bundler + Expo Go (NOT used for testing)
 - `npx tsc --noEmit` — type-check without emitting
 - MCP server: `cd /Users/sachitgoyal/code/workout-mcp-server && npm run build && npm start`
 - iOS build uses Xcode DerivedData at default location
 - `npx expo prebuild --clean` — regenerates native projects (needed after adding plugins like expo-live-activity)
 - **Important**: Always test via native build on physical iPhone, not Expo Go. Live Activity requires a native build (not Expo Go).
+
+## Deployment (EAS Build + App Store + OTA)
+- **App identity**: Display name `lift.ai`, bundle ID `com.sachitgoyal.liftai`, deep link scheme `liftai://`, Expo slug `workout-enhanced`.
+- **EAS config** in `eas.json` with 3 profiles: `development` (dev client, internal), `preview` (release, internal, auto-increment), `production` (store, release, auto-increment). Each profile has env vars inlined for Supabase + Sentry (cloud builds can't read local `.env` files).
+- **EAS project ID**: `b0905982-b14b-491f-a154-cf3b6aba60d4` (Expo account: `sachitgoyal`).
+- **OTA updates**: `expo-updates` with `fingerprint` runtime version policy. Updates URL: `https://u.expo.dev/b0905982-b14b-491f-a154-cf3b6aba60d4`. Channels: `development`, `preview`, `production`.
+- **Signing**: EAS-managed credentials. Apple Team ID: `574YNGX64S`.
+- **Version management**: `appVersionSource: "remote"` — EAS tracks build numbers. Semver in `app.config.ts` + `package.json`.
+- **Commands**: `npm run build:prod` (EAS iOS production build), `npm run submit:ios` (submit to App Store Connect), `npm run update:prod` (OTA JS-only update), `npm run build:preview` (internal test build), `npm run update:preview` (OTA to preview channel).
+- **OTA constraint**: Only JS + assets can be updated OTA. Native changes (new plugins, SDK updates, infoPlist) require a full `eas build`.
+- **EXPO_TOKEN**: Set via `export EXPO_TOKEN=...` for non-interactive EAS CLI auth.
 
 ## Testing
 - Jest with jest-expo preset. Run: `npm test` or `npx jest`
@@ -125,6 +138,7 @@ MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude D
 - expo-sqlite mock at `src/__mocks__/expo-sqlite.ts` — provides `openDatabaseAsync` returning a mock db with `getAllAsync`, `getFirstAsync`, `runAsync`, `execAsync`. Mapped via `moduleNameMapper` in `jest.config.js`.
 - expo-live-activity mock at `src/__mocks__/expo-live-activity.ts` — mocks `startActivity`, `updateActivity`, `stopActivity`. Mapped via `moduleNameMapper`.
 - expo-notifications mock at `src/__mocks__/expo-notifications.ts` — mocks `scheduleNotificationAsync`, `cancelScheduledNotificationAsync`, `requestPermissionsAsync`, `setNotificationHandler`, `SchedulableTriggerInputTypes`. Mapped via `moduleNameMapper`.
+- expo-updates mock at `src/__mocks__/expo-updates.ts` — mocks `checkForUpdateAsync`, `fetchUpdateAsync`, `reloadAsync`, `useUpdates`. Mapped via `moduleNameMapper`.
 - Database service tests at `src/services/__tests__/database.test.ts` — tests createExercise, getAllExercises, createTemplate, startWorkout, updateWorkoutSet, getPRsThisWeek, updateExerciseNotes (correct SQL + null clearing), getExerciseById (parsed result + not found).
 - Database resilience tests at `src/services/__tests__/database.resilience.test.ts` — DB query failure handling (getAllExercises/getExerciseById/createExercise/getWorkoutHistory throw + report to Sentry), malformed data handling (invalid JSON/null/empty string muscle_groups via safeJsonParse), getDb singleton behavior (same instance, schema initialized once), clearAllLocalData dependency order (8 tables deleted in correct FK order).
 - Live Activity service tests at `src/services/__tests__/liveActivity.test.ts` — tests startRestTimerActivity (correct title/countdown, notification scheduling, stops previous activity), adjustRestTimerActivity (updates countdown, reschedules notification, no-ops when inactive), stopRestTimerActivity (stops activity + cancels notification, no-ops when inactive), requestNotificationPermissions (iOS only), platform guard (all no-op on Android), error handling (doesn't throw on failures).
@@ -150,7 +164,7 @@ MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude D
 - AuthContext tests at `src/contexts/__tests__/AuthContext.test.tsx` — renders children, useAuth throws outside provider, loading lifecycle (true->false), initial session/user from getSession, SIGNED_IN updates session, SIGNED_OUT clears session, Sentry user set on login (initial + event), Sentry user cleared on logout, clearAllLocalData + pullUpcomingWorkout on new user sign-in, skips sync on token refresh (same user ID), sync errors reported to Sentry, getSession errors reported to Sentry, loading false even on getSession failure, unsubscribes on unmount, tracks user ID across sign-in/out, edge case with null user on SIGNED_IN.
 - RootNavigator component tests at `src/navigation/__tests__/RootNavigator.test.tsx` — shows ActivityIndicator when loading, shows Login screen when no session, shows TabNavigator when session exists, auth stack hidden when logged in. Mocks screens and TabNavigator as lightweight Text placeholders.
 - TabNavigator component tests at `src/navigation/__tests__/TabNavigator.test.tsx` — renders all 5 tab labels (Workout, Templates, Exercises, History, Profile), default tab is Workout, tab switching to each tab renders correct content. Mocks all screen components as lightweight Text placeholders to avoid database/sync/supabase dependencies.
-- Deep link tests at `src/__tests__/deepLinks.test.tsx` — deep link `workout-enhanced://workout` navigates to Workout tab, unknown deep link path does not crash, null getInitialURL does not crash, Sentry.addBreadcrumb called on tab navigation with correct category/level/message, breadcrumb includes destination route name. Renders full App component with mocked screens, AuthContext (logged-in session), services, and SafeAreaInsetsContext.
+- Deep link tests at `src/__tests__/deepLinks.test.tsx` — deep link `liftai://workout` navigates to Workout tab, unknown deep link path does not crash, null getInitialURL does not crash, Sentry.addBreadcrumb called on tab navigation with correct category/level/message, breadcrumb includes destination route name. Renders full App component with mocked screens, AuthContext (logged-in session), services, and SafeAreaInsetsContext.
 - Shared test helpers at `src/__tests__/helpers/renderWithProviders.tsx` — wraps components in NavigationContainer.
 - Shared test mocks at `src/__tests__/helpers/mocks.ts` — mockNavigation, mockRoute, mockUseFocusEffect.
 - Test data factories at `src/__tests__/helpers/factories.ts` — createMockExercise, createMockWorkoutSet, createMockWorkout, createMockSession, createMockUpcomingWorkout (with nested exercises and sets).

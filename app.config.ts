@@ -2,14 +2,15 @@ import { ExpoConfig, ConfigContext } from 'expo/config';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'workout-enhanced',
+  name: 'lift.ai',
   slug: 'workout-enhanced',
-  scheme: 'workout-enhanced',
+  scheme: 'liftai',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
   newArchEnabled: true,
+  owner: 'sachitgoyal',
   splash: {
     image: './assets/splash-icon.png',
     resizeMode: 'contain',
@@ -17,14 +18,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.anonymous.workout-enhanced',
+    bundleIdentifier: 'com.sachitgoyal.liftai',
     infoPlist: {
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
     },
   },
   android: {
-    package: 'com.anonymous.workoutenhanced',
+    package: 'com.sachitgoyal.liftai',
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#09090B',
@@ -35,6 +36,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   web: {
     favicon: './assets/favicon.png',
+  },
+  updates: {
+    url: 'https://u.expo.dev/b0905982-b14b-491f-a154-cf3b6aba60d4',
+  },
+  runtimeVersion: {
+    policy: 'fingerprint',
+  },
+  extra: {
+    eas: {
+      projectId: 'b0905982-b14b-491f-a154-cf3b6aba60d4',
+    },
   },
   plugins: [
     'expo-sqlite',
@@ -48,6 +60,5 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         project: process.env.SENTRY_PROJECT || 'react-native',
       },
     ],
-    './plugins/withLocalNotificationsOnly',
   ],
 });

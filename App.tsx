@@ -64,7 +64,7 @@ const navTheme = {
 };
 
 const linking = {
-  prefixes: ['workout-enhanced://'],
+  prefixes: ['liftai://'],
   config: {
     screens: {
       Workout: 'workout',

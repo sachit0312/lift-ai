@@ -10,7 +10,12 @@
     "test": "jest",
     "test:unit": "jest",
     "test:e2e": "maestro test maestro/",
-    "test:all": "jest && maestro test maestro/"
+    "test:all": "jest && maestro test maestro/",
+    "build:preview": "eas build --platform ios --profile preview",
+    "build:prod": "eas build --platform ios --profile production",
+    "submit:ios": "eas submit --platform ios --profile production",
+    "update:prod": "eas update --channel production",
+    "update:preview": "eas update --channel preview"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
@@ -28,6 +33,7 @@
     "expo-secure-store": "~15.0.8",
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
+    "expo-updates": "~29.0.16",
     "expo-web-browser": "~15.0.10",
     "react": "19.1.0",
     "react-dom": "19.1.0",

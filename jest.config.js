@@ -8,6 +8,7 @@ module.exports = {
     '^@sentry/react-native$': '<rootDir>/src/__mocks__/@sentry/react-native.ts',
     '^expo-live-activity$': '<rootDir>/src/__mocks__/expo-live-activity.ts',
     '^expo-notifications$': '<rootDir>/src/__mocks__/expo-notifications.ts',
+    '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
   },
   testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/'],
   clearMocks: true,
