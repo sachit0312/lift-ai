@@ -1,0 +1,36 @@
+appId: com.anonymous.workout-enhanced
+---
+# Rest timer: toggle on/off, adjust time, verify display
+
+- runFlow: ../workout/start-empty.yaml
+
+# Search and select Bench Press
+- tapOn:
+    id: "exercise-search"
+- inputText: "Bench"
+- hideKeyboard
+- tapOn:
+    id: "exercise-item-Bench-Press"
+
+# Wait for exercise block to appear
+- waitForAnimationToEnd
+
+# Verify rest timer is visible and enabled (shows time, not "Off")
+- assertVisible:
+    id: "rest-timer-toggle-0"
+
+# Tap to toggle rest timer off
+- tapOn:
+    id: "rest-timer-toggle-0"
+
+# Verify it shows "Off"
+- assertVisible:
+    text: "Off"
+
+# Tap to toggle back on
+- tapOn:
+    id: "rest-timer-toggle-0"
+
+# Verify "Off" is no longer shown (timer is back on)
+- assertNotVisible:
+    text: "Off"

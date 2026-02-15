@@ -1,0 +1,40 @@
+appId: com.anonymous.workout-enhanced
+---
+# Remove exercise: add exercise, tap remove button, confirm alert, verify removal
+
+- runFlow: ../workout/start-empty.yaml
+
+# Search and select Bench Press
+- tapOn:
+    id: "exercise-search"
+- inputText: "Bench"
+- hideKeyboard
+- tapOn:
+    id: "exercise-item-Bench-Press"
+
+# Wait for exercise block to appear
+- waitForAnimationToEnd
+
+# Verify the exercise block is visible
+- assertVisible:
+    text: "Bench Press"
+
+# Tap the remove exercise button
+- tapOn:
+    id: "remove-exercise-0"
+
+# Wait for confirmation alert
+- extendedWaitUntil:
+    visible:
+      text: "Remove Bench Press?"
+    timeout: 3000
+
+# Tap Remove in the alert
+- tapOn:
+    text: "Remove"
+
+# Verify exercise block is gone
+- extendedWaitUntil:
+    notVisible:
+      text: "Bench Press"
+    timeout: 3000

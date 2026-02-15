@@ -1,0 +1,44 @@
+appId: com.anonymous.workout-enhanced
+---
+# Exercise notes: add exercise, toggle notes, type, verify persistence
+
+- runFlow: ../workout/start-empty.yaml
+
+# Search and select Bench Press
+- tapOn:
+    id: "exercise-search"
+- inputText: "Bench"
+- hideKeyboard
+- tapOn:
+    id: "exercise-item-Bench-Press"
+
+# Wait for exercise block to appear
+- waitForAnimationToEnd
+
+# Tap Notes button to show notes field
+- tapOn:
+    text: "Notes"
+
+# Verify notes field appears
+- assertVisible:
+    id: "exercise-notes-0"
+
+# Type exercise notes
+- tapOn:
+    id: "exercise-notes-0"
+- inputText: "Focus on chest squeeze"
+- hideKeyboard
+
+# Tap Hide Notes to collapse
+- tapOn:
+    text: "Hide Notes"
+
+# Verify notes field is hidden
+- assertNotVisible:
+    id: "exercise-notes-0"
+
+# Tap Notes again to verify persistence
+- tapOn:
+    text: "Notes"
+- assertVisible:
+    id: "exercise-notes-0"

@@ -1,0 +1,48 @@
+appId: com.anonymous.workout-enhanced
+---
+# Set tag cycling: tap set number to cycle through tags
+
+- runFlow: ../workout/start-empty.yaml
+
+# Search and select Bench Press
+- tapOn:
+    id: "exercise-search"
+- inputText: "Bench"
+- hideKeyboard
+- tapOn:
+    id: "exercise-item-Bench-Press"
+
+# Wait for exercise block to appear
+- waitForAnimationToEnd
+
+# Tap set number to cycle: working → warmup (W)
+- tapOn:
+    id: "set-tag-0-0"
+
+# Verify W badge appears
+- assertVisible:
+    text: "W"
+
+# Tap again: warmup → failure (F)
+- tapOn:
+    id: "set-tag-0-0"
+
+# Verify F badge appears
+- assertVisible:
+    text: "F"
+
+# Tap again: failure → drop (D)
+- tapOn:
+    id: "set-tag-0-0"
+
+# Verify D badge appears
+- assertVisible:
+    text: "D"
+
+# Tap again: drop → working (back to number)
+- tapOn:
+    id: "set-tag-0-0"
+
+# Verify badges are gone (back to set number "1")
+- assertVisible:
+    text: "1"
