@@ -1073,7 +1073,7 @@ export default function WorkoutScreen() {
             <View style={styles.setHeaderRow}>
               <Text style={[styles.setHeaderCell, styles.setNumCol]}>SET</Text>
               <Text style={[styles.setHeaderCell, styles.colPrev]}>PREV</Text>
-              {upcomingTargets && <Text style={[styles.setHeaderCell, styles.colTarget]}>TARGET</Text>}
+
               <Text style={[styles.setHeaderCell, styles.colFlex]}>LBS</Text>
               <Text style={[styles.setHeaderCell, styles.colFlex]}>REPS</Text>
               <Text style={[styles.setHeaderCell, styles.checkCol]} />
@@ -1122,25 +1122,36 @@ export default function WorkoutScreen() {
                   <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
                     {prevText}
                   </Text>
-                  {upcomingTargets && <TargetCell upcomingTargets={upcomingTargets} exerciseId={block.exercise.id} setNumber={set.set_number} />}
-                  <TextInput
-                    style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
-                    keyboardType="numeric"
-                    value={set.weight}
-                    onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'weight', v)}
-                    placeholder={set.previous ? String(set.previous.weight) : ''}
-                    placeholderTextColor={colors.textMuted}
-                    testID={`weight-${blockIdx}-${setIdx}`}
-                  />
-                  <TextInput
-                    style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
-                    keyboardType="numeric"
-                    value={set.reps}
-                    onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'reps', v)}
-                    placeholder={set.previous ? String(set.previous.reps) : ''}
-                    placeholderTextColor={colors.textMuted}
-                    testID={`reps-${blockIdx}-${setIdx}`}
-                  />
+                  {(() => {
+                    const target = upcomingTargets
+                      ?.find(e => e.exercise_id === block.exercise.id)
+                      ?.sets?.find(s => s.set_number === set.set_number);
+                    const weightPlaceholder = target ? String(target.target_weight) : (set.previous ? String(set.previous.weight) : '');
+                    const repsPlaceholder = target ? String(target.target_reps) : (set.previous ? String(set.previous.reps) : '');
+                    const placeholderColor = target ? colors.primaryLight : colors.textMuted;
+                    return (
+                      <>
+                        <TextInput
+                          style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
+                          keyboardType="numeric"
+                          value={set.weight}
+                          onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'weight', v)}
+                          placeholder={weightPlaceholder}
+                          placeholderTextColor={placeholderColor}
+                          testID={`weight-${blockIdx}-${setIdx}`}
+                        />
+                        <TextInput
+                          style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
+                          keyboardType="numeric"
+                          value={set.reps}
+                          onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'reps', v)}
+                          placeholder={repsPlaceholder}
+                          placeholderTextColor={placeholderColor}
+                          testID={`reps-${blockIdx}-${setIdx}`}
+                        />
+                      </>
+                    );
+                  })()}
                   <TouchableOpacity
                     style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
                     onPress={() => handleToggleComplete(blockIdx, setIdx)}
@@ -1466,20 +1477,6 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
   );
 });
 
-const TargetCell = React.memo(function TargetCell({ upcomingTargets, exerciseId, setNumber }: {
-  upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[];
-  exerciseId: string;
-  setNumber: number;
-}) {
-  const target = upcomingTargets
-    .find(e => e.exercise_id === exerciseId)
-    ?.sets?.find(s => s.set_number === setNumber);
-  return (
-    <Text style={[styles.targetCol, styles.colTarget]} numberOfLines={1}>
-      {target ? `${target.target_weight}×${target.target_reps}` : '—'}
-    </Text>
-  );
-});
 
 const SummaryStat = React.memo(function SummaryStat({ label, value, icon }: { label: string; value: string; icon?: keyof typeof Ionicons.glyphMap }) {
   return (
@@ -2150,17 +2147,6 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
-  },
-  // Target column
-  colTarget: {
-    width: 70,
-    textAlign: 'center' as const,
-  },
-  targetCol: {
-    color: colors.primaryLight,
-    opacity: 0.5,
-    fontSize: 12,
-    textAlign: 'center' as const,
   },
 
   // Create exercise in modal

@@ -1020,81 +1020,88 @@ describe('WorkoutScreen', () => {
 
   // ─── Batch 2B: Upcoming Workout TARGET Column ───
 
-  describe('upcoming workout TARGET column', () => {
-    it('shows TARGET header when started from upcoming workout', async () => {
-      const mockExercise = { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, user_id: 'local', created_at: '2026-01-01' };
-      const upcomingData = {
-        workout: { id: 'uw1', date: '2026-02-07', template_id: null, notes: 'Test workout', created_at: '2026-02-07' },
-        exercises: [{
-          id: 'ue1', upcoming_workout_id: 'uw1', exercise_id: 'ex1', order: 1, rest_seconds: 90, notes: null,
-          exercise: mockExercise,
-          sets: [{ id: 'us1', upcoming_exercise_id: 'ue1', set_number: 1, target_weight: 185, target_reps: 8 }],
-        }],
-      };
+  describe('upcoming workout target placeholders', () => {
+    const mockExercise = { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, user_id: 'local', created_at: '2026-01-01' };
+    const upcomingData = {
+      workout: { id: 'uw1', date: '2026-02-07', template_id: null, notes: 'Test workout', created_at: '2026-02-07' },
+      exercises: [{
+        id: 'ue1', upcoming_workout_id: 'uw1', exercise_id: 'ex1', order: 1, rest_seconds: 90, notes: null,
+        exercise: mockExercise,
+        sets: [{ id: 'us1', upcoming_exercise_id: 'ue1', set_number: 1, target_weight: 185, target_reps: 8 }],
+      }],
+    };
 
-      (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
-      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
-
-      const result = render(<WorkoutScreen />);
-
-      // Wait for upcoming workout card to render
+    async function startUpcomingWorkout(result: ReturnType<typeof render>) {
       await waitFor(() => expect(result.getByTestId('start-upcoming-workout')).toBeTruthy());
-
-      // Press the upcoming card TouchableOpacity directly via testID
       await act(async () => {
         fireEvent.press(result.getByTestId('start-upcoming-workout'));
       });
+    }
 
-      // TARGET header should be visible
-      await waitFor(() => {
-        expect(result.getByText('TARGET')).toBeTruthy();
-      });
-
-      // Reset mocks
+    afterEach(() => {
       (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(null);
       (getExerciseById as jest.Mock).mockResolvedValue(null);
     });
 
-    it('does not show TARGET header for regular workout', async () => {
-      const result = render(<WorkoutScreen />);
-      await startWorkoutWithExercise(result);
+    it('shows target weight as placeholder in LBS input', async () => {
+      (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
+      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
 
-      // TARGET header should NOT be visible
+      const result = render(<WorkoutScreen />);
+      await startUpcomingWorkout(result);
+
+      await waitFor(() => {
+        const weightInput = result.getByTestId('weight-0-0');
+        expect(weightInput.props.placeholder).toBe('185');
+      });
+    });
+
+    it('shows target reps as placeholder in REPS input', async () => {
+      (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
+      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
+
+      const result = render(<WorkoutScreen />);
+      await startUpcomingWorkout(result);
+
+      await waitFor(() => {
+        const repsInput = result.getByTestId('reps-0-0');
+        expect(repsInput.props.placeholder).toBe('8');
+      });
+    });
+
+    it('uses purple placeholder color for target values', async () => {
+      (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
+      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
+
+      const result = render(<WorkoutScreen />);
+      await startUpcomingWorkout(result);
+
+      await waitFor(() => {
+        const weightInput = result.getByTestId('weight-0-0');
+        expect(weightInput.props.placeholderTextColor).toBe('#9B85FF');
+      });
+    });
+
+    it('does not show separate TARGET column header', async () => {
+      (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
+      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
+
+      const result = render(<WorkoutScreen />);
+      await startUpcomingWorkout(result);
+
+      await waitFor(() => {
+        expect(result.getByTestId('weight-0-0')).toBeTruthy();
+      });
       expect(result.queryByText('TARGET')).toBeNull();
     });
 
-    it('displays target weight×reps in target cell', async () => {
-      const mockExercise = { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, user_id: 'local', created_at: '2026-01-01' };
-      const upcomingData = {
-        workout: { id: 'uw1', date: '2026-02-07', template_id: null, notes: null, created_at: '2026-02-07' },
-        exercises: [{
-          id: 'ue1', upcoming_workout_id: 'uw1', exercise_id: 'ex1', order: 1, rest_seconds: 90, notes: null,
-          exercise: mockExercise,
-          sets: [{ id: 'us1', upcoming_exercise_id: 'ue1', set_number: 1, target_weight: 185, target_reps: 8 }],
-        }],
-      };
-
-      (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
-      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
-
+    it('falls back to previous data placeholder when no target exists', async () => {
       const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
 
-      // Wait for upcoming workout card to render
-      await waitFor(() => expect(result.getByTestId('start-upcoming-workout')).toBeTruthy());
-
-      // Press the upcoming card TouchableOpacity directly via testID
-      await act(async () => {
-        fireEvent.press(result.getByTestId('start-upcoming-workout'));
-      });
-
-      // Target cell should show "185×8"
-      await waitFor(() => {
-        expect(result.getByText('185×8')).toBeTruthy();
-      });
-
-      // Reset mocks
-      (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(null);
-      (getExerciseById as jest.Mock).mockResolvedValue(null);
+      // Regular workout should use previous data placeholders with muted color
+      const weightInput = result.getByTestId('weight-0-0');
+      expect(weightInput.props.placeholderTextColor).not.toBe('#9B85FF');
     });
   });
 });
