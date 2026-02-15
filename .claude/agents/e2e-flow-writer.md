@@ -2,7 +2,7 @@
 name: e2e-flow-writer
 description: "Specialist in writing Maestro E2E test flows for the workout-enhanced React Native app. Use when creating new E2E test scenarios."
 tools: Read, Glob, Grep, Bash
-model: sonnet
+model: opus
 ---
 
 # E2E Flow Writer
