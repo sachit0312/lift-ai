@@ -9,6 +9,7 @@ import { colors } from '../theme';
 let currentActivityId: string | null = null;
 let currentNotificationId: string | null = null;
 let currentEndTime: number = 0;
+let currentExerciseName: string = '';
 
 // ─── Configure notification handler ───
 
@@ -39,6 +40,7 @@ export function startRestTimerActivity(totalSeconds: number, exerciseName: strin
     // Stop any existing activity first
     stopRestTimerActivitySync();
 
+    currentExerciseName = exerciseName;
     const endTime = Date.now() + totalSeconds * 1000;
     currentEndTime = endTime;
 
@@ -76,7 +78,7 @@ export function adjustRestTimerActivity(deltaSeconds: number): void {
     const remainingSeconds = Math.max(0, Math.round((newEndTime - Date.now()) / 1000));
 
     LiveActivity.updateActivity(currentActivityId, {
-      title: currentActivityId ? '' : '', // keep existing title
+      title: currentExerciseName,
       progressBar: { date: newEndTime },
     });
 
@@ -114,6 +116,7 @@ function stopRestTimerActivitySync(): void {
     currentActivityId = null;
   }
   currentEndTime = 0;
+  currentExerciseName = '';
   cancelTimerEndNotification();
 }
 

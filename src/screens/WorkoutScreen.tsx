@@ -138,6 +138,7 @@ export default function WorkoutScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const workoutRef = useRef<Workout | null>(null);
+  const blocksRef = useRef<ExerciseBlock[]>([]);
 
   // Promise ref for background history pull (so workout start can await it)
   const historyPulledRef = useRef<Promise<void>>(Promise.resolve());
@@ -145,6 +146,9 @@ export default function WorkoutScreen() {
   // Notes debouncing
   const pendingNotesRef = useRef<Map<string, { notes: string; setId: string | null }>>(new Map());
   const notesTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Keep blocksRef in sync for stable callbacks
+  blocksRef.current = exerciseBlocks;
 
   // ─── Check for active workout on focus ───
 
@@ -617,48 +621,55 @@ export default function WorkoutScreen() {
 
   // ─── Set manipulation helpers ───
 
-  function updateBlockSet(blockIdx: number, setIdx: number, updates: Partial<LocalSet>) {
-    setExerciseBlocks((prev) => {
-      const next = [...prev];
-      const block = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      block.sets[setIdx] = { ...block.sets[setIdx], ...updates };
-      next[blockIdx] = block;
-      return next;
-    });
-  }
-
-  async function handleSetChange(
+  const handleSetChange = useCallback(async (
     blockIdx: number,
     setIdx: number,
     field: 'weight' | 'reps',
     value: string,
-  ) {
-    const set = exerciseBlocks[blockIdx]?.sets[setIdx];
+  ) => {
+    const block = blocksRef.current[blockIdx];
+    const set = block?.sets[setIdx];
     if (!set) return;
 
-    updateBlockSet(blockIdx, setIdx, { [field]: value });
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      updatedBlock.sets[setIdx] = { ...updatedBlock.sets[setIdx], [field]: value };
+      next[blockIdx] = updatedBlock;
+      return next;
+    });
 
     const numVal = value === '' ? null : Number(value);
     await updateWorkoutSet(set.id, { [field]: numVal });
-  }
+  }, []);
 
-  async function handleCycleTag(blockIdx: number, setIdx: number) {
-    const set = exerciseBlocks[blockIdx]?.sets[setIdx];
+  const handleCycleTag = useCallback(async (blockIdx: number, setIdx: number) => {
+    const block = blocksRef.current[blockIdx];
+    const set = block?.sets[setIdx];
     if (!set) return;
+
     const tags: SetTag[] = ['working', 'warmup', 'failure', 'drop'];
     const idx = tags.indexOf(set.tag);
     const newTag = tags[(idx + 1) % tags.length];
-    updateBlockSet(blockIdx, setIdx, { tag: newTag });
-    await updateWorkoutSet(set.id, { tag: newTag });
-  }
 
-  async function handleToggleComplete(blockIdx: number, setIdx: number) {
-    const block = exerciseBlocks[blockIdx];
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      updatedBlock.sets[setIdx] = { ...updatedBlock.sets[setIdx], tag: newTag };
+      next[blockIdx] = updatedBlock;
+      return next;
+    });
+
+    await updateWorkoutSet(set.id, { tag: newTag });
+  }, []);
+
+  const handleToggleComplete = useCallback(async (blockIdx: number, setIdx: number) => {
+    const block = blocksRef.current[blockIdx];
     const set = block?.sets[setIdx];
     if (!set || !block) return;
 
     // Capture timer data NOW, before state update (avoid stale closure)
-    const { restEnabled, restSeconds, exercise } = block;
+    const { restEnabled, restSeconds: blockRestSeconds, exercise } = block;
     const exerciseName = exercise.name;
 
     // Validate when marking complete (not when unchecking)
@@ -677,7 +688,13 @@ export default function WorkoutScreen() {
 
     const newCompleted = !set.is_completed;
 
-    updateBlockSet(blockIdx, setIdx, { is_completed: newCompleted });
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      updatedBlock.sets[setIdx] = { ...updatedBlock.sets[setIdx], is_completed: newCompleted };
+      next[blockIdx] = updatedBlock;
+      return next;
+    });
 
     await updateWorkoutSet(set.id, {
       is_completed: newCompleted,
@@ -690,21 +707,25 @@ export default function WorkoutScreen() {
       try { Vibration.vibrate(50); } catch {}
       // Use captured values, not stale state
       if (restEnabled) {
-        startRestTimer(restSeconds, exerciseName);
+        startRestTimer(blockRestSeconds, exerciseName);
       }
     }
-  }
+  }, []);
 
-  async function handleAddSet(blockIdx: number) {
-    const block = exerciseBlocks[blockIdx];
+  const handleAddSet = useCallback(async (blockIdx: number) => {
     const workout = workoutRef.current;
     if (!workout) return;
 
+    const block = blocksRef.current[blockIdx];
+    if (!block) return;
+
+    const exerciseId = block.exercise.id;
     const newSetNumber = block.sets.length + 1;
-    const previousSets = await getPreviousSets(block.exercise.id);
+
+    const previousSets = await getPreviousSets(exerciseId);
     const ws = await addWorkoutSet({
       workout_id: workout.id,
-      exercise_id: block.exercise.id,
+      exercise_id: exerciseId,
       set_number: newSetNumber,
       reps: null,
       weight: null,
@@ -719,7 +740,7 @@ export default function WorkoutScreen() {
       const b = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
       b.sets.push({
         id: ws.id,
-        exercise_id: block.exercise.id,
+        exercise_id: exerciseId,
         set_number: newSetNumber,
         weight: '',
         reps: '',
@@ -730,11 +751,11 @@ export default function WorkoutScreen() {
       next[blockIdx] = b;
       return next;
     });
-  }
+  }, []);
 
-  async function handleDeleteSet(blockIdx: number, setIdx: number) {
-    const block = exerciseBlocks[blockIdx];
-    const set = block.sets[setIdx];
+  const handleDeleteSet = useCallback(async (blockIdx: number, setIdx: number) => {
+    const block = blocksRef.current[blockIdx];
+    const set = block?.sets[setIdx];
     if (!set) return;
 
     // Don't allow deleting the last set
@@ -756,18 +777,18 @@ export default function WorkoutScreen() {
       next[blockIdx] = b;
       return next;
     });
-  }
+  }, []);
 
-  function handleToggleNotes(blockIdx: number) {
+  const handleToggleNotes = useCallback((blockIdx: number) => {
     setExerciseBlocks((prev) => {
       const next = [...prev];
       next[blockIdx] = { ...next[blockIdx], notesExpanded: !next[blockIdx].notesExpanded };
       return next;
     });
-  }
+  }, []);
 
   const handleRemoveExercise = useCallback(async (blockIdx: number) => {
-    const block = exerciseBlocks[blockIdx];
+    const block = blocksRef.current[blockIdx];
     if (!block) return;
 
     Alert.alert(
@@ -779,7 +800,10 @@ export default function WorkoutScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
-            for (const set of block.sets) {
+            // Re-read from ref at onPress time for latest set IDs
+            const currentBlock = blocksRef.current[blockIdx];
+            const setsToDelete = currentBlock ? currentBlock.sets : block.sets;
+            for (const set of setsToDelete) {
               await deleteWorkoutSet(set.id);
             }
             LayoutAnimation.configureNext({
@@ -792,17 +816,17 @@ export default function WorkoutScreen() {
         },
       ],
     );
-  }, [exerciseBlocks]);
+  }, []);
 
-  function handleToggleRestTimer(blockIdx: number) {
+  const handleToggleRestTimer = useCallback((blockIdx: number) => {
     setExerciseBlocks((prev) => {
       const next = [...prev];
       next[blockIdx] = { ...next[blockIdx], restEnabled: !next[blockIdx].restEnabled };
       return next;
     });
-  }
+  }, []);
 
-  function handleAdjustExerciseRest(blockIdx: number, delta: number) {
+  const handleAdjustExerciseRest = useCallback((blockIdx: number, delta: number) => {
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const newSeconds = Math.max(15, next[blockIdx].restSeconds + delta);
@@ -810,7 +834,22 @@ export default function WorkoutScreen() {
       next[blockIdx] = { ...next[blockIdx], restSeconds: newSeconds, restEnabled: true };
       return next;
     });
-  }
+  }, []);
+
+  const handleNotesChange = useCallback((blockIdx: number, text: string) => {
+    const block = blocksRef.current[blockIdx];
+    if (!block) return;
+
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      next[blockIdx] = { ...next[blockIdx], notes: text };
+      return next;
+    });
+
+    // Debounced persist to exercise (sticky notes) + first set
+    const firstSet = block.sets[0];
+    debouncedSaveNotes(block.exercise.id, text, firstSet?.id ?? null);
+  }, []);
 
   // ─── Cancel workout ───
 
@@ -1069,182 +1108,24 @@ export default function WorkoutScreen() {
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="always">
         {exerciseBlocks.map((block, blockIdx) => (
-          <View key={`${block.exercise.id}-${blockIdx}`} style={styles.exerciseCard}>
-            {/* Exercise header with name and timer controls */}
-            <View style={styles.exerciseHeaderRow}>
-              <TouchableOpacity onPress={() => setHistoryExercise(block.exercise)} style={styles.exerciseNameContainer}>
-                <Text style={styles.exerciseName}>{block.exercise.name}</Text>
-              </TouchableOpacity>
-              <View style={styles.headerRestControls}>
-                <TouchableOpacity
-                  style={styles.headerRestBtn}
-                  onPress={() => handleAdjustExerciseRest(blockIdx, -15)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.headerRestBtnText}>−</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleToggleRestTimer(blockIdx)}
-                  testID={`rest-timer-toggle-${blockIdx}`}
-                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                >
-                  <Text style={[styles.headerRestDisplay, !block.restEnabled && styles.headerRestDisplayOff]}>
-                    {block.restEnabled
-                      ? `${Math.floor(block.restSeconds / 60)}:${String(block.restSeconds % 60).padStart(2, '0')}`
-                      : 'Off'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.headerRestBtn}
-                  onPress={() => handleAdjustExerciseRest(blockIdx, 15)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.headerRestBtnText}>+</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Set header row */}
-            <View style={styles.setHeaderRow}>
-              <Text style={[styles.setHeaderCell, styles.setNumCol]}>SET</Text>
-              <Text style={[styles.setHeaderCell, styles.colPrev]}>PREV</Text>
-
-              <Text style={[styles.setHeaderCell, styles.colFlex]}>LBS</Text>
-              <Text style={[styles.setHeaderCell, styles.colFlex]}>REPS</Text>
-              <Text style={[styles.setHeaderCell, styles.checkCol]} />
-            </View>
-
-            {/* Set rows */}
-            {block.sets.map((set, setIdx) => {
-              const tagLabel = getSetTagLabel(set.tag);
-              const tagColor = getSetTagColor(set.tag);
-              const prevText = set.previous
-                ? `${set.previous.weight}×${set.previous.reps}`
-                : '—';
-              const hasError = validationErrors[`${blockIdx}-${setIdx}`];
-              return (
-              <SwipeableSetRow
-                key={set.id}
-                set={set}
-                setIdx={setIdx}
-                blockIdx={blockIdx}
-                block={block}
-                onDelete={handleDeleteSet}
-              >
-                <View
-                  style={[
-                    styles.setRow,
-                    set.is_completed && styles.setRowCompleted,
-                  ]}
-                >
-                  <TouchableOpacity
-                    style={styles.setNumCol}
-                    onPress={() => handleCycleTag(blockIdx, setIdx)}
-                    onLongPress={() => handleDeleteSet(blockIdx, setIdx)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    testID={`set-tag-${blockIdx}-${setIdx}`}
-                  >
-                    {tagLabel ? (
-                      <View style={[styles.setNumBadge, { backgroundColor: tagColor }]}>
-                        <Text style={styles.setNumBadgeText}>{tagLabel}</Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.setNum}>
-                        {set.set_number}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                  <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
-                    {prevText}
-                  </Text>
-                  {(() => {
-                    const target = upcomingTargets
-                      ?.find(e => e.exercise_id === block.exercise.id)
-                      ?.sets?.find(s => s.set_number === set.set_number);
-                    const weightPlaceholder = target ? String(target.target_weight) : (set.previous ? String(set.previous.weight) : '');
-                    const repsPlaceholder = target ? String(target.target_reps) : (set.previous ? String(set.previous.reps) : '');
-                    const placeholderColor = target ? 'rgba(124, 92, 252, 0.45)' : 'rgba(107, 107, 114, 0.5)';
-                    return (
-                      <>
-                        <TextInput
-                          style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
-                          keyboardType="numeric"
-                          value={set.weight}
-                          onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'weight', v)}
-                          placeholder={weightPlaceholder}
-                          placeholderTextColor={placeholderColor}
-                          testID={`weight-${blockIdx}-${setIdx}`}
-                        />
-                        <TextInput
-                          style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
-                          keyboardType="numeric"
-                          value={set.reps}
-                          onChangeText={(v) => handleSetChange(blockIdx, setIdx, 'reps', v)}
-                          placeholder={repsPlaceholder}
-                          placeholderTextColor={placeholderColor}
-                          testID={`reps-${blockIdx}-${setIdx}`}
-                        />
-                      </>
-                    );
-                  })()}
-                  <TouchableOpacity
-                    style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
-                    onPress={() => handleToggleComplete(blockIdx, setIdx)}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: set.is_completed }}
-                    testID={`check-${blockIdx}-${setIdx}`}
-                  >
-                    {set.is_completed && (
-                      <Ionicons name="checkmark" size={18} color={colors.white} />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </SwipeableSetRow>
-              );
-            })}
-
-            {/* Add set + notes + remove */}
-            <View style={styles.exerciseActions}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => handleAddSet(blockIdx)}>
-                <Ionicons name="add" size={16} color={colors.primary} />
-                <Text style={styles.actionBtnText}>Add Set</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => handleToggleNotes(blockIdx)}>
-                <Ionicons name={block.notesExpanded ? 'document-text' : 'document-text-outline'} size={16} color={colors.textMuted} />
-                <Text style={styles.actionBtnTextMuted}>
-                  {block.notesExpanded ? 'Hide Notes' : 'Notes'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.removeExerciseBtn}
-                onPress={() => handleRemoveExercise(blockIdx)}
-                testID={`remove-exercise-${blockIdx}`}
-              >
-                <Ionicons name="close" size={18} color={colors.error} />
-              </TouchableOpacity>
-            </View>
-
-            {block.notesExpanded && (
-              <TextInput
-                style={styles.notesInput}
-                multiline
-                value={block.notes}
-                onChangeText={(v) => {
-                  setExerciseBlocks((prev) => {
-                    const next = [...prev];
-                    next[blockIdx] = { ...next[blockIdx], notes: v };
-                    return next;
-                  });
-                  // Debounced persist to exercise (sticky notes) + first set
-                  const firstSet = exerciseBlocks[blockIdx]?.sets[0];
-                  debouncedSaveNotes(block.exercise.id, v, firstSet?.id ?? null);
-                }}
-                placeholder="Exercise notes..."
-                placeholderTextColor={colors.textMuted}
-                testID={`exercise-notes-${blockIdx}`}
-              />
-            )}
-          </View>
+          <ExerciseBlockItem
+            key={`${block.exercise.id}-${blockIdx}`}
+            block={block}
+            blockIdx={blockIdx}
+            upcomingTargets={upcomingTargets}
+            validationErrors={validationErrors}
+            onToggleRestTimer={handleToggleRestTimer}
+            onAdjustRest={handleAdjustExerciseRest}
+            onCycleTag={handleCycleTag}
+            onDeleteSet={handleDeleteSet}
+            onSetChange={handleSetChange}
+            onToggleComplete={handleToggleComplete}
+            onAddSet={handleAddSet}
+            onToggleNotes={handleToggleNotes}
+            onRemoveExercise={handleRemoveExercise}
+            onNotesChange={handleNotesChange}
+            onExercisePress={setHistoryExercise}
+          />
         ))}
 
         {/* Add Exercise button */}
@@ -1607,6 +1488,207 @@ const SwipeableSetRow = React.memo(function SwipeableSetRow({
   );
 });
 
+
+// ─── ExerciseBlockItem (memoized) ───
+
+interface ExerciseBlockItemProps {
+  block: ExerciseBlock;
+  blockIdx: number;
+  upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null;
+  validationErrors: Record<string, boolean>;
+  onToggleRestTimer: (blockIdx: number) => void;
+  onAdjustRest: (blockIdx: number, delta: number) => void;
+  onCycleTag: (blockIdx: number, setIdx: number) => void;
+  onDeleteSet: (blockIdx: number, setIdx: number) => void;
+  onSetChange: (blockIdx: number, setIdx: number, field: 'weight' | 'reps', value: string) => void;
+  onToggleComplete: (blockIdx: number, setIdx: number) => void;
+  onAddSet: (blockIdx: number) => void;
+  onToggleNotes: (blockIdx: number) => void;
+  onRemoveExercise: (blockIdx: number) => void;
+  onNotesChange: (blockIdx: number, text: string) => void;
+  onExercisePress: (exercise: Exercise) => void;
+}
+
+const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
+  block,
+  blockIdx,
+  upcomingTargets,
+  validationErrors,
+  onToggleRestTimer,
+  onAdjustRest,
+  onCycleTag,
+  onDeleteSet,
+  onSetChange,
+  onToggleComplete,
+  onAddSet,
+  onToggleNotes,
+  onRemoveExercise,
+  onNotesChange,
+  onExercisePress,
+}: ExerciseBlockItemProps) {
+  return (
+    <View style={styles.exerciseCard}>
+      {/* Exercise header with name and timer controls */}
+      <View style={styles.exerciseHeaderRow}>
+        <TouchableOpacity onPress={() => onExercisePress(block.exercise)} style={styles.exerciseNameContainer}>
+          <Text style={styles.exerciseName}>{block.exercise.name}</Text>
+        </TouchableOpacity>
+        <View style={styles.headerRestControls}>
+          <TouchableOpacity
+            style={styles.headerRestBtn}
+            onPress={() => onAdjustRest(blockIdx, -15)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.headerRestBtnText}>−</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onToggleRestTimer(blockIdx)}
+            testID={`rest-timer-toggle-${blockIdx}`}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          >
+            <Text style={[styles.headerRestDisplay, !block.restEnabled && styles.headerRestDisplayOff]}>
+              {block.restEnabled
+                ? `${Math.floor(block.restSeconds / 60)}:${String(block.restSeconds % 60).padStart(2, '0')}`
+                : 'Off'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerRestBtn}
+            onPress={() => onAdjustRest(blockIdx, 15)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.headerRestBtnText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Set header row */}
+      <View style={styles.setHeaderRow}>
+        <Text style={[styles.setHeaderCell, styles.setNumCol]}>SET</Text>
+        <Text style={[styles.setHeaderCell, styles.colPrev]}>PREV</Text>
+        <Text style={[styles.setHeaderCell, styles.colFlex]}>LBS</Text>
+        <Text style={[styles.setHeaderCell, styles.colFlex]}>REPS</Text>
+        <Text style={[styles.setHeaderCell, styles.checkCol]} />
+      </View>
+
+      {/* Set rows */}
+      {block.sets.map((set, setIdx) => {
+        const tagLabel = getSetTagLabel(set.tag);
+        const tagColor = getSetTagColor(set.tag);
+        const prevText = set.previous
+          ? `${set.previous.weight}×${set.previous.reps}`
+          : '—';
+        const hasError = validationErrors[`${blockIdx}-${setIdx}`];
+        const target = upcomingTargets
+          ?.find(e => e.exercise_id === block.exercise.id)
+          ?.sets?.find(s => s.set_number === set.set_number);
+        const weightPlaceholder = target ? String(target.target_weight) : (set.previous ? String(set.previous.weight) : '');
+        const repsPlaceholder = target ? String(target.target_reps) : (set.previous ? String(set.previous.reps) : '');
+        const placeholderColor = target ? 'rgba(124, 92, 252, 0.45)' : 'rgba(107, 107, 114, 0.5)';
+        return (
+          <SwipeableSetRow
+            key={set.id}
+            set={set}
+            setIdx={setIdx}
+            blockIdx={blockIdx}
+            block={block}
+            onDelete={onDeleteSet}
+          >
+            <View
+              style={[
+                styles.setRow,
+                set.is_completed && styles.setRowCompleted,
+              ]}
+            >
+              <TouchableOpacity
+                style={styles.setNumCol}
+                onPress={() => onCycleTag(blockIdx, setIdx)}
+                onLongPress={() => onDeleteSet(blockIdx, setIdx)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                testID={`set-tag-${blockIdx}-${setIdx}`}
+              >
+                {tagLabel ? (
+                  <View style={[styles.setNumBadge, { backgroundColor: tagColor }]}>
+                    <Text style={styles.setNumBadgeText}>{tagLabel}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.setNum}>
+                    {set.set_number}
+                  </Text>
+                )}
+              </TouchableOpacity>
+              <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
+                {prevText}
+              </Text>
+              <TextInput
+                style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
+                keyboardType="numeric"
+                value={set.weight}
+                onChangeText={(v) => onSetChange(blockIdx, setIdx, 'weight', v)}
+                placeholder={weightPlaceholder}
+                placeholderTextColor={placeholderColor}
+                testID={`weight-${blockIdx}-${setIdx}`}
+              />
+              <TextInput
+                style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
+                keyboardType="numeric"
+                value={set.reps}
+                onChangeText={(v) => onSetChange(blockIdx, setIdx, 'reps', v)}
+                placeholder={repsPlaceholder}
+                placeholderTextColor={placeholderColor}
+                testID={`reps-${blockIdx}-${setIdx}`}
+              />
+              <TouchableOpacity
+                style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
+                onPress={() => onToggleComplete(blockIdx, setIdx)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: set.is_completed }}
+                testID={`check-${blockIdx}-${setIdx}`}
+              >
+                {set.is_completed && (
+                  <Ionicons name="checkmark" size={18} color={colors.white} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </SwipeableSetRow>
+        );
+      })}
+
+      {/* Add set + notes + remove */}
+      <View style={styles.exerciseActions}>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onAddSet(blockIdx)}>
+          <Ionicons name="add" size={16} color={colors.primary} />
+          <Text style={styles.actionBtnText}>Add Set</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onToggleNotes(blockIdx)}>
+          <Ionicons name={block.notesExpanded ? 'document-text' : 'document-text-outline'} size={16} color={colors.textMuted} />
+          <Text style={styles.actionBtnTextMuted}>
+            {block.notesExpanded ? 'Hide Notes' : 'Notes'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.removeExerciseBtn}
+          onPress={() => onRemoveExercise(blockIdx)}
+          testID={`remove-exercise-${blockIdx}`}
+        >
+          <Ionicons name="close" size={18} color={colors.error} />
+        </TouchableOpacity>
+      </View>
+
+      {block.notesExpanded && (
+        <TextInput
+          style={styles.notesInput}
+          multiline
+          value={block.notes}
+          onChangeText={(v) => onNotesChange(blockIdx, v)}
+          placeholder="Exercise notes..."
+          placeholderTextColor={colors.textMuted}
+          testID={`exercise-notes-${blockIdx}`}
+        />
+      )}
+    </View>
+  );
+});
 
 // ─── Styles ───
 

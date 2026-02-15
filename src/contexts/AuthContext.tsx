@@ -48,8 +48,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (newUserId !== prevUserId) {
             try {
               await clearAllLocalData();
-              await pullExercisesAndTemplates();
-              await pullWorkoutHistory();
+              await Promise.all([
+                pullExercisesAndTemplates(),
+                pullWorkoutHistory(),
+              ]);
               await pullUpcomingWorkout();
             } catch (error) {
               Sentry.captureException(error);

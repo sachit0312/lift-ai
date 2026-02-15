@@ -26,6 +26,33 @@ export default function LoginScreen({ navigation }: Props) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      setError('Please enter your email address first.');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    setError('');
+    setResetSent(false);
+    setLoading(true);
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim());
+      if (resetError) {
+        setError(resetError.message);
+      } else {
+        setResetSent(true);
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to send reset email.');
+    }
+    setLoading(false);
+  };
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
@@ -142,6 +169,9 @@ export default function LoginScreen({ navigation }: Props) {
         <Text style={styles.title}>Welcome Back</Text>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {resetSent ? (
+          <Text style={styles.resetSentText}>Password reset email sent. Check your inbox.</Text>
+        ) : null}
 
         <TextInput
           style={styles.input}
@@ -165,6 +195,15 @@ export default function LoginScreen({ navigation }: Props) {
           editable={!isLoading}
           testID="login-password"
         />
+
+        <TouchableOpacity
+          style={styles.forgotPasswordLink}
+          onPress={handleForgotPassword}
+          disabled={isLoading}
+          testID="forgot-password-btn"
+        >
+          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.loginButton, isLoading && styles.disabledButton]}
@@ -234,6 +273,20 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     textAlign: 'center',
     marginBottom: spacing.md,
+  },
+  resetSentText: {
+    color: colors.success,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
+  forgotPasswordLink: {
+    alignSelf: 'flex-end',
+    marginBottom: spacing.sm,
+  },
+  forgotPasswordText: {
+    color: colors.primary,
+    fontSize: fontSize.sm,
   },
   input: {
     backgroundColor: colors.surface,

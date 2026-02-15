@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +35,7 @@ export default function HistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [exerciseMap, setExerciseMap] = useState<Record<string, Exercise>>({});
   const [historyModalExercise, setHistoryModalExercise] = useState<Exercise | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const hasLoadedOnce = useRef(false);
 
   useFocusEffect(
@@ -68,6 +70,28 @@ export default function HistoryScreen() {
       };
     }, []),
   );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [history, exercises] = await Promise.all([
+        getWorkoutHistory(),
+        getAllExercises(),
+      ]);
+
+      const map: Record<string, Exercise> = {};
+      for (const e of exercises) map[e.id] = e;
+      setExerciseMap(map);
+
+      const enriched: WorkoutWithDuration[] = history.map((w) => ({
+        ...w,
+        duration: formatDuration(w.started_at, w.finished_at),
+      }));
+      setWorkouts(enriched);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   const handleExpand = useCallback(
     async (workoutId: string) => {
@@ -196,6 +220,13 @@ export default function HistoryScreen() {
         renderItem={renderWorkout}
         contentContainerStyle={
           workouts.length === 0 ? styles.emptyContainer : styles.list
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+          />
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>

@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,7 @@ export default function ExercisesScreen() {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [search, setSearch] = useState('');
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const hasLoadedOnce = useRef(false);
 
   useFocusEffect(
@@ -40,6 +42,16 @@ export default function ExercisesScreen() {
       setLoading(false);
     }
   }
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const all = await getAllExercises();
+      setExercises(all);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
@@ -89,8 +101,24 @@ export default function ExercisesScreen() {
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderExercise}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="barbell-outline" size={64} color={colors.textMuted} />
+            <Text style={styles.emptyText}>No Exercises Yet</Text>
+            <Text style={styles.emptySubtext}>
+              Exercises will appear here once you sync or create them from a template.
+            </Text>
+          </View>
+        }
       />
 
       <ExerciseHistoryModal
@@ -142,6 +170,27 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.xl,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  emptyText: {
+    color: colors.text,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    marginTop: spacing.lg,
+  },
+  emptySubtext: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    marginTop: spacing.sm,
+    textAlign: 'center' as const,
   },
   exerciseCard: {
     flexDirection: 'row',

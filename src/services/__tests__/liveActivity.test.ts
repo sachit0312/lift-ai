@@ -75,7 +75,7 @@ describe('liveActivity service', () => {
   });
 
   describe('adjustRestTimerActivity', () => {
-    it('updates Live Activity with new countdown', () => {
+    it('updates Live Activity with new countdown and preserves exercise name', () => {
       startRestTimerActivity(120, 'Bench Press');
       jest.clearAllMocks();
 
@@ -84,6 +84,7 @@ describe('liveActivity service', () => {
       expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
         'mock-activity-id',
         expect.objectContaining({
+          title: 'Bench Press',
           progressBar: expect.objectContaining({
             date: expect.any(Number),
           }),

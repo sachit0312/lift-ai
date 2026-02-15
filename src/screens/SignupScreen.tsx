@@ -24,6 +24,7 @@ export default function SignupScreen({ navigation }: Props) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
   const handleSignup = async () => {
     if (!email || !password || !confirmPassword) {
@@ -49,6 +50,8 @@ export default function SignupScreen({ navigation }: Props) {
     setLoading(false);
     if (authError) {
       setError(authError.message);
+    } else {
+      setSignupSuccess(true);
     }
   };
 
@@ -58,70 +61,88 @@ export default function SignupScreen({ navigation }: Props) {
         style={styles.inner}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.logoContainer}>
-          <Ionicons name="barbell" size={64} color={colors.primary} />
-        </View>
+        {signupSuccess ? (
+          <View style={styles.successContainer} testID="signup-success">
+            <Ionicons name="checkmark-circle" size={64} color={colors.success} />
+            <Text style={styles.successTitle}>Check Your Email</Text>
+            <Text style={styles.successMessage}>
+              We sent a verification link to {email}. Please check your inbox to verify your account.
+            </Text>
+            <TouchableOpacity
+              style={styles.backToLoginButton}
+              onPress={() => navigation.navigate('Login')}
+            >
+              <Text style={styles.backToLoginText}>Back to Login</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <View style={styles.logoContainer}>
+              <Ionicons name="barbell" size={64} color={colors.primary} />
+            </View>
 
-        <Text style={styles.title}>Create Account</Text>
+            <Text style={styles.title}>Create Account</Text>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor={colors.textMuted}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          editable={!loading}
-          testID="signup-email"
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor={colors.textMuted}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              editable={!loading}
+              testID="signup-email"
+            />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor={colors.textMuted}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          editable={!loading}
-          testID="signup-password"
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor={colors.textMuted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              editable={!loading}
+              testID="signup-password"
+            />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Confirm Password"
-          placeholderTextColor={colors.textMuted}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          secureTextEntry
-          editable={!loading}
-          testID="signup-confirm"
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="Confirm Password"
+              placeholderTextColor={colors.textMuted}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              editable={!loading}
+              testID="signup-confirm"
+            />
 
-        <TouchableOpacity
-          style={[styles.signupButton, loading && styles.disabledButton]}
-          onPress={handleSignup}
-          disabled={loading}
-          testID="signup-btn"
-        >
-          {loading ? (
-            <ActivityIndicator color={colors.white} />
-          ) : (
-            <Text style={styles.signupButtonText}>Create Account</Text>
-          )}
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.signupButton, loading && styles.disabledButton]}
+              onPress={handleSignup}
+              disabled={loading}
+              testID="signup-btn"
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.white} />
+              ) : (
+                <Text style={styles.signupButtonText}>Create Account</Text>
+              )}
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.loginLink}
-          onPress={() => navigation.navigate('Login')}
-          disabled={loading}
-        >
-          <Text style={styles.loginText}>
-            Already have an account? <Text style={styles.loginTextBold}>Log In</Text>
-          </Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.loginLink}
+              onPress={() => navigation.navigate('Login')}
+              disabled={loading}
+            >
+              <Text style={styles.loginText}>
+                Already have an account? <Text style={styles.loginTextBold}>Log In</Text>
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -190,6 +211,36 @@ const styles = StyleSheet.create({
   },
   loginTextBold: {
     color: colors.primary,
+    fontWeight: fontWeight.semibold,
+  },
+  successContainer: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  successTitle: {
+    color: colors.text,
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.bold,
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  successMessage: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    lineHeight: 22,
+  },
+  backToLoginButton: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: 'center',
+  },
+  backToLoginText: {
+    color: colors.white,
+    fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
   },
 });

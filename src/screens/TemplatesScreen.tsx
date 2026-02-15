@@ -4,6 +4,7 @@ import {
   Modal, TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
@@ -86,23 +87,39 @@ export default function TemplatesScreen() {
     ]);
   }, [loadTemplates]);
 
-  const renderItem = useCallback(({ item }: { item: TemplateWithCount }) => (
+  const renderSwipeActions = useCallback((item: Template) => () => (
     <TouchableOpacity
-      style={styles.card}
-      onPress={() => navigation.navigate('TemplateDetail', { templateId: item.id, templateName: item.name })}
-      onLongPress={() => handleLongPress(item)}
+      style={styles.swipeDeleteAction}
+      onPress={() => handleLongPress(item)}
       activeOpacity={0.7}
     >
-      <View style={styles.cardLeft} />
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTitle}>{item.name}</Text>
-        <Text style={styles.cardSub}>
-          {item.exerciseCount} exercise{item.exerciseCount !== 1 ? 's' : ''} · Updated {new Date(item.updated_at).toLocaleDateString()}
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      <Ionicons name="trash-outline" size={22} color={colors.white} />
+      <Text style={styles.swipeDeleteText}>Delete</Text>
     </TouchableOpacity>
-  ), [navigation, handleLongPress]);
+  ), [handleLongPress]);
+
+  const renderItem = useCallback(({ item }: { item: TemplateWithCount }) => (
+    <Swipeable
+      renderRightActions={renderSwipeActions(item)}
+      overshootRight={false}
+    >
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => navigation.navigate('TemplateDetail', { templateId: item.id, templateName: item.name })}
+        onLongPress={() => handleLongPress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardLeft} />
+        <View style={styles.cardBody}>
+          <Text style={styles.cardTitle}>{item.name}</Text>
+          <Text style={styles.cardSub}>
+            {item.exerciseCount} exercise{item.exerciseCount !== 1 ? 's' : ''} · Updated {new Date(item.updated_at).toLocaleDateString()}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </TouchableOpacity>
+    </Swipeable>
+  ), [navigation, handleLongPress, renderSwipeActions]);
 
   return (
     <View style={styles.container}>
@@ -214,6 +231,20 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.sm,
     marginTop: spacing.xs,
+  },
+  swipeDeleteAction: {
+    backgroundColor: colors.error,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
+  },
+  swipeDeleteText: {
+    color: colors.white,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+    marginTop: spacing.xxs,
   },
   fab: {
     position: 'absolute',

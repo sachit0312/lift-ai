@@ -6,6 +6,7 @@ jest.mock('../../services/supabase', () => ({
     auth: {
       signInWithPassword: jest.fn().mockResolvedValue({ error: null }),
       signInWithOAuth: jest.fn().mockResolvedValue({ data: null, error: null }),
+      resetPasswordForEmail: jest.fn().mockResolvedValue({ error: null }),
     },
   },
 }));
