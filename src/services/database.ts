@@ -324,125 +324,213 @@ export async function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'creat
   }
 }
 
+export async function getBulkExercises(ids: string[]): Promise<Exercise[]> {
+  if (ids.length === 0) return [];
+  try {
+    const database = await getDb();
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = await database.getAllAsync<ExerciseRow>(
+      `SELECT * FROM exercises WHERE id IN (${placeholders})`, ...ids
+    );
+    return rows.map(parseExercise);
+  } catch (error) {
+    console.error('getBulkExercises error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
+}
+
 export async function updateExerciseNotes(exerciseId: string, notes: string | null): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('UPDATE exercises SET notes = ? WHERE id = ?', notes, exerciseId);
+  try {
+    const database = await getDb();
+    await database.runAsync('UPDATE exercises SET notes = ? WHERE id = ?', notes, exerciseId);
+  } catch (error) {
+    console.error('updateExerciseNotes error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 // ─── Templates ───
 
 export async function getAllTemplates(): Promise<Template[]> {
-  const database = await getDb();
-  return database.getAllAsync<Template>('SELECT * FROM templates ORDER BY updated_at DESC');
+  try {
+    const database = await getDb();
+    return database.getAllAsync<Template>('SELECT * FROM templates ORDER BY updated_at DESC');
+  } catch (error) {
+    console.error('getAllTemplates error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function createTemplate(name: string): Promise<Template> {
-  const database = await getDb();
-  const id = uuid();
-  const now = new Date().toISOString();
-  await database.runAsync('INSERT INTO templates (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)', id, name, now, now);
-  return { id, user_id: 'local', name, created_at: now, updated_at: now };
+  try {
+    const database = await getDb();
+    const id = uuid();
+    const now = new Date().toISOString();
+    await database.runAsync('INSERT INTO templates (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)', id, name, now, now);
+    return { id, user_id: 'local', name, created_at: now, updated_at: now };
+  } catch (error) {
+    console.error('createTemplate error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function updateTemplate(id: string, name: string): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('UPDATE templates SET name = ?, updated_at = datetime(\'now\') WHERE id = ?', name, id);
+  try {
+    const database = await getDb();
+    await database.runAsync('UPDATE templates SET name = ?, updated_at = datetime(\'now\') WHERE id = ?', name, id);
+  } catch (error) {
+    console.error('updateTemplate error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function deleteTemplate(id: string): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('DELETE FROM template_exercises WHERE template_id = ?', id);
-  await database.runAsync('DELETE FROM templates WHERE id = ?', id);
+  try {
+    const database = await getDb();
+    await database.runAsync('DELETE FROM template_exercises WHERE template_id = ?', id);
+    await database.runAsync('DELETE FROM templates WHERE id = ?', id);
+  } catch (error) {
+    console.error('deleteTemplate error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 // ─── Template Exercises ───
 
 export async function getTemplateExercises(templateId: string): Promise<TemplateExercise[]> {
-  const database = await getDb();
-  const rows = await database.getAllAsync<TemplateExerciseJoinRow>(
-    `SELECT te.*, e.name as exercise_name, e.type as exercise_type, e.muscle_groups as exercise_muscle_groups, e.training_goal as exercise_training_goal, e.description as exercise_description, e.created_at as exercise_created_at, e.notes as exercise_notes
-     FROM template_exercises te
-     JOIN exercises e ON te.exercise_id = e.id
-     WHERE te.template_id = ?
-     ORDER BY te.sort_order`,
-    templateId,
-  );
-  return rows.map((r: TemplateExerciseJoinRow) => ({
-    id: r.id,
-    template_id: r.template_id,
-    exercise_id: r.exercise_id,
-    order: r.sort_order,
-    default_sets: r.default_sets,
-    rest_seconds: r.rest_seconds ?? 150,
-    exercise: {
-      id: r.exercise_id,
-      user_id: 'local',
-      name: r.exercise_name,
-      type: r.exercise_type as ExerciseType,
-      muscle_groups: safeJsonParse(r.exercise_muscle_groups, []),
-      training_goal: r.exercise_training_goal as TrainingGoal,
-      description: r.exercise_description,
-      created_at: r.exercise_created_at,
-      notes: r.exercise_notes ?? null,
-    },
-  }));
+  try {
+    const database = await getDb();
+    const rows = await database.getAllAsync<TemplateExerciseJoinRow>(
+      `SELECT te.*, e.name as exercise_name, e.type as exercise_type, e.muscle_groups as exercise_muscle_groups, e.training_goal as exercise_training_goal, e.description as exercise_description, e.created_at as exercise_created_at, e.notes as exercise_notes
+       FROM template_exercises te
+       JOIN exercises e ON te.exercise_id = e.id
+       WHERE te.template_id = ?
+       ORDER BY te.sort_order`,
+      templateId,
+    );
+    return rows.map((r: TemplateExerciseJoinRow) => ({
+      id: r.id,
+      template_id: r.template_id,
+      exercise_id: r.exercise_id,
+      order: r.sort_order,
+      default_sets: r.default_sets,
+      rest_seconds: r.rest_seconds ?? 150,
+      exercise: {
+        id: r.exercise_id,
+        user_id: 'local',
+        name: r.exercise_name,
+        type: r.exercise_type as ExerciseType,
+        muscle_groups: safeJsonParse(r.exercise_muscle_groups, []),
+        training_goal: r.exercise_training_goal as TrainingGoal,
+        description: r.exercise_description,
+        created_at: r.exercise_created_at,
+        notes: r.exercise_notes ?? null,
+      },
+    }));
+  } catch (error) {
+    console.error('getTemplateExercises error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function getTemplateExerciseCount(templateId: string): Promise<number> {
-  const database = await getDb();
-  const rows = await database.getAllAsync<CountRow>('SELECT COUNT(*) as count FROM template_exercises WHERE template_id = ?', templateId);
-  return rows[0]?.count ?? 0;
+  try {
+    const database = await getDb();
+    const rows = await database.getAllAsync<CountRow>('SELECT COUNT(*) as count FROM template_exercises WHERE template_id = ?', templateId);
+    return rows[0]?.count ?? 0;
+  } catch (error) {
+    console.error('getTemplateExerciseCount error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function addExerciseToTemplate(templateId: string, exerciseId: string, defaults?: { sets?: number; rest_seconds?: number }): Promise<TemplateExercise> {
-  const database = await getDb();
-  const id = uuid();
-  const existing = await database.getAllAsync<MaxOrderRow>('SELECT MAX(sort_order) as max_order FROM template_exercises WHERE template_id = ?', templateId);
-  const order = (existing[0]?.max_order ?? -1) + 1;
-  const restSec = defaults?.rest_seconds ?? 150;
-  await database.runAsync(
-    'INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds) VALUES (?, ?, ?, ?, ?, ?)',
-    id, templateId, exerciseId, order, defaults?.sets ?? 3, restSec,
-  );
-  return { id, template_id: templateId, exercise_id: exerciseId, order, default_sets: defaults?.sets ?? 3, rest_seconds: restSec };
+  try {
+    const database = await getDb();
+    const id = uuid();
+    const existing = await database.getAllAsync<MaxOrderRow>('SELECT MAX(sort_order) as max_order FROM template_exercises WHERE template_id = ?', templateId);
+    const order = (existing[0]?.max_order ?? -1) + 1;
+    const restSec = defaults?.rest_seconds ?? 150;
+    await database.runAsync(
+      'INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds) VALUES (?, ?, ?, ?, ?, ?)',
+      id, templateId, exerciseId, order, defaults?.sets ?? 3, restSec,
+    );
+    return { id, template_id: templateId, exercise_id: exerciseId, order, default_sets: defaults?.sets ?? 3, rest_seconds: restSec };
+  } catch (error) {
+    console.error('addExerciseToTemplate error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function removeExerciseFromTemplate(id: string): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('DELETE FROM template_exercises WHERE id = ?', id);
+  try {
+    const database = await getDb();
+    await database.runAsync('DELETE FROM template_exercises WHERE id = ?', id);
+  } catch (error) {
+    console.error('removeExerciseFromTemplate error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number }): Promise<void> {
-  const database = await getDb();
-  const parts: string[] = [];
-  const values: (string | number)[] = [];
-  if (defaults.sets !== undefined) { parts.push('default_sets = ?'); values.push(defaults.sets); }
-  if (defaults.rest_seconds !== undefined) { parts.push('rest_seconds = ?'); values.push(defaults.rest_seconds); }
-  if (parts.length === 0) return;
-  values.push(id);
-  await database.runAsync(`UPDATE template_exercises SET ${parts.join(', ')} WHERE id = ?`, ...values);
+  try {
+    const database = await getDb();
+    const parts: string[] = [];
+    const values: (string | number)[] = [];
+    if (defaults.sets !== undefined) { parts.push('default_sets = ?'); values.push(defaults.sets); }
+    if (defaults.rest_seconds !== undefined) { parts.push('rest_seconds = ?'); values.push(defaults.rest_seconds); }
+    if (parts.length === 0) return;
+    values.push(id);
+    await database.runAsync(`UPDATE template_exercises SET ${parts.join(', ')} WHERE id = ?`, ...values);
+  } catch (error) {
+    console.error('updateTemplateExerciseDefaults error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 // ─── Workouts ───
 
 export async function startWorkout(templateId: string | null): Promise<Workout> {
-  const database = await getDb();
-  const id = uuid();
-  const now = new Date().toISOString();
-  await database.runAsync('INSERT INTO workouts (id, template_id, started_at) VALUES (?, ?, ?)', id, templateId, now);
-  return { id, user_id: 'local', template_id: templateId, started_at: now, finished_at: null, ai_summary: null, notes: null };
+  try {
+    const database = await getDb();
+    const id = uuid();
+    const now = new Date().toISOString();
+    await database.runAsync('INSERT INTO workouts (id, template_id, started_at) VALUES (?, ?, ?)', id, templateId, now);
+    return { id, user_id: 'local', template_id: templateId, started_at: now, finished_at: null, ai_summary: null, notes: null };
+  } catch (error) {
+    console.error('startWorkout error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function finishWorkout(id: string, summary?: string, notes?: string): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('UPDATE workouts SET finished_at = datetime(\'now\'), ai_summary = ?, notes = ? WHERE id = ?', summary ?? null, notes ?? null, id);
+  try {
+    const database = await getDb();
+    await database.runAsync('UPDATE workouts SET finished_at = datetime(\'now\'), ai_summary = ?, notes = ? WHERE id = ?', summary ?? null, notes ?? null, id);
+  } catch (error) {
+    console.error('finishWorkout error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
-export async function getWorkoutHistory(): Promise<Workout[]> {
+export async function getWorkoutHistory(limit: number = 100): Promise<Workout[]> {
   try {
     const database = await getDb();
     const rows = await database.getAllAsync<WorkoutRow>(
-      `SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NOT NULL ORDER BY w.started_at DESC`
+      `SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NOT NULL ORDER BY w.started_at DESC LIMIT ?`, limit
     );
     return rows;
   } catch (error) {
@@ -453,129 +541,171 @@ export async function getWorkoutHistory(): Promise<Workout[]> {
 }
 
 export async function getActiveWorkout(): Promise<Workout | null> {
-  const database = await getDb();
-  const rows = await database.getAllAsync<WorkoutRow>(
-    'SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NULL ORDER BY w.started_at DESC LIMIT 1'
-  );
-  return rows[0] ?? null;
+  try {
+    const database = await getDb();
+    const rows = await database.getAllAsync<WorkoutRow>(
+      'SELECT w.*, t.name as template_name FROM workouts w LEFT JOIN templates t ON w.template_id = t.id WHERE w.finished_at IS NULL ORDER BY w.started_at DESC LIMIT 1'
+    );
+    return rows[0] ?? null;
+  } catch (error) {
+    console.error('getActiveWorkout error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function deleteWorkout(id: string): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('DELETE FROM workout_sets WHERE workout_id = ?', id);
-  await database.runAsync('DELETE FROM workouts WHERE id = ?', id);
+  try {
+    const database = await getDb();
+    await database.runAsync('DELETE FROM workout_sets WHERE workout_id = ?', id);
+    await database.runAsync('DELETE FROM workouts WHERE id = ?', id);
+  } catch (error) {
+    console.error('deleteWorkout error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 // ─── Workout Sets ───
 
 export async function getWorkoutSets(workoutId: string): Promise<WorkoutSet[]> {
-  const database = await getDb();
-  const rows = await database.getAllAsync<WorkoutSetRow>(
-    'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_id, set_number',
-    workoutId,
-  );
-  return rows.map((r: WorkoutSetRow) => ({ ...r, is_completed: !!r.is_completed, tag: r.tag as SetTag }));
+  try {
+    const database = await getDb();
+    const rows = await database.getAllAsync<WorkoutSetRow>(
+      'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_id, set_number',
+      workoutId,
+    );
+    return rows.map((r: WorkoutSetRow) => ({ ...r, is_completed: !!r.is_completed, tag: r.tag as SetTag }));
+  } catch (error) {
+    console.error('getWorkoutSets error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function addWorkoutSet(set: Omit<WorkoutSet, 'id'>): Promise<WorkoutSet> {
-  const database = await getDb();
-  const id = uuid();
-  await database.runAsync(
-    'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    id, set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
-  );
-  return { id, ...set };
+  try {
+    const database = await getDb();
+    const id = uuid();
+    await database.runAsync(
+      'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id, set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
+    );
+    return { id, ...set };
+  } catch (error) {
+    console.error('addWorkoutSet error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function updateWorkoutSet(id: string, updates: Partial<WorkoutSet>): Promise<void> {
-  const database = await getDb();
-  const parts: string[] = [];
-  const values: (string | number | null)[] = [];
-  if (updates.reps !== undefined) { parts.push('reps = ?'); values.push(updates.reps); }
-  if (updates.weight !== undefined) { parts.push('weight = ?'); values.push(updates.weight); }
-  if (updates.tag !== undefined) { parts.push('tag = ?'); values.push(updates.tag); }
-  if (updates.rpe !== undefined) { parts.push('rpe = ?'); values.push(updates.rpe); }
-  if (updates.is_completed !== undefined) { parts.push('is_completed = ?'); values.push(updates.is_completed ? 1 : 0); }
-  if (updates.notes !== undefined) { parts.push('notes = ?'); values.push(updates.notes); }
-  if (parts.length === 0) return;
-  values.push(id);
-  await database.runAsync(`UPDATE workout_sets SET ${parts.join(', ')} WHERE id = ?`, ...values);
+  try {
+    const database = await getDb();
+    const parts: string[] = [];
+    const values: (string | number | null)[] = [];
+    if (updates.reps !== undefined) { parts.push('reps = ?'); values.push(updates.reps); }
+    if (updates.weight !== undefined) { parts.push('weight = ?'); values.push(updates.weight); }
+    if (updates.tag !== undefined) { parts.push('tag = ?'); values.push(updates.tag); }
+    if (updates.rpe !== undefined) { parts.push('rpe = ?'); values.push(updates.rpe); }
+    if (updates.is_completed !== undefined) { parts.push('is_completed = ?'); values.push(updates.is_completed ? 1 : 0); }
+    if (updates.notes !== undefined) { parts.push('notes = ?'); values.push(updates.notes); }
+    if (parts.length === 0) return;
+    values.push(id);
+    await database.runAsync(`UPDATE workout_sets SET ${parts.join(', ')} WHERE id = ?`, ...values);
+  } catch (error) {
+    console.error('updateWorkoutSet error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function deleteWorkoutSet(id: string): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('DELETE FROM workout_sets WHERE id = ?', id);
+  try {
+    const database = await getDb();
+    await database.runAsync('DELETE FROM workout_sets WHERE id = ?', id);
+  } catch (error) {
+    console.error('deleteWorkoutSet error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
 }
 
 export async function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ workout: Workout; sets: WorkoutSet[] }[]> {
-  const database = await getDb();
+  try {
+    const database = await getDb();
 
-  // Get workout IDs first (needed for LIMIT on workouts, not sets)
-  const workoutIds = await database.getAllAsync<WorkoutIdRow>(
-    `SELECT DISTINCT w.id FROM workouts w
-     INNER JOIN workout_sets ws ON ws.workout_id = w.id
-     WHERE ws.exercise_id = ? AND w.finished_at IS NOT NULL AND ws.is_completed = 1
-     ORDER BY w.started_at DESC
-     LIMIT ?`,
-    exerciseId, limit,
-  );
+    // Get workout IDs first (needed for LIMIT on workouts, not sets)
+    const workoutIds = await database.getAllAsync<WorkoutIdRow>(
+      `SELECT DISTINCT w.id FROM workouts w
+       INNER JOIN workout_sets ws ON ws.workout_id = w.id
+       WHERE ws.exercise_id = ? AND w.finished_at IS NOT NULL AND ws.is_completed = 1
+       ORDER BY w.started_at DESC
+       LIMIT ?`,
+      exerciseId, limit,
+    );
 
-  if (workoutIds.length === 0) return [];
+    if (workoutIds.length === 0) return [];
 
-  const ids = workoutIds.map((w: WorkoutIdRow) => w.id);
-  const placeholders = ids.map(() => '?').join(',');
+    const ids = workoutIds.map((w: WorkoutIdRow) => w.id);
+    const placeholders = ids.map(() => '?').join(',');
 
-  // Single JOIN query for workouts and sets
-  const rows = await database.getAllAsync<ExerciseHistoryJoinRow>(
-    `SELECT
-       w.id as w_id, w.user_id as w_user_id, w.template_id as w_template_id,
-       w.started_at as w_started_at, w.finished_at as w_finished_at,
-       w.ai_summary as w_ai_summary, w.notes as w_notes,
-       ws.id as s_id, ws.workout_id as s_workout_id, ws.exercise_id as s_exercise_id,
-       ws.set_number as s_set_number, ws.reps as s_reps, ws.weight as s_weight,
-       ws.tag as s_tag, ws.rpe as s_rpe, ws.is_completed as s_is_completed, ws.notes as s_notes
-     FROM workouts w
-     INNER JOIN workout_sets ws ON ws.workout_id = w.id
-     WHERE w.id IN (${placeholders}) AND ws.exercise_id = ?
-     ORDER BY w.started_at DESC, ws.set_number`,
-    ...ids, exerciseId,
-  );
+    // Single JOIN query for workouts and sets
+    const rows = await database.getAllAsync<ExerciseHistoryJoinRow>(
+      `SELECT
+         w.id as w_id, w.user_id as w_user_id, w.template_id as w_template_id,
+         w.started_at as w_started_at, w.finished_at as w_finished_at,
+         w.ai_summary as w_ai_summary, w.notes as w_notes,
+         ws.id as s_id, ws.workout_id as s_workout_id, ws.exercise_id as s_exercise_id,
+         ws.set_number as s_set_number, ws.reps as s_reps, ws.weight as s_weight,
+         ws.tag as s_tag, ws.rpe as s_rpe, ws.is_completed as s_is_completed, ws.notes as s_notes
+       FROM workouts w
+       INNER JOIN workout_sets ws ON ws.workout_id = w.id
+       WHERE w.id IN (${placeholders}) AND ws.exercise_id = ?
+       ORDER BY w.started_at DESC, ws.set_number`,
+      ...ids, exerciseId,
+    );
 
-  // Group by workout_id in memory
-  const workoutMap = new Map<string, { workout: Workout; sets: WorkoutSet[] }>();
+    // Group by workout_id in memory
+    const workoutMap = new Map<string, { workout: Workout; sets: WorkoutSet[] }>();
 
-  for (const r of rows) {
-    if (!workoutMap.has(r.w_id)) {
-      workoutMap.set(r.w_id, {
-        workout: {
-          id: r.w_id,
-          user_id: r.w_user_id,
-          template_id: r.w_template_id,
-          started_at: r.w_started_at,
-          finished_at: r.w_finished_at,
-          ai_summary: r.w_ai_summary,
-          notes: r.w_notes,
-        },
-        sets: [],
+    for (const r of rows) {
+      if (!workoutMap.has(r.w_id)) {
+        workoutMap.set(r.w_id, {
+          workout: {
+            id: r.w_id,
+            user_id: r.w_user_id,
+            template_id: r.w_template_id,
+            started_at: r.w_started_at,
+            finished_at: r.w_finished_at,
+            ai_summary: r.w_ai_summary,
+            notes: r.w_notes,
+          },
+          sets: [],
+        });
+      }
+
+      workoutMap.get(r.w_id)!.sets.push({
+        id: r.s_id,
+        workout_id: r.s_workout_id,
+        exercise_id: r.s_exercise_id,
+        set_number: r.s_set_number,
+        reps: r.s_reps,
+        weight: r.s_weight,
+        tag: r.s_tag as SetTag,
+        rpe: r.s_rpe,
+        is_completed: !!r.s_is_completed,
+        notes: r.s_notes,
       });
     }
 
-    workoutMap.get(r.w_id)!.sets.push({
-      id: r.s_id,
-      workout_id: r.s_workout_id,
-      exercise_id: r.s_exercise_id,
-      set_number: r.s_set_number,
-      reps: r.s_reps,
-      weight: r.s_weight,
-      tag: r.s_tag as SetTag,
-      rpe: r.s_rpe,
-      is_completed: !!r.s_is_completed,
-      notes: r.s_notes,
-    });
+    // Return in same order as workout IDs (most recent first)
+    return ids.map(id => workoutMap.get(id)!).filter(Boolean);
+  } catch (error) {
+    console.error('getExerciseHistory error:', error);
+    Sentry.captureException(error);
+    throw error;
   }
-
-  // Return in same order as workout IDs (most recent first)
-  return ids.map(id => workoutMap.get(id)!).filter(Boolean);
 }
 
 // ─── PRs This Week ───

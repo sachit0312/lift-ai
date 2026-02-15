@@ -22,8 +22,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedStyle, SharedValue, interpolate, Extrapolation } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Sentry from '@sentry/react-native';
 import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
-import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
+import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
 import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
@@ -52,6 +53,7 @@ import {
   getAllExercises,
   createExercise,
   updateExerciseNotes,
+  getBulkExercises,
 } from '../services/database';
 import type {
   Template,
@@ -153,8 +155,9 @@ export default function WorkoutScreen() {
 
   async function loadState() {
     setLoading(true);
+    let active: Workout | null = null;
     try {
-      const active = await getActiveWorkout();
+      active = await getActiveWorkout();
       setActiveWorkout(active);
       workoutRef.current = active;
 
@@ -175,6 +178,16 @@ export default function WorkoutScreen() {
       }
     } catch (e) {
       console.error('Failed to load workout state', e);
+      Sentry.captureException(e);
+      if (active) {
+        // Set active workout even though blocks failed to load, so user can cancel
+        setActiveWorkout(active);
+        workoutRef.current = active;
+        setTemplateName(active.template_name ?? null);
+        setExerciseBlocks([]);
+        startElapsedTimer(active.started_at);
+        Alert.alert('Error', 'Failed to load workout exercises. You can cancel this workout or try again.');
+      }
       setLoading(false);
     }
   }
@@ -231,14 +244,16 @@ export default function WorkoutScreen() {
     }
 
     const blocks: ExerciseBlock[] = [];
+    const exercises = await getBulkExercises(exerciseOrder);
+    const exerciseLookup = new Map(exercises.map(e => [e.id, e]));
+
     for (const exId of exerciseOrder) {
       const wSets = exerciseMap[exId];
-      const exercise = await getExerciseById(exId);
+      const exercise = exerciseLookup.get(exId);
       if (!exercise) continue;
 
       const lastTime = await formatLastTime(exId);
       const previousSets = await getPreviousSets(exId);
-      // Fall back to exercise sticky notes if workout_set.notes is empty
       const setNotes = wSets[0]?.notes;
       const restoredNotes = setNotes || exercise.notes || '';
 
@@ -467,6 +482,7 @@ export default function WorkoutScreen() {
       activateWorkout(workout, blocks, template.name);
     } catch (e) {
       console.error('Failed to start workout', e);
+      Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
       setStartingTemplateId(null);
     }
@@ -493,6 +509,7 @@ export default function WorkoutScreen() {
       activateWorkout(workout, []);
     } catch (e) {
       console.error('Failed to start empty workout', e);
+      Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -516,6 +533,7 @@ export default function WorkoutScreen() {
       activateWorkout(workout, blocks);
     } catch (e) {
       console.error('Failed to start upcoming workout', e);
+      Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
       setLoading(false);
     }
