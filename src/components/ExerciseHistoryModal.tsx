@@ -22,7 +22,6 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState<DataPoint[]>([]);
   const [prValue, setPrValue] = useState(0);
-  const [prDate, setPrDate] = useState('');
   const [prDateFormatted, setPrDateFormatted] = useState('');
   const [recentSessions, setRecentSessions] = useState<{ date: string; bestSet: WorkoutSet | null }[]>([]);
 
@@ -52,7 +51,6 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
 
       if (points.length > 0) {
         let maxVal = 0;
-        let maxDate = '';
         let maxDateFormatted = '';
         // Find PR from history to get full date for formatting
         for (let i = 0; i < history.length; i++) {
@@ -64,16 +62,13 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
           if (rounded >= maxVal) {
             maxVal = rounded;
             const d = new Date(h.workout.started_at);
-            maxDate = `${d.getMonth() + 1}/${d.getDate()}`;
             maxDateFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           }
         }
         setPrValue(maxVal);
-        setPrDate(maxDate);
         setPrDateFormatted(maxDateFormatted);
       } else {
         setPrValue(0);
-        setPrDate('');
         setPrDateFormatted('');
       }
 
@@ -247,7 +242,7 @@ const styles = StyleSheet.create({
   prSubtext: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
-    marginTop: 2,
+    marginTop: spacing.xxs,
   },
   chartContainer: {
     marginTop: spacing.lg,
@@ -258,7 +253,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     letterSpacing: 0.5,
     marginBottom: spacing.sm,
-    textTransform: 'uppercase' as any,
+    textTransform: 'uppercase' as const,
   },
   noData: {
     color: colors.textMuted,

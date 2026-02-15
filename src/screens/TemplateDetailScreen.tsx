@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
   getTemplateExercises,
@@ -215,12 +215,12 @@ export default function TemplateDetailScreen() {
 
       {/* Rename Modal */}
       <Modal visible={showRenameModal} transparent animationType="fade" onRequestClose={() => setShowRenameModal(false)}>
-        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowRenameModal(false)}>
-            <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Rename Template</Text>
+        <KeyboardAvoidingView behavior="padding" style={modalStyles.overlay}>
+          <TouchableOpacity style={modalStyles.overlay} activeOpacity={1} onPress={() => setShowRenameModal(false)}>
+            <TouchableOpacity activeOpacity={1} style={modalStyles.card}>
+              <Text style={modalStyles.title}>Rename Template</Text>
               <TextInput
-                style={styles.modalInput}
+                style={modalStyles.input}
                 value={renameValue}
                 onChangeText={setRenameValue}
                 placeholder="Template name"
@@ -228,12 +228,12 @@ export default function TemplateDetailScreen() {
                 autoFocus
                 onSubmitEditing={handleRenameConfirm}
               />
-              <View style={styles.modalActions}>
-                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={styles.modalCancelBtn}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+              <View style={modalStyles.actions}>
+                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={modalStyles.cancelBtn}>
+                  <Text style={modalStyles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={handleRenameConfirm} style={styles.modalConfirmBtn}>
-                  <Text style={styles.modalConfirmText}>Save</Text>
+                <TouchableOpacity onPress={handleRenameConfirm} style={[modalStyles.confirmBtn, { backgroundColor: colors.primary }]}>
+                  <Text style={modalStyles.confirmText}>Save</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -368,65 +368,6 @@ const styles = StyleSheet.create({
   },
   addBtnText: {
     color: colors.primary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-  },
-
-  // Modal shared
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    width: '85%',
-    maxWidth: 340,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
-    marginBottom: spacing.sm,
-  },
-  modalInput: {
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    color: colors.text,
-    fontSize: fontSize.md,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: spacing.lg,
-    gap: spacing.sm,
-  },
-  modalCancelBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
-  },
-  modalCancelText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  modalConfirmBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.md,
-  },
-  modalConfirmText: {
-    color: colors.white,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

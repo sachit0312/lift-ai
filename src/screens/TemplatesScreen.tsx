@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
 import { getAllTemplates, createTemplate, deleteTemplate, getTemplateExerciseCount } from '../services/database';
 import type { Template } from '../types/database';
 
@@ -117,12 +117,12 @@ export default function TemplatesScreen() {
       </TouchableOpacity>
 
       <Modal visible={showCreateModal} transparent animationType="fade" onRequestClose={() => setShowCreateModal(false)}>
-        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCreateModal(false)}>
-            <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
-              <Text style={styles.modalTitle}>New Template</Text>
+        <KeyboardAvoidingView behavior="padding" style={modalStyles.overlay}>
+          <TouchableOpacity style={modalStyles.overlay} activeOpacity={1} onPress={() => setShowCreateModal(false)}>
+            <TouchableOpacity activeOpacity={1} style={modalStyles.card}>
+              <Text style={modalStyles.title}>New Template</Text>
               <TextInput
-                style={styles.modalInput}
+                style={modalStyles.input}
                 value={newTemplateName}
                 onChangeText={setNewTemplateName}
                 placeholder="Template name"
@@ -131,12 +131,12 @@ export default function TemplatesScreen() {
                 onSubmitEditing={handleCreateConfirm}
                 testID="template-name-input"
               />
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowCreateModal(false)}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+              <View style={modalStyles.actions}>
+                <TouchableOpacity style={modalStyles.cancelBtn} onPress={() => setShowCreateModal(false)}>
+                  <Text style={modalStyles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.modalCreateBtn} onPress={handleCreateConfirm} testID="template-create-btn">
-                  <Text style={styles.modalCreateText}>Create</Text>
+                <TouchableOpacity style={[modalStyles.confirmBtn, { backgroundColor: colors.primary }]} onPress={handleCreateConfirm} testID="template-create-btn">
+                  <Text style={modalStyles.confirmText}>Create</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -221,64 +221,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
-  },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    width: '85%',
-    maxWidth: 340,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
-    marginBottom: spacing.md,
-  },
-  modalInput: {
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    color: colors.text,
-    fontSize: fontSize.md,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: spacing.lg,
-    gap: spacing.sm,
-  },
-  modalCancelBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
-  },
-  modalCancelText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
-  modalCreateBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.md,
-  },
-  modalCreateText: {
-    color: colors.white,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
   },
 });
