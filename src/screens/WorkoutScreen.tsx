@@ -965,12 +965,12 @@ export default function WorkoutScreen() {
                 />
               )}
 
-              <View style={modalStyles.actions}>
+              <View style={[modalStyles.actions, { justifyContent: 'space-between' }]}>
                 <TouchableOpacity
-                  style={modalStyles.cancelBtn}
+                  style={[modalStyles.cancelBtn, { borderWidth: 1, borderColor: colors.error }]}
                   onPress={() => setPreviewTemplate(null)}
                 >
-                  <Text style={modalStyles.cancelText}>Cancel</Text>
+                  <Text style={[modalStyles.cancelText, { color: colors.error }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[modalStyles.confirmBtn, { backgroundColor: colors.primary }]}
