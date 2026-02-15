@@ -57,7 +57,10 @@ export default function TemplateDetailScreen() {
           updateTemplate(templateId, name.trim()).then(() => {
             setTemplateName(name.trim());
             navigation.setOptions({ title: name.trim() });
-          }).catch((e) => console.error('Failed to rename template', e));
+          }).catch((e) => {
+            console.error('Failed to rename template', e);
+            Alert.alert('Error', 'Failed to rename template. Please try again.');
+          });
         }
       }, 'plain-text', templateName);
     } else {
@@ -73,7 +76,10 @@ export default function TemplateDetailScreen() {
       updateTemplate(templateId, name).then(() => {
         setTemplateName(name);
         navigation.setOptions({ title: name });
-      }).catch((e) => console.error('Failed to rename template', e));
+      }).catch((e) => {
+        console.error('Failed to rename template', e);
+        Alert.alert('Error', 'Failed to rename template. Please try again.');
+      });
     }
   };
 
@@ -115,7 +121,10 @@ export default function TemplateDetailScreen() {
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: () => removeExerciseFromTemplate(item.id).then(loadExercises).catch((e) => console.error('Failed to remove exercise', e)),
+        onPress: () => removeExerciseFromTemplate(item.id).then(loadExercises).catch((e) => {
+          console.error('Failed to remove exercise', e);
+          Alert.alert('Error', 'Failed to remove exercise. Please try again.');
+        }),
       },
     ]);
   }, [loadExercises]);

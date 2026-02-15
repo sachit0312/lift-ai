@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, ScrollView,
-  Keyboard, Modal,
+  Keyboard, Modal, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,7 +37,7 @@ export default function ExercisePickerScreen() {
   const [validationError, setValidationError] = useState('');
 
   const loadExercises = useCallback(() => {
-    getAllExercises().then(setExercises);
+    getAllExercises().then(setExercises).catch((e) => console.error('Failed to load exercises', e));
   }, []);
 
   useFocusEffect(
@@ -49,8 +49,13 @@ export default function ExercisePickerScreen() {
   const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
   const handlePick = useCallback(async (exercise: Exercise) => {
-    await addExerciseToTemplate(templateId, exercise.id);
-    navigation.goBack();
+    try {
+      await addExerciseToTemplate(templateId, exercise.id);
+      navigation.goBack();
+    } catch (e) {
+      console.error('Failed to add exercise to template', e);
+      Alert.alert('Error', 'Failed to add exercise. Please try again.');
+    }
   }, [templateId, navigation]);
 
   const resetForm = () => {
@@ -67,17 +72,22 @@ export default function ExercisePickerScreen() {
       return;
     }
     setValidationError('');
-    const exercise = await createExercise({
-      name: newName.trim(),
-      type: newType,
-      muscle_groups: newMuscles,
-      training_goal: 'hypertrophy',
-      description: '',
-      notes: newExNotes.trim() || null,
-    });
-    await addExerciseToTemplate(templateId, exercise.id);
-    setShowCreateModal(false);
-    navigation.goBack();
+    try {
+      const exercise = await createExercise({
+        name: newName.trim(),
+        type: newType,
+        muscle_groups: newMuscles,
+        training_goal: 'hypertrophy',
+        description: '',
+        notes: newExNotes.trim() || null,
+      });
+      await addExerciseToTemplate(templateId, exercise.id);
+      setShowCreateModal(false);
+      navigation.goBack();
+    } catch (e) {
+      console.error('Failed to create exercise', e);
+      Alert.alert('Error', 'Failed to create exercise. Please try again.');
+    }
   };
 
   const renderItem = useCallback(({ item }: { item: Exercise }) => (

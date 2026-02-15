@@ -47,7 +47,10 @@ export default function TemplatesScreen() {
         if (name && name.trim()) {
           createTemplate(name.trim()).then((t) => {
             navigation.navigate('TemplateDetail', { templateId: t.id, templateName: t.name });
-          }).catch((e) => console.error('Failed to create template', e));
+          }).catch((e) => {
+            console.error('Failed to create template', e);
+            Alert.alert('Error', 'Failed to create template. Please try again.');
+          });
         }
       });
     } else {
@@ -61,7 +64,10 @@ export default function TemplatesScreen() {
     setShowCreateModal(false);
     createTemplate(name).then((t) => {
       navigation.navigate('TemplateDetail', { templateId: t.id, templateName: t.name });
-    }).catch((e) => console.error('Failed to create template', e));
+    }).catch((e) => {
+      console.error('Failed to create template', e);
+      Alert.alert('Error', 'Failed to create template. Please try again.');
+    });
   };
 
   const handleLongPress = useCallback((template: Template) => {
@@ -71,7 +77,10 @@ export default function TemplatesScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteTemplate(template.id).then(loadTemplates).catch((e) => console.error('Failed to delete template', e));
+          deleteTemplate(template.id).then(loadTemplates).catch((e) => {
+            console.error('Failed to delete template', e);
+            Alert.alert('Error', 'Failed to delete template. Please try again.');
+          });
         },
       },
     ]);
