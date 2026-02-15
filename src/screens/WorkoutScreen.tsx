@@ -136,6 +136,9 @@ export default function WorkoutScreen() {
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const workoutRef = useRef<Workout | null>(null);
 
+  // Promise ref for background history pull (so workout start can await it)
+  const historyPulledRef = useRef<Promise<void>>(Promise.resolve());
+
   // Notes debouncing
   const pendingNotesRef = useRef<Map<string, { notes: string; setId: string | null }>>(new Map());
   const notesTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -177,6 +180,14 @@ export default function WorkoutScreen() {
   }
 
   async function loadUpcomingWorkoutInBackground() {
+    // Start workout history pull in parallel (for PREV data)
+    historyPulledRef.current = Promise.race([
+      pullWorkoutHistory(),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+    ]).catch((e) => {
+      console.error('pullWorkoutHistory failed or timed out', e);
+    });
+
     // Pull exercises & templates from Supabase (MCP changes)
     try {
       await Promise.race([
@@ -188,16 +199,6 @@ export default function WorkoutScreen() {
       setTemplates(t);
     } catch (e) {
       console.error('pullExercisesAndTemplates failed or timed out', e);
-    }
-
-    // Pull workout history from Supabase (for PREV data)
-    try {
-      await Promise.race([
-        pullWorkoutHistory(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-      ]);
-    } catch (e) {
-      console.error('pullWorkoutHistory failed or timed out', e);
     }
 
     // Pull upcoming workout from Supabase
@@ -453,6 +454,7 @@ export default function WorkoutScreen() {
   async function handleStartFromTemplate(template: Template) {
     try {
       setStartingTemplateId(template.id);  // Show spinner on this card
+      await historyPulledRef.current;  // Wait for PREV data to be available
       const workout = await startWorkout(template.id);
       const templateExercises = await getTemplateExercises(template.id);
 
@@ -500,6 +502,7 @@ export default function WorkoutScreen() {
     if (!upcomingWorkout) return;
     try {
       setLoading(true);
+      await historyPulledRef.current;  // Wait for PREV data to be available
       const workout = await startWorkout(upcomingWorkout.workout.template_id);
       const blocks: ExerciseBlock[] = [];
 
