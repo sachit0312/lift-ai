@@ -18,8 +18,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.anonymous.workout-enhanced',
+    infoPlist: {
+      NSSupportsLiveActivities: true,
+      NSSupportsLiveActivitiesFrequentUpdates: true,
+    },
   },
   android: {
+    package: 'com.anonymous.workoutenhanced',
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#09090B',
@@ -35,6 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-sqlite',
     'expo-secure-store',
     'expo-web-browser',
+    'expo-live-activity',
     [
       '@sentry/react-native/expo',
       {
@@ -42,5 +48,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         project: process.env.SENTRY_PROJECT || 'react-native',
       },
     ],
+    './plugins/withLocalNotificationsOnly',
   ],
 });

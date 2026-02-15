@@ -62,12 +62,25 @@ const navTheme = {
   },
 };
 
+const linking = {
+  prefixes: ['workout-enhanced://'],
+  config: {
+    screens: {
+      Workout: 'workout',
+    },
+  },
+};
+
 function App() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
         <AuthProvider>
-          <NavigationContainer theme={navTheme} onStateChange={handleNavigationStateChange}>
+          <NavigationContainer
+            theme={navTheme}
+            onStateChange={handleNavigationStateChange}
+            linking={linking}
+          >
             <RootNavigator />
             <StatusBar style="light" />
           </NavigationContainer>
