@@ -1420,14 +1420,14 @@ interface SwipeableSetRowProps {
 // Swipe-to-delete: red expands with swipe, trash icon fades in as you swipe further
 const SetRightAction = React.memo(function SetRightAction({ drag }: { drag: SharedValue<number> }) {
   const animatedStyle = useAnimatedStyle(() => {
-    const dragVal = -drag.value;
+    const dragVal = typeof drag?.value === 'number' ? -drag.value : 0;
     return {
       width: Math.max(80, dragVal),
     };
   });
 
   const iconStyle = useAnimatedStyle(() => {
-    const dragVal = -drag.value;
+    const dragVal = typeof drag?.value === 'number' ? -drag.value : 0;
     const opacity = interpolate(dragVal, [0, 60, 100], [0, 0.6, 1], Extrapolation.CLAMP);
     const scale = interpolate(dragVal, [0, 60, 100], [0.5, 0.85, 1], Extrapolation.CLAMP);
     return { opacity, transform: [{ scale }] };
