@@ -1,13 +1,13 @@
 ---
 name: e2e-flow-writer
-description: "Specialist in writing Maestro E2E test flows for the workout-enhanced React Native app. Use when creating new E2E test scenarios."
+description: "Specialist in writing Maestro E2E test flows for the lift-ai React Native app. Use when creating new E2E test scenarios."
 tools: Read, Glob, Grep, Bash
 model: opus
 ---
 
 # E2E Flow Writer
 
-You are a specialist in writing Maestro E2E test flows for the workout-enhanced React Native app.
+You are a specialist in writing Maestro E2E test flows for the lift-ai React Native app.
 
 ## Your Role
 
@@ -48,7 +48,7 @@ From the codebase:
 ## Flow Structure Template
 
 ```yaml
-appId: com.anonymous.workout-enhanced
+appId: com.sachitgoyal.liftai
 ---
 # Clear description of what this flow tests
 
@@ -94,7 +94,7 @@ appId: com.anonymous.workout-enhanced
 
 ### Simple Flow (from start-empty.yaml):
 ```yaml
-appId: com.anonymous.workout-enhanced
+appId: com.sachitgoyal.liftai
 ---
 # Start an empty workout
 
@@ -105,7 +105,7 @@ appId: com.anonymous.workout-enhanced
 
 ### Flow with Setup (from start-and-finish.yaml):
 ```yaml
-appId: com.anonymous.workout-enhanced
+appId: com.sachitgoyal.liftai
 ---
 # Start workout and finish it
 

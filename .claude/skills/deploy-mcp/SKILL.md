@@ -1,41 +1,41 @@
 ---
 name: deploy-mcp
-description: Build, deploy, and verify the workout MCP server to Cloudflare Workers
+description: Build, deploy, and verify the lift-ai MCP server to Cloudflare Workers
 ---
 
 # Deploy MCP Server
 
-Build, deploy, and verify the workout MCP server at `/Users/sachitgoyal/code/workout-mcp-server/`.
+Build, deploy, and verify the lift-ai MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/`.
 
 ## Arguments
 
-- No args or `prod` → deploy to production (`workout-mcp-server.sachitgoyal6.workers.dev`)
-- `dev` → deploy to dev (`workout-mcp-server-dev.sachitgoyal6.workers.dev`)
+- No args or `prod` → deploy to production (`lift-ai-mcp.sachitgoyal6.workers.dev`)
+- `dev` → deploy to dev (`lift-ai-mcp-dev.sachitgoyal6.workers.dev`)
 
 ## Steps
 
 1. **Build**
    ```bash
-   cd /Users/sachitgoyal/code/workout-mcp-server && npm run build
+   cd /Users/sachitgoyal/code/lift-ai-mcp && npm run build
    ```
    If build fails, show errors and stop.
 
 2. **Deploy**
    ```bash
    # Production (default)
-   cd /Users/sachitgoyal/code/workout-mcp-server && npm run deploy:prod
+   cd /Users/sachitgoyal/code/lift-ai-mcp && npm run deploy:prod
 
    # Dev
-   cd /Users/sachitgoyal/code/workout-mcp-server && npm run deploy:dev
+   cd /Users/sachitgoyal/code/lift-ai-mcp && npm run deploy:dev
    ```
 
 3. **Verify health**
    ```bash
    # Production
-   curl -s https://workout-mcp-server.sachitgoyal6.workers.dev/health
+   curl -s https://lift-ai-mcp.sachitgoyal6.workers.dev/health
 
    # Dev
-   curl -s https://workout-mcp-server-dev.sachitgoyal6.workers.dev/health
+   curl -s https://lift-ai-mcp-dev.sachitgoyal6.workers.dev/health
    ```
    Expect `{"status":"ok"}`. If not, show error and suggest `npm run cf:tail` to debug.
 
@@ -49,7 +49,7 @@ Build, deploy, and verify the workout MCP server at `/Users/sachitgoyal/code/wor
 
 If secrets need updating (rare):
 ```bash
-cd /Users/sachitgoyal/code/workout-mcp-server
+cd /Users/sachitgoyal/code/lift-ai-mcp
 npx wrangler secret put SUPABASE_URL --env <env>
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env <env>
 ```
@@ -58,6 +58,6 @@ npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env <env>
 
 Tail live logs:
 ```bash
-cd /Users/sachitgoyal/code/workout-mcp-server && npm run cf:tail      # production
-cd /Users/sachitgoyal/code/workout-mcp-server && npm run cf:tail:dev  # dev
+cd /Users/sachitgoyal/code/lift-ai-mcp && npm run cf:tail      # production
+cd /Users/sachitgoyal/code/lift-ai-mcp && npm run cf:tail:dev  # dev
 ```

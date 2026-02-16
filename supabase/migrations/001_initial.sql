@@ -1,4 +1,4 @@
--- Workout Enhanced initial schema
+-- Lift.ai initial schema
 
 CREATE TABLE exercises (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

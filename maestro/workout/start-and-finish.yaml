@@ -1,4 +1,4 @@
-appId: com.anonymous.workout-enhanced
+appId: com.sachitgoyal.liftai
 ---
 # Start empty workout, add exercise, input data, finish workout
 # Skips checkbox tap (known Maestro issue with TouchableOpacity in ScrollView)

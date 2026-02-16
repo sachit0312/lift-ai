@@ -3,7 +3,7 @@ import { ExpoConfig, ConfigContext } from 'expo/config';
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'lift.ai',
-  slug: 'workout-enhanced',
+  slug: 'lift-ai',
   scheme: 'liftai',
   version: '1.0.0',
   orientation: 'portrait',

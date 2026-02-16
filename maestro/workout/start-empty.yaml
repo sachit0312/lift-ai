@@ -1,4 +1,4 @@
-appId: com.anonymous.workout-enhanced
+appId: com.sachitgoyal.liftai
 ---
 # Prerequisites: run seed-exercises.yaml first to populate data
 # This flow assumes no active workout (fresh state or after seed)

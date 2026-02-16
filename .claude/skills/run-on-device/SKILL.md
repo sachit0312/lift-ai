@@ -49,7 +49,7 @@ Arguments can be combined: `prod clean` → clean prebuild + production build.
 
 ## Troubleshooting
 
-- **"No development team"**: Open `ios/workout-enhanced.xcodeproj` in Xcode, set signing team
+- **"No development team"**: Open `ios/lift-ai.xcodeproj` in Xcode, set signing team
 - **Build fails after plugin change**: Run with `clean` arg to regenerate native project
 - **Metro bundler issues**: Kill existing Metro with `lsof -ti:8081 | xargs kill -9` then retry
 - **CocoaPods issues**: `cd ios && pod install --repo-update && cd ..`
@@ -57,5 +57,5 @@ Arguments can be combined: `prod clean` → clean prebuild + production build.
 ## Important Notes
 
 - Live Activity requires a native build — it does NOT work in Expo Go
-- Bundle ID: `com.anonymous.workout-enhanced`
+- Bundle ID: `com.sachitgoyal.liftai`
 - Always test on physical iPhone, not simulator, for full feature coverage

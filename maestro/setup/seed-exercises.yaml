@@ -1,4 +1,4 @@
-appId: com.anonymous.workout-enhanced
+appId: com.sachitgoyal.liftai
 ---
 - launchApp:
     clearState: true

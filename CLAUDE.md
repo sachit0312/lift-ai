@@ -1,4 +1,4 @@
-# workout-enhanced
+# lift-ai
 
 Expo React Native workout tracking app with SQLite local storage and Supabase cloud sync.
 
@@ -13,7 +13,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **Observability**: Sentry crash reporting (`@sentry/react-native`) initialized in `App.tsx` with `Sentry.wrap()`. Includes `tracesSampleRate` (1.0 dev, 0.2 prod) and `debug: __DEV__`. Navigation breadcrumbs added via `onStateChange` callback. Errors in sync.ts are reported via `Sentry.captureException()` alongside `console.error()`. User context set/cleared on login/logout in AuthContext. Sentry org: `sachit-goyal`, project: `react-native`. Disabled when `EXPO_PUBLIC_SENTRY_DSN` is not set.
 - **Gesture Handler**: `GestureHandlerRootView` wraps the entire app in `App.tsx` (outermost wrapper), enabling swipe gestures in all screens and modals.
 - **Error Handling**: `ErrorBoundary` class component (`src/components/ErrorBoundary.tsx`) wraps AuthProvider in App.tsx. Catches React errors via `getDerivedStateFromError`/`componentDidCatch`, reports to Sentry with componentStack, shows recovery UI with "Try Again" button. Uses theme colors for dark mode consistency.
-- **Environment Config**: `app.config.ts` (dynamic Expo config, replaces app.json). `.env` (dev default), `.env.development`, `.env.production` for Supabase URL/key separation (local dev). All env files gitignored. Dev Supabase project: `workout-enhanced-dev` (ref: `gcpnqpqqwcwvyzoivolp`). Prod Supabase project: `lift.ai` (ref: `lgnkxjiqzsqiwrqrsxww`). Env switching: `npx expo start` → dev (loads `.env.development`), `npx expo start --no-dev` → prod (loads `.env.production`). Use `.env.local` (gitignored, highest priority) for temporary overrides. EAS cloud builds use env vars inlined in `eas.json` profiles (cloud can't read local `.env` files).
+- **Environment Config**: `app.config.ts` (dynamic Expo config, replaces app.json). `.env` (dev default), `.env.development`, `.env.production` for Supabase URL/key separation (local dev). All env files gitignored. Dev Supabase project: `lift-ai-dev` (ref: `gcpnqpqqwcwvyzoivolp`). Prod Supabase project: `lift.ai` (ref: `lgnkxjiqzsqiwrqrsxww`). Env switching: `npx expo start` → dev (loads `.env.development`), `npx expo start --no-dev` → prod (loads `.env.production`). Use `.env.local` (gitignored, highest priority) for temporary overrides. EAS cloud builds use env vars inlined in `eas.json` profiles (cloud can't read local `.env` files).
 
 ## Screens
 - **LoginScreen** (`src/screens/LoginScreen.tsx`): Email/password login + Google OAuth via expo-web-browser/expo-auth-session. Dark themed with barbell icon. "Forgot Password?" link calls `supabase.auth.resetPasswordForEmail` and shows green success text. Navigates to Signup.
@@ -60,7 +60,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 - **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): Bottom-sheet modal showing exercise history with 1RM progression chart (purple, react-native-chart-kit LineChart, RPE-adjusted), volume progression chart (green, sum of weight×reps per session), structured PR banner (trophy icon, "Personal Record" label, large weight value, "1RM · date" subtext), plateau detection badge (orange warning when 1RM unchanged for 5+ sessions), and recent performances (last 3 sessions with all completed sets listed: set number, weight×reps, RPE if present, tag badge if not working). Requires 3+ sessions to display PR banner and charts; shows progress message otherwise. Accessible from HistoryScreen (tap exercise name), WorkoutScreen (tap exercise name during active workout), and ExercisesScreen (tap exercise card). Uses RPE-adjusted Epley formula via `calculateEstimated1RM(weight, reps, rpe)`.
 
 ## MCP AI Coach
-MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude Desktop for AI coaching. Supports local stdio mode and remote HTTP mode via Cloudflare Workers.
+MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop for AI coaching. Supports local stdio mode and remote HTTP mode via Cloudflare Workers.
 
 **Architecture**: Phone app → Supabase ← MCP server → Claude Desktop
 - **Gym**: Phone app logs sets in real-time, syncs to Supabase on workout finish
@@ -115,13 +115,13 @@ MCP server at `/Users/sachitgoyal/code/workout-mcp-server/` connects to Claude D
 - `npx expo run:ios` — builds native iOS app and launches in simulator (bundle ID: `com.sachitgoyal.liftai`)
 - `npx expo start --ios` — starts Metro bundler + Expo Go (NOT used for testing)
 - `npx tsc --noEmit` — type-check without emitting
-- MCP server: `cd /Users/sachitgoyal/code/workout-mcp-server && npm run build && npm start`
+- MCP server: `cd /Users/sachitgoyal/code/lift-ai-mcp && npm run build && npm start`
 - iOS build uses Xcode DerivedData at default location
 - `npx expo prebuild --clean` — regenerates native projects (needed after adding plugins like expo-live-activity)
 - **Important**: Always test via native build on physical iPhone, not Expo Go. Live Activity requires a native build (not Expo Go).
 
 ## Deployment (EAS Build + App Store + OTA)
-- **App identity**: Display name `lift.ai`, bundle ID `com.sachitgoyal.liftai`, deep link scheme `liftai://`, Expo slug `workout-enhanced`.
+- **App identity**: Display name `lift.ai`, bundle ID `com.sachitgoyal.liftai`, deep link scheme `liftai://`, Expo slug `lift-ai`.
 - **EAS config** in `eas.json` with 3 profiles: `development` (dev client, internal), `preview` (release, internal, auto-increment), `production` (store, release, auto-increment). Each profile has env vars inlined for Supabase + Sentry (cloud builds can't read local `.env` files).
 - **EAS project ID**: `b0905982-b14b-491f-a154-cf3b6aba60d4` (Expo account: `sachitgoyal`).
 - **OTA updates**: `expo-updates` with `fingerprint` runtime version policy. Updates URL: `https://u.expo.dev/b0905982-b14b-491f-a154-cf3b6aba60d4`. Channels: `development`, `preview`, `production`.
