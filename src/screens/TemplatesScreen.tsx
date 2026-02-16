@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Alert, StyleSheet, Platform,
-  Modal, TextInput, KeyboardAvoidingView,
+  Modal, TextInput, KeyboardAvoidingView, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -23,8 +23,11 @@ export default function TemplatesScreen() {
   const [templates, setTemplates] = useState<TemplateWithCount[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const hasLoadedOnce = useRef(false);
 
   const loadTemplates = useCallback(() => {
+    if (!hasLoadedOnce.current) setLoading(true);
     getAllTemplates().then(async (ts) => {
       const withCounts = await Promise.all(
         ts.map(async (t) => ({
@@ -33,7 +36,8 @@ export default function TemplatesScreen() {
         })),
       );
       setTemplates(withCounts);
-    }).catch((e) => console.error('Failed to load templates', e));
+    }).catch((e: unknown) => console.error('Failed to load templates', e))
+      .finally(() => { setLoading(false); hasLoadedOnce.current = true; });
   }, []);
 
   useFocusEffect(
@@ -120,6 +124,14 @@ export default function TemplatesScreen() {
       </TouchableOpacity>
     </Swipeable>
   ), [navigation, handleLongPress, renderSwipeActions]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

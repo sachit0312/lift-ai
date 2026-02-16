@@ -23,3 +23,9 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: true,
   },
 });
+
+export async function deleteAccount(): Promise<void> {
+  // TODO: Create corresponding Supabase Edge Function 'delete-account'
+  const { error } = await supabase.functions.invoke('delete-account');
+  if (error) throw error;
+}

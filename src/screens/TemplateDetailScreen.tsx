@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Alert, StyleSheet, Platform,
-  Modal, TextInput, KeyboardAvoidingView,
+  Modal, TextInput, KeyboardAvoidingView, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
@@ -35,13 +35,18 @@ export default function TemplateDetailScreen() {
 
   const [exercises, setExercises] = useState<TemplateExercise[]>([]);
   const [templateName, setTemplateName] = useState(route.params.templateName);
+  const [loading, setLoading] = useState(true);
+  const hasLoadedOnce = useRef(false);
 
   // Modal state for rename
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameValue, setRenameValue] = useState('');
 
   const loadExercises = useCallback(() => {
-    getTemplateExercises(templateId).then(setExercises).catch((e) => console.error('Failed to load exercises', e));
+    if (!hasLoadedOnce.current) setLoading(true);
+    getTemplateExercises(templateId).then(setExercises)
+      .catch((e: unknown) => console.error('Failed to load exercises', e))
+      .finally(() => { setLoading(false); hasLoadedOnce.current = true; });
   }, [templateId]);
 
   useFocusEffect(
@@ -188,6 +193,14 @@ export default function TemplateDetailScreen() {
       </TouchableOpacity>
     </View>
   ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

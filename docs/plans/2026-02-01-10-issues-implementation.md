@@ -814,7 +814,7 @@ git commit -m "fix: remove redundant template name label"
 **Step 1: Install chart dependency**
 
 ```bash
-cd /Users/sachitgoyal/code/workout-enhanced && npx expo install react-native-chart-kit react-native-svg
+cd /Users/sachitgoyal/code/lift-ai && npx expo install react-native-chart-kit react-native-svg
 ```
 
 **Step 2: Create ExerciseHistoryModal component**

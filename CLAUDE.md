@@ -121,6 +121,7 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 - MCP server: `cd /Users/sachitgoyal/code/lift-ai-mcp && npm run build && npm start`
 - iOS build uses Xcode DerivedData at default location
 - `npx expo prebuild --clean` — regenerates native projects (needed after adding plugins like expo-live-activity)
+- `SENTRY_DISABLE_AUTO_UPLOAD=true npx expo run:ios --device "iPhone" --configuration Release` — prod build to device (skips Sentry source map upload which requires CLI auth)
 - **Important**: Always test via native build on physical iPhone, not Expo Go. Live Activity requires a native build (not Expo Go).
 - **Updating app icon**: Replace `assets/icon.png` (1024x1024 PNG, no alpha, full-bleed — no pre-rendered rounded corners). Also copy to `ios/liftai/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png` for dev builds (or run `npx expo prebuild --clean`). The `ios/` dir is gitignored — EAS cloud builds use `assets/icon.png` from `app.config.ts`.
 

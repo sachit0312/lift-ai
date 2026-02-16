@@ -77,7 +77,7 @@ export const borderRadius = {
 
 **Step 2: Verify no type errors**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 This will produce errors in screens referencing removed colors (`accent`, `success`, `warning`, `error`, `surfaceLight`, `primaryDim`, `textSecondary` → renamed). That's expected — we fix those in subsequent tasks.
 
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
 
 **Step 4: Verify app compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 5: Commit**
 
@@ -262,7 +262,7 @@ export async function finishWorkout(id: string, summary?: string, notes?: string
 
 **Step 6: Verify types compile**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 7: Commit**
 
@@ -377,7 +377,7 @@ Update the StyleSheet to match wireframe:
 
 **Step 5: Verify app compiles and renders**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 6: Commit**
 
@@ -651,7 +651,7 @@ const styles = StyleSheet.create({
 
 **Step 2: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 3: Commit**
 
@@ -860,13 +860,13 @@ git commit -m "feat: generate AI score on workout completion"
 
 **Step 1: Run full type check**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 Fix any remaining type errors.
 
 **Step 2: Run the app in simulator**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx expo start --ios`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx expo start --ios`
 
 Walk through every screen and verify:
 - Two-tone palette (no stray green/orange/blue)
@@ -893,7 +893,7 @@ git commit -m "feat: complete UI redesign - two-tone purple+gray theme"
 ### Task 15: Update CLAUDE.md
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/CLAUDE.md`
+- Modify: `/Users/sachitgoyal/code/lift-ai/CLAUDE.md`
 
 **Step 1: Update documentation to reflect new design**
 

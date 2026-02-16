@@ -64,7 +64,7 @@ ALTER TABLE template_exercises DROP COLUMN IF EXISTS default_weight;
 
 **Step 2: Deploy the migration to Supabase**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx supabase db push`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx supabase db push`
 
 If not using Supabase CLI, apply the SQL directly via the Supabase dashboard SQL editor.
 
@@ -80,20 +80,20 @@ git commit -m "feat: add upcoming_workouts tables, drop template default_reps/we
 ### Task 2: Scaffold MCP Server Project
 
 **Files:**
-- Create: `workout-mcp-server/package.json`
-- Create: `workout-mcp-server/tsconfig.json`
-- Create: `workout-mcp-server/src/index.ts` (entry point stub)
-- Create: `workout-mcp-server/src/supabase.ts`
-- Create: `workout-mcp-server/src/types.ts`
-- Create: `workout-mcp-server/src/tools/read.ts` (stub)
-- Create: `workout-mcp-server/src/tools/write.ts` (stub)
-- Create: `workout-mcp-server/.env.example`
+- Create: `lift-ai-mcp/package.json`
+- Create: `lift-ai-mcp/tsconfig.json`
+- Create: `lift-ai-mcp/src/index.ts` (entry point stub)
+- Create: `lift-ai-mcp/src/supabase.ts`
+- Create: `lift-ai-mcp/src/types.ts`
+- Create: `lift-ai-mcp/src/tools/read.ts` (stub)
+- Create: `lift-ai-mcp/src/tools/write.ts` (stub)
+- Create: `lift-ai-mcp/.env.example`
 
 **Step 1: Create package.json**
 
 ```json
 {
-  "name": "workout-mcp-server",
+  "name": "lift-ai-mcp",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -252,7 +252,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 const server = new McpServer({
-  name: 'workout-tracker',
+  name: 'lift-ai',
   version: '1.0.0',
 });
 
@@ -268,16 +268,16 @@ main().catch(console.error);
 
 **Step 8: Install dependencies**
 
-Run: `cd /Users/sachitgoyal/code/workout-mcp-server && npm install`
+Run: `cd /Users/sachitgoyal/code/lift-ai-mcp && npm install`
 
 **Step 9: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-mcp-server && npx tsc`
+Run: `cd /Users/sachitgoyal/code/lift-ai-mcp && npx tsc`
 
 **Step 10: Commit**
 
 ```bash
-cd /Users/sachitgoyal/code/workout-mcp-server
+cd /Users/sachitgoyal/code/lift-ai-mcp
 git init
 git add -A
 git commit -m "feat: scaffold MCP server project"
@@ -288,8 +288,8 @@ git commit -m "feat: scaffold MCP server project"
 ### Task 3: Implement Read Tools (8 tools)
 
 **Files:**
-- Modify: `workout-mcp-server/src/tools/read.ts`
-- Modify: `workout-mcp-server/src/index.ts` (register tools)
+- Modify: `lift-ai-mcp/src/tools/read.ts`
+- Modify: `lift-ai-mcp/src/index.ts` (register tools)
 
 **Step 1: Implement all 8 read tool handlers in src/tools/read.ts**
 
@@ -523,7 +523,7 @@ export function registerReadTools(server: McpServer) {
 
 **Step 2: Add zod dependency**
 
-Run: `cd /Users/sachitgoyal/code/workout-mcp-server && npm install zod`
+Run: `cd /Users/sachitgoyal/code/lift-ai-mcp && npm install zod`
 
 **Step 3: Register read tools in src/index.ts**
 
@@ -535,7 +535,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { registerReadTools } from './tools/read.js';
 
 const server = new McpServer({
-  name: 'workout-tracker',
+  name: 'lift-ai',
   version: '1.0.0',
 });
 
@@ -552,7 +552,7 @@ main().catch(console.error);
 
 **Step 4: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-mcp-server && npx tsc`
+Run: `cd /Users/sachitgoyal/code/lift-ai-mcp && npx tsc`
 
 **Step 5: Commit**
 
@@ -566,8 +566,8 @@ git commit -m "feat: implement 8 read tools for MCP server"
 ### Task 4: Implement Write Tools (4 tools)
 
 **Files:**
-- Modify: `workout-mcp-server/src/tools/write.ts`
-- Modify: `workout-mcp-server/src/index.ts` (register write tools)
+- Modify: `lift-ai-mcp/src/tools/write.ts`
+- Modify: `lift-ai-mcp/src/index.ts` (register write tools)
 
 **Step 1: Implement all 4 write tool handlers in src/tools/write.ts**
 
@@ -722,7 +722,7 @@ registerWriteTools(server);
 
 **Step 3: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-mcp-server && npx tsc`
+Run: `cd /Users/sachitgoyal/code/lift-ai-mcp && npx tsc`
 
 **Step 4: Commit**
 
@@ -740,11 +740,11 @@ git commit -m "feat: implement 4 write tools for MCP server"
 
 **Step 1: Build the MCP server**
 
-Run: `cd /Users/sachitgoyal/code/workout-mcp-server && npm run build`
+Run: `cd /Users/sachitgoyal/code/lift-ai-mcp && npm run build`
 
 **Step 2: Create .env with real credentials**
 
-Create `workout-mcp-server/.env` with:
+Create `lift-ai-mcp/.env` with:
 ```
 SUPABASE_URL=https://lgnkxjiqzsqiwrqrsxww.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<get from Supabase dashboard → Settings → API>
@@ -757,9 +757,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "workout-tracker": {
+    "lift-ai": {
       "command": "node",
-      "args": ["/Users/sachitgoyal/code/workout-mcp-server/dist/index.js"],
+      "args": ["/Users/sachitgoyal/code/lift-ai-mcp/dist/index.js"],
       "env": {
         "SUPABASE_URL": "https://lgnkxjiqzsqiwrqrsxww.supabase.co",
         "SUPABASE_SERVICE_ROLE_KEY": "<your-service-role-key>"
@@ -771,14 +771,14 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 **Step 4: Restart Claude Desktop and verify**
 
-Open Claude Desktop. You should see the workout-tracker MCP server connected with 12 tools available.
+Open Claude Desktop. You should see the lift-ai MCP server connected with 12 tools available.
 
 Test by asking: "What exercises do I have?" — it should call `get_exercise_list`.
 
 **Step 5: Commit**
 
 ```bash
-cd /Users/sachitgoyal/code/workout-mcp-server
+cd /Users/sachitgoyal/code/lift-ai-mcp
 git add .env.example
 git commit -m "feat: add Claude Desktop configuration instructions"
 ```
@@ -795,7 +795,7 @@ git commit -m "feat: add Claude Desktop configuration instructions"
 
 **Step 1: Delete src/services/ai.ts**
 
-Run: `rm /Users/sachitgoyal/code/workout-enhanced/src/services/ai.ts`
+Run: `rm /Users/sachitgoyal/code/lift-ai/src/services/ai.ts`
 
 **Step 2: Remove AI imports and usage from WorkoutScreen.tsx**
 
@@ -817,7 +817,7 @@ Remove the `EXPO_PUBLIC_OPENROUTER_API_KEY=...` line from `.env`.
 
 **Step 5: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 Fix any remaining references to deleted imports.
 
@@ -879,7 +879,7 @@ Search for `default_reps` and `default_weight` references and remove them.
 
 **Step 4: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 5: Commit**
 
@@ -1024,7 +1024,7 @@ export async function getUpcomingWorkoutForToday(): Promise<{
 
 **Step 4: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 5: Commit**
 
@@ -1176,7 +1176,7 @@ This will be wired in Task 10 (WorkoutScreen changes). For now, just export the 
 
 **Step 3: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 4: Commit**
 
@@ -1275,7 +1275,7 @@ syncToSupabase().catch(console.error);
 
 **Step 6: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 7: Commit**
 
@@ -1308,7 +1308,7 @@ useEffect(() => {
 
 **Step 2: Verify it compiles**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 3: Commit**
 
@@ -1326,13 +1326,13 @@ git commit -m "feat: trigger Supabase sync on app startup"
 
 **Step 1: Run full type check on phone app**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 Fix any remaining type errors.
 
 **Step 2: Run full type check on MCP server**
 
-Run: `cd /Users/sachitgoyal/code/workout-mcp-server && npx tsc`
+Run: `cd /Users/sachitgoyal/code/lift-ai-mcp && npx tsc`
 
 Fix any remaining type errors.
 
@@ -1347,7 +1347,7 @@ Fix any remaining type errors.
 **Step 4: Final commit**
 
 ```bash
-cd /Users/sachitgoyal/code/workout-enhanced
+cd /Users/sachitgoyal/code/lift-ai
 git add -A
 git commit -m "feat: complete MCP AI Coach integration"
 ```
@@ -1357,7 +1357,7 @@ git commit -m "feat: complete MCP AI Coach integration"
 ### Task 13: Update CLAUDE.md
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/CLAUDE.md`
+- Modify: `/Users/sachitgoyal/code/lift-ai/CLAUDE.md`
 
 **Step 1: Update documentation**
 

@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, ScrollView,
-  Keyboard, Modal, Alert,
+  Keyboard, Modal, Alert, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +28,8 @@ export default function ExercisePickerScreen() {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const hasLoadedOnce = useRef(false);
 
   // New exercise form state
   const [newName, setNewName] = useState('');
@@ -37,7 +39,10 @@ export default function ExercisePickerScreen() {
   const [validationError, setValidationError] = useState('');
 
   const loadExercises = useCallback(() => {
-    getAllExercises().then(setExercises).catch((e) => console.error('Failed to load exercises', e));
+    if (!hasLoadedOnce.current) setLoading(true);
+    getAllExercises().then(setExercises)
+      .catch((e: unknown) => console.error('Failed to load exercises', e))
+      .finally(() => { setLoading(false); hasLoadedOnce.current = true; });
   }, []);
 
   useFocusEffect(
@@ -52,7 +57,7 @@ export default function ExercisePickerScreen() {
     try {
       await addExerciseToTemplate(templateId, exercise.id);
       navigation.goBack();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Failed to add exercise to template', e);
       Alert.alert('Error', 'Failed to add exercise. Please try again.');
     }
@@ -84,7 +89,7 @@ export default function ExercisePickerScreen() {
       await addExerciseToTemplate(templateId, exercise.id);
       setShowCreateModal(false);
       navigation.goBack();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Failed to create exercise', e);
       Alert.alert('Error', 'Failed to create exercise. Please try again.');
     }
@@ -208,6 +213,14 @@ export default function ExercisePickerScreen() {
       </SafeAreaView>
     </Modal>
   );
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

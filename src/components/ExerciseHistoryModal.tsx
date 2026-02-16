@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Dimensions, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
 import { getExerciseHistory } from '../services/database';
 import { calculateEstimated1RM } from '../utils/oneRepMax';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
@@ -137,9 +137,9 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.container}>
+        <View style={[modalStyles.card, styles.container]}>
           <View style={styles.header}>
-            <Text style={styles.title}>{exercise.name}</Text>
+            <Text style={[modalStyles.title, styles.title]}>{exercise.name}</Text>
             <TouchableOpacity onPress={onClose}>
               <Ionicons name="close" size={24} color={colors.text} />
             </TouchableOpacity>
@@ -268,11 +268,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   container: {
-    backgroundColor: colors.background,
+    width: '100%',
+    maxWidth: '100%',
+    borderRadius: 0,
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
     maxHeight: '85%',
     paddingBottom: spacing.xl,
+    backgroundColor: colors.background,
+    borderWidth: 0,
   },
   header: {
     flexDirection: 'row',
@@ -283,10 +287,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   title: {
-    color: colors.text,
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
     flex: 1,
+    marginBottom: 0,
   },
   body: {
     paddingHorizontal: spacing.lg,

@@ -16,6 +16,9 @@ export const colors = {
   white: '#FFFFFF',
   black: '#000000',
   overlay: 'rgba(0,0,0,0.6)',
+  primaryPlaceholder: 'rgba(124, 92, 252, 0.45)',
+  successBg: 'rgba(82, 199, 124, 0.08)',
+  errorBg: 'rgba(240, 82, 82, 0.08)',
 };
 
 export const spacing = {

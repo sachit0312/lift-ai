@@ -19,6 +19,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.sachitgoyal.liftai',
+    // @ts-expect-error — Expo supports this but types may lag
+    privacyPolicyUrl: 'https://sachitgoyal.com/lift-ai/privacy',
     infoPlist: {
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
@@ -31,7 +33,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: '#09090B',
     },
     edgeToEdgeEnabled: true,
-    // @ts-ignore — Expo SDK 54 supports this but types may lag
     predictiveBackGestureEnabled: false,
   },
   web: {

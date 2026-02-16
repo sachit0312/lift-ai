@@ -183,7 +183,7 @@ export default function WorkoutScreen() {
         // Load upcoming workout in background (slow, network)
         loadUpcomingWorkoutInBackground();
       }
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Failed to load workout state', e);
       Sentry.captureException(e);
       if (active) {
@@ -218,7 +218,7 @@ export default function WorkoutScreen() {
       // Reload templates since pull may have added/modified them
       const t = await getAllTemplates();
       setTemplates(t);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('pullExercisesAndTemplates failed or timed out', e);
     }
 
@@ -228,7 +228,7 @@ export default function WorkoutScreen() {
         pullUpcomingWorkout(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
       ]);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('pullUpcomingWorkout failed or timed out', e);
     }
 
@@ -490,7 +490,7 @@ export default function WorkoutScreen() {
       }
 
       activateWorkout(workout, blocks, template.name);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Failed to start workout', e);
       Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
@@ -517,7 +517,7 @@ export default function WorkoutScreen() {
       setLoading(true);
       const workout = await startWorkout(null);
       activateWorkout(workout, []);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Failed to start empty workout', e);
       Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
@@ -541,7 +541,7 @@ export default function WorkoutScreen() {
 
       setUpcomingTargets(upcomingWorkout.exercises);
       activateWorkout(workout, blocks);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Failed to start upcoming workout', e);
       Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
@@ -1587,7 +1587,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
           ?.sets?.find(s => s.set_number === set.set_number);
         const weightPlaceholder = target ? String(target.target_weight) : (set.previous ? String(set.previous.weight) : '');
         const repsPlaceholder = target ? String(target.target_reps) : (set.previous ? String(set.previous.reps) : '');
-        const placeholderColor = target ? 'rgba(124, 92, 252, 0.45)' : 'rgba(107, 107, 114, 0.5)';
+        const placeholderColor = target ? colors.primaryPlaceholder : 'rgba(107, 107, 114, 0.5)';
         return (
           <SwipeableSetRow
             key={set.id}
@@ -1647,7 +1647,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                 value={set.rpe}
                 onChangeText={(v) => onSetChange(blockIdx, setIdx, 'rpe', v)}
                 placeholder={target?.target_rpe ? String(target.target_rpe) : '—'}
-                placeholderTextColor={target?.target_rpe ? 'rgba(124, 92, 252, 0.45)' : colors.textMuted}
+                placeholderTextColor={target?.target_rpe ? colors.primaryPlaceholder : colors.textMuted}
                 testID={`rpe-${blockIdx}-${setIdx}`}
               />
               <TouchableOpacity
@@ -1868,7 +1868,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
   },
   setRowCompleted: {
-    backgroundColor: 'rgba(82, 199, 124, 0.08)',
+    backgroundColor: colors.successBg,
     borderLeftWidth: 3,
     borderLeftColor: colors.success,
   },
@@ -1910,7 +1910,7 @@ const styles = StyleSheet.create({
   },
   setInputError: {
     borderColor: colors.error,
-    backgroundColor: 'rgba(240, 82, 82, 0.08)',
+    backgroundColor: colors.errorBg,
   },
   swipeDeleteContainer: {
     backgroundColor: colors.error,

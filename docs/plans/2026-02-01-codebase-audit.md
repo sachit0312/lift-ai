@@ -15,7 +15,7 @@
 The app's SQLite (OPFS VFS) requires `SharedArrayBuffer`, which needs cross-origin isolation headers. The Metro dev server doesn't send these by default, causing `Invalid VFS state` errors on web.
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/metro.config.js`
+- Modify: `/Users/sachitgoyal/code/lift-ai/metro.config.js`
 
 **Step 1: Update metro.config.js to add COOP/COEP headers**
 
@@ -43,7 +43,7 @@ module.exports = config;
 
 **Step 2: Verify fix**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx expo start --web`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx expo start --web`
 Navigate to `http://localhost:8081` in Chrome, open DevTools console.
 Expected: No `Invalid VFS state` errors. `self.crossOriginIsolated` returns `true`.
 
@@ -59,8 +59,8 @@ git commit -m "fix: add COOP/COEP headers for SharedArrayBuffer on web"
 ### Task 2: Remove Dead Code & Unused Styles
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/src/screens/WorkoutScreen.tsx`
-- Delete: `/Users/sachitgoyal/code/workout-enhanced/coop-proxy.js` (if exists and unused)
+- Modify: `/Users/sachitgoyal/code/lift-ai/src/screens/WorkoutScreen.tsx`
+- Delete: `/Users/sachitgoyal/code/lift-ai/coop-proxy.js` (if exists and unused)
 
 **Step 1: Remove unused styles from WorkoutScreen.tsx**
 
@@ -82,12 +82,12 @@ Check if `coop-proxy.js` is referenced anywhere. If not, delete it.
 **Step 3: Remove empty src/components/ directory**
 
 ```bash
-rmdir /Users/sachitgoyal/code/workout-enhanced/src/components
+rmdir /Users/sachitgoyal/code/lift-ai/src/components
 ```
 
 **Step 4: Verify TypeScript compiles clean**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 Expected: No errors
 
 **Step 5: Commit**
@@ -104,7 +104,7 @@ git commit -m "chore: remove dead styles, unused files, empty components dir"
 In `WorkoutScreen.tsx`, exercise notes are tracked in local state (`block.notes`) but never saved to the database. The `notesInput` `onChangeText` only updates local state — there's no `updateWorkoutSet` or similar call to persist notes.
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/src/screens/WorkoutScreen.tsx`
+- Modify: `/Users/sachitgoyal/code/lift-ai/src/screens/WorkoutScreen.tsx`
 
 **Step 1: Notes are per-exercise, but the DB schema has notes per-set (`workout_sets.notes`), not per-exercise block.**
 
@@ -119,7 +119,7 @@ Actually, reviewing the schema more carefully: `workout_sets.notes` exists, and 
 In `WorkoutScreen.tsx:444-462`, `handleSetChange` reads `exerciseBlocks` from the closure after calling `setExerciseBlocks`, which means it reads the stale value, not the updated one. The set ID lookup happens from the old state. This works by accident because the set ID doesn't change, but it's fragile.
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/src/screens/WorkoutScreen.tsx`
+- Modify: `/Users/sachitgoyal/code/lift-ai/src/screens/WorkoutScreen.tsx`
 
 **Step 1: Fix stale closure in handleSetChange**
 
@@ -152,7 +152,7 @@ The fix: read `set` before calling `setExerciseBlocks`, so we capture the ID fro
 
 **Step 2: Verify TypeScript compiles clean**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 3: Commit**
 
@@ -166,14 +166,14 @@ git commit -m "fix: read set data before state update in handleSetChange"
 ### Task 5: Set Up Jest Test Infrastructure
 
 **Files:**
-- Create: `/Users/sachitgoyal/code/workout-enhanced/jest.config.js`
-- Create: `/Users/sachitgoyal/code/workout-enhanced/src/__mocks__/expo-sqlite.ts`
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/package.json` (add devDependencies + test script)
+- Create: `/Users/sachitgoyal/code/lift-ai/jest.config.js`
+- Create: `/Users/sachitgoyal/code/lift-ai/src/__mocks__/expo-sqlite.ts`
+- Modify: `/Users/sachitgoyal/code/lift-ai/package.json` (add devDependencies + test script)
 
 **Step 1: Install test dependencies**
 
 ```bash
-cd /Users/sachitgoyal/code/workout-enhanced
+cd /Users/sachitgoyal/code/lift-ai
 npx expo install -- --save-dev jest @testing-library/react-native @testing-library/jest-native jest-expo
 ```
 
@@ -212,7 +212,7 @@ export const __mockDb = mockDb;
 
 **Step 5: Verify jest runs**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx jest --passWithNoTests`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx jest --passWithNoTests`
 Expected: Pass with "No tests found" or similar
 
 **Step 6: Commit**
@@ -227,7 +227,7 @@ git commit -m "chore: set up Jest test infrastructure with expo-sqlite mock"
 ### Task 6: Add Database Service Unit Tests
 
 **Files:**
-- Create: `/Users/sachitgoyal/code/workout-enhanced/src/services/__tests__/database.test.ts`
+- Create: `/Users/sachitgoyal/code/lift-ai/src/services/__tests__/database.test.ts`
 
 **Step 1: Write tests for database.ts**
 
@@ -324,7 +324,7 @@ describe('updateWorkoutSet', () => {
 
 **Step 2: Run tests**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx jest`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx jest`
 Expected: All tests pass
 
 **Step 3: Commit**
@@ -339,7 +339,7 @@ git commit -m "test: add unit tests for database service"
 ### Task 7: Add Utility Tests
 
 **Files:**
-- Create: `/Users/sachitgoyal/code/workout-enhanced/src/utils/__tests__/uuid.test.ts`
+- Create: `/Users/sachitgoyal/code/lift-ai/src/utils/__tests__/uuid.test.ts`
 
 **Step 1: Write UUID tests**
 
@@ -365,7 +365,7 @@ describe('uuid', () => {
 
 **Step 2: Run tests**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx jest src/utils`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx jest src/utils`
 Expected: All pass
 
 **Step 3: Commit**
@@ -380,7 +380,7 @@ git commit -m "test: add unit tests for UUID utility"
 ### Task 8: Add History Screen Formatting Tests
 
 **Files:**
-- Create: `/Users/sachitgoyal/code/workout-enhanced/src/screens/__tests__/HistoryScreen.test.ts`
+- Create: `/Users/sachitgoyal/code/lift-ai/src/screens/__tests__/HistoryScreen.test.ts`
 
 The `formatDuration` and `formatDate` helper functions in HistoryScreen.tsx are not exported. Extract them to a utility or test them indirectly. Since they're simple pure functions, the pragmatic approach: extract to a shared utility.
 
@@ -455,7 +455,7 @@ describe('formatDate', () => {
 
 **Step 4: Verify all tests pass**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx jest`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx jest`
 
 **Step 5: Commit**
 
@@ -471,7 +471,7 @@ git commit -m "refactor: extract format utils, add tests"
 In `WorkoutScreen.tsx:308`, the code does `workout.template_name = template.name` — but `template_name` is an optional property on the `Workout` interface that comes from a SQL JOIN in `getWorkoutHistory()`, not from `startWorkout()`. This mutation works but is type-unsafe.
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/src/screens/WorkoutScreen.tsx`
+- Modify: `/Users/sachitgoyal/code/lift-ai/src/screens/WorkoutScreen.tsx`
 
 **Step 1: Instead of mutating the workout object, store template name in separate state**
 
@@ -496,7 +496,7 @@ Also set `setTemplateName(null)` in cancel and dismiss handlers.
 
 **Step 2: Verify TypeScript compiles clean**
 
-Run: `cd /Users/sachitgoyal/code/workout-enhanced && npx tsc --noEmit`
+Run: `cd /Users/sachitgoyal/code/lift-ai && npx tsc --noEmit`
 
 **Step 3: Commit**
 
@@ -510,7 +510,7 @@ git commit -m "fix: use separate state for template name instead of mutating wor
 ### Task 10: Update CLAUDE.md
 
 **Files:**
-- Modify: `/Users/sachitgoyal/code/workout-enhanced/CLAUDE.md`
+- Modify: `/Users/sachitgoyal/code/lift-ai/CLAUDE.md`
 
 **Step 1: Update CLAUDE.md with:**
 - Add test commands: `npx jest` for tests, `npx jest --watch` for watch mode
@@ -549,7 +549,7 @@ Tasks 1, 2, 4 can run in parallel. Tasks 6, 7, 8 can run in parallel after Task 
 
 After all tasks, run:
 ```bash
-cd /Users/sachitgoyal/code/workout-enhanced
+cd /Users/sachitgoyal/code/lift-ai
 npx tsc --noEmit        # Type check
 npx jest                 # All tests pass
 npx expo start --web     # Web works without VFS errors

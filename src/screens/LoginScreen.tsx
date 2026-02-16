@@ -20,6 +20,8 @@ import type { AuthStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,8 +35,7 @@ export default function LoginScreen({ navigation }: Props) {
       setError('Please enter your email address first.');
       return;
     }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
+    if (!EMAIL_REGEX.test(email.trim())) {
       setError('Please enter a valid email address.');
       return;
     }
@@ -59,9 +60,12 @@ export default function LoginScreen({ navigation }: Props) {
       setError('Please enter email and password.');
       return;
     }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
+    if (!EMAIL_REGEX.test(email.trim())) {
       setError('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
       return;
     }
     setError('');

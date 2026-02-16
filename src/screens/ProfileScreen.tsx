@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../services/supabase';
+import { supabase, deleteAccount } from '../services/supabase';
 import { getWorkoutHistory, getPRsThisWeek } from '../services/database';
 
 interface Stats {
@@ -136,6 +136,44 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account?',
+      'This will permanently delete your account and all data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Are you absolutely sure?',
+              'All your workout data will be permanently lost.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Yes, Delete My Account',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await deleteAccount();
+                      await supabase.auth.signOut();
+                    } catch (e: unknown) {
+                      Alert.alert(
+                        'Error',
+                        e instanceof Error ? e.message : 'Failed to delete account. Please try again.',
+                      );
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  };
+
   const handleGetMCPToken = () => {
     setTokenCopied(false);
     setTokenModalVisible(true);
@@ -186,6 +224,11 @@ export default function ProfileScreen() {
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} testID="logout-btn">
         <Ionicons name="log-out-outline" size={20} color={colors.error} />
         <Text style={styles.logoutText}>Log Out</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount} testID="delete-account-btn">
+        <Ionicons name="trash-outline" size={20} color={colors.error} />
+        <Text style={styles.deleteAccountText}>Delete Account</Text>
       </TouchableOpacity>
       </ScrollView>
 
@@ -335,6 +378,21 @@ const styles = StyleSheet.create({
   logoutText: {
     color: colors.error,
     fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  deleteAccountText: {
+    color: colors.error,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
   modalContent: {
