@@ -73,7 +73,7 @@ export async function syncToSupabase(): Promise<void> {
         description: e.description,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
-      if (error) { console.error('Sync exercises error:', error); Sentry.captureException(error); return; }
+      if (error) { if (__DEV__) console.error('Sync exercises error:', error); Sentry.captureException(error); return; }
     }
 
     // Templates — select specific columns
@@ -81,14 +81,14 @@ export async function syncToSupabase(): Promise<void> {
     if (templates.length > 0) {
       const mapped = templates.map((t: SyncTemplateRow) => ({ ...t, user_id: session.user.id }));
       const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
-      if (error) { console.error('Sync templates error:', error); Sentry.captureException(error); return; }
+      if (error) { if (__DEV__) console.error('Sync templates error:', error); Sentry.captureException(error); return; }
     }
 
     // Template exercises — select specific columns
     const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, sort_order, default_sets FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
-      if (error) { console.error('Sync template_exercises error:', error); Sentry.captureException(error); return; }
+      if (error) { if (__DEV__) console.error('Sync template_exercises error:', error); Sentry.captureException(error); return; }
     }
 
     // Workouts (only finished) — select specific columns
@@ -96,7 +96,7 @@ export async function syncToSupabase(): Promise<void> {
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({ ...w, user_id: session.user.id }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
-      if (error) { console.error('Sync workouts error:', error); Sentry.captureException(error); return; }
+      if (error) { if (__DEV__) console.error('Sync workouts error:', error); Sentry.captureException(error); return; }
     }
 
     // Workout sets — only for finished workouts, convert is_completed to boolean
@@ -112,12 +112,12 @@ export async function syncToSupabase(): Promise<void> {
         is_completed: !!s.is_completed,
       }));
       const { error } = await supabase.from('workout_sets').upsert(mapped, { onConflict: 'id' });
-      if (error) { console.error('Sync workout_sets error:', error); Sentry.captureException(error); return; }
+      if (error) { if (__DEV__) console.error('Sync workout_sets error:', error); Sentry.captureException(error); return; }
     }
 
-    console.log('Sync to Supabase complete');
+    if (__DEV__) console.log('Sync to Supabase complete');
   } catch (err) {
-    console.error('syncToSupabase failed:', err);
+    if (__DEV__) console.error('syncToSupabase failed:', err);
     Sentry.captureException(err);
   }
 }
@@ -168,7 +168,7 @@ async function pullExercises(): Promise<void> {
     .eq('user_id', session.user.id);
 
   if (error) {
-    console.error('Pull exercises error:', error);
+    if (__DEV__) console.error('Pull exercises error:', error);
     Sentry.captureException(error);
     return;
   }
@@ -188,7 +188,7 @@ async function pullExercises(): Promise<void> {
     );
   }
 
-  console.log('Pull exercises complete');
+  if (__DEV__) console.log('Pull exercises complete');
 }
 
 async function pullTemplates(): Promise<void> {
@@ -203,7 +203,7 @@ async function pullTemplates(): Promise<void> {
     .eq('user_id', session.user.id);
 
   if (tErr) {
-    console.error('Pull templates error:', tErr);
+    if (__DEV__) console.error('Pull templates error:', tErr);
     Sentry.captureException(tErr);
     return;
   }
@@ -225,7 +225,7 @@ async function pullTemplates(): Promise<void> {
       .order('sort_order');
 
     if (teErr) {
-      console.error(`Pull template_exercises error for template ${t.id}:`, teErr);
+      if (__DEV__) console.error(`Pull template_exercises error for template ${t.id}:`, teErr);
       Sentry.captureException(teErr);
       continue;
     }
@@ -255,7 +255,7 @@ async function pullTemplates(): Promise<void> {
     }
   }
 
-  console.log('Pull templates complete');
+  if (__DEV__) console.log('Pull templates complete');
 }
 
 export async function pullExercisesAndTemplates(): Promise<void> {
@@ -263,7 +263,7 @@ export async function pullExercisesAndTemplates(): Promise<void> {
     await pullExercises();   // exercises first (FK dependency)
     await pullTemplates();
   } catch (err) {
-    console.error('pullExercisesAndTemplates failed:', err);
+    if (__DEV__) console.error('pullExercisesAndTemplates failed:', err);
     Sentry.captureException(err);
   }
 }
@@ -312,7 +312,7 @@ export async function pullWorkoutHistory(): Promise<void> {
       .limit(200);
 
     if (wErr) {
-      console.error('Pull workouts error:', wErr);
+      if (__DEV__) console.error('Pull workouts error:', wErr);
       Sentry.captureException(wErr);
       return;
     }
@@ -339,7 +339,7 @@ export async function pullWorkoutHistory(): Promise<void> {
       .in('workout_id', workoutIds);
 
     if (sErr) {
-      console.error('Pull workout_sets error:', sErr);
+      if (__DEV__) console.error('Pull workout_sets error:', sErr);
       Sentry.captureException(sErr);
       return;
     }
@@ -356,9 +356,9 @@ export async function pullWorkoutHistory(): Promise<void> {
       );
     }
 
-    console.log('Pull workout history complete');
+    if (__DEV__) console.log('Pull workout history complete');
   } catch (err) {
-    console.error('pullWorkoutHistory failed:', err);
+    if (__DEV__) console.error('pullWorkoutHistory failed:', err);
     Sentry.captureException(err);
   }
 }
@@ -379,7 +379,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
       .limit(1);
 
     if (wErr) {
-      console.error('Pull upcoming_workouts error:', wErr);
+      if (__DEV__) console.error('Pull upcoming_workouts error:', wErr);
       Sentry.captureException(wErr);
       return;
     }
@@ -406,7 +406,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
       .order('sort_order');
 
     if (eErr) {
-      console.error('Pull upcoming_workout_exercises error:', eErr);
+      if (__DEV__) console.error('Pull upcoming_workout_exercises error:', eErr);
       Sentry.captureException(eErr);
       return;
     }
@@ -425,7 +425,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
         .order('set_number');
 
       if (sErr) {
-        console.error('Pull upcoming_workout_sets error:', sErr);
+        if (__DEV__) console.error('Pull upcoming_workout_sets error:', sErr);
         Sentry.captureException(sErr);
         continue;
       }
@@ -438,9 +438,9 @@ export async function pullUpcomingWorkout(): Promise<void> {
       }
     }
 
-    console.log('Pull upcoming workout complete');
+    if (__DEV__) console.log('Pull upcoming workout complete');
   } catch (err) {
-    console.error('pullUpcomingWorkout failed:', err);
+    if (__DEV__) console.error('pullUpcomingWorkout failed:', err);
     Sentry.captureException(err);
   }
 }
