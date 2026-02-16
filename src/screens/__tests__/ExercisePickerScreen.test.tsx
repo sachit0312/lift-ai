@@ -41,11 +41,12 @@ describe('ExercisePickerScreen', () => {
   });
 
   it('toggles muscle group chip selection', async () => {
-    const { getByTestId } = render(<ExercisePickerScreen />);
+    const { getByTestId, findByTestId } = render(<ExercisePickerScreen />);
 
-    // Open the create form
+    // Wait for loading to finish, then open the create form
+    const createToggle = await findByTestId('create-exercise-toggle');
     await act(async () => {
-      fireEvent.press(getByTestId('create-exercise-toggle'));
+      fireEvent.press(createToggle);
     });
 
     const chestChip = getByTestId('muscle-Chest');
@@ -62,10 +63,12 @@ describe('ExercisePickerScreen', () => {
   });
 
   it('shows validation error for empty name', async () => {
-    const { getByTestId, getByText } = render(<ExercisePickerScreen />);
+    const { getByTestId, getByText, findByTestId } = render(<ExercisePickerScreen />);
 
+    // Wait for loading to finish before interacting
+    const createToggle = await findByTestId('create-exercise-toggle');
     await act(async () => {
-      fireEvent.press(getByTestId('create-exercise-toggle'));
+      fireEvent.press(createToggle);
     });
 
     await act(async () => {
