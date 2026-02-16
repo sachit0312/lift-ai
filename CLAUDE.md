@@ -123,8 +123,8 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 ## Deployment (EAS Build + App Store + OTA)
 - **App identity**: Display name `lift.ai`, bundle ID `com.sachitgoyal.liftai`, deep link scheme `liftai://`, Expo slug `lift-ai`.
 - **EAS config** in `eas.json` with 3 profiles: `development` (dev client, internal), `preview` (release, internal, auto-increment), `production` (store, release, auto-increment). Each profile has env vars inlined for Supabase + Sentry (cloud builds can't read local `.env` files).
-- **EAS project ID**: `b0905982-b14b-491f-a154-cf3b6aba60d4` (Expo account: `sachitgoyal`).
-- **OTA updates**: `expo-updates` with `fingerprint` runtime version policy. Updates URL: `https://u.expo.dev/b0905982-b14b-491f-a154-cf3b6aba60d4`. Channels: `development`, `preview`, `production`.
+- **EAS project ID**: `405310db-a7c7-4d03-9f82-81a752ede55d` (Expo account: `sachitgoyal`).
+- **OTA updates**: `expo-updates` with `fingerprint` runtime version policy. Updates URL: `https://u.expo.dev/405310db-a7c7-4d03-9f82-81a752ede55d`. Channels: `development`, `preview`, `production`.
 - **Signing**: EAS-managed credentials. Apple Team ID: `574YNGX64S`.
 - **Version management**: `appVersionSource: "remote"` — EAS tracks build numbers. Semver in `app.config.ts` + `package.json`.
 - **Commands**: `npm run build:prod` (EAS iOS production build), `npm run submit:ios` (submit to App Store Connect), `npm run update:prod` (OTA JS-only update), `npm run build:preview` (internal test build), `npm run update:preview` (OTA to preview channel).

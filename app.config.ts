@@ -38,14 +38,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     favicon: './assets/favicon.png',
   },
   updates: {
-    url: 'https://u.expo.dev/b0905982-b14b-491f-a154-cf3b6aba60d4',
+    url: 'https://u.expo.dev/405310db-a7c7-4d03-9f82-81a752ede55d',
   },
   runtimeVersion: {
     policy: 'fingerprint',
   },
   extra: {
     eas: {
-      projectId: 'b0905982-b14b-491f-a154-cf3b6aba60d4',
+      projectId: '405310db-a7c7-4d03-9f82-81a752ede55d',
     },
   },
   plugins: [
