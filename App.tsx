@@ -19,6 +19,7 @@ if (__DEV__) {
     'Failed to start',
     'pullUpcomingWorkout failed',
     'syncToSupabase failed',
+    'auto refresh tick',
   ]);
 }
 
