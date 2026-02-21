@@ -89,6 +89,12 @@ import {
   requestNotificationPermissions,
   getRestTimerRemainingSeconds,
 } from '../../services/liveActivity';
+import {
+  syncStateToWidget,
+  startPolling,
+  stopPolling,
+  clearWidgetState,
+} from '../../services/workoutBridge';
 import WorkoutScreen from '../WorkoutScreen';
 
 describe('WorkoutScreen', () => {
@@ -1297,6 +1303,97 @@ describe('WorkoutScreen', () => {
 
       // Live Activity should be stopped
       expect(stopRestTimerActivity).toHaveBeenCalled();
+    });
+  });
+
+  describe('widget bridge integration', () => {
+    it('starts polling when workout is activated', async () => {
+      const result = render(<WorkoutScreen />);
+
+      await waitFor(() => expect(result.getByTestId('start-empty-workout')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByTestId('start-empty-workout')); });
+      await waitFor(() => expect(result.getByTestId('finish-workout-btn')).toBeTruthy());
+
+      expect(startPolling).toHaveBeenCalled();
+    });
+
+    it('syncs widget state when exercise is added to workout', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      expect(syncStateToWidget).toHaveBeenCalled();
+    });
+
+    it('stops polling when workout is cancelled', async () => {
+      const mockAlert = jest.spyOn(require('react-native').Alert, 'alert');
+      const result = render(<WorkoutScreen />);
+
+      await waitFor(() => expect(result.getByTestId('start-empty-workout')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByTestId('start-empty-workout')); });
+      await waitFor(() => expect(result.getByTestId('finish-workout-btn')).toBeTruthy());
+
+      (stopPolling as jest.Mock).mockClear();
+
+      // Tap cancel button
+      await act(async () => { fireEvent.press(result.getByTestId('cancel-workout-btn')); });
+
+      // Simulate pressing "Discard" in the alert
+      const alertCall = mockAlert.mock.calls[0];
+      const buttons = alertCall[2] as Array<{ text: string; onPress?: () => void }>;
+      const discardButton = buttons.find(b => b.text === 'Discard');
+
+      await act(async () => { discardButton?.onPress?.(); });
+
+      expect(stopPolling).toHaveBeenCalled();
+
+      mockAlert.mockRestore();
+    });
+
+    it('stops polling and clears widget state on finish', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Complete a set so we can finish
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      (stopPolling as jest.Mock).mockClear();
+      (clearWidgetState as jest.Mock).mockClear();
+
+      // Tap finish
+      await act(async () => { fireEvent.press(result.getByTestId('finish-workout-btn')); });
+
+      // Confirm in the modal — title is "Finish Workout", confirm button is "Finish"
+      await waitFor(() => expect(result.getByText('Finish Workout')).toBeTruthy());
+      const finishButtons = result.getAllByText('Finish');
+      await act(async () => { fireEvent.press(finishButtons[finishButtons.length - 1]); });
+
+      await waitFor(() => {
+        expect(stopPolling).toHaveBeenCalled();
+      });
+      expect(clearWidgetState).toHaveBeenCalled();
+    });
+
+    it('syncs widget state when exercise is added mid-workout', async () => {
+      const result = render(<WorkoutScreen />);
+
+      await waitFor(() => expect(result.getByTestId('start-empty-workout')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByTestId('start-empty-workout')); });
+      await waitFor(() => expect(result.getByTestId('finish-workout-btn')).toBeTruthy());
+
+      (syncStateToWidget as jest.Mock).mockClear();
+
+      // Add exercise
+      await act(async () => { fireEvent.press(result.getByTestId('add-exercise-btn')); });
+      await waitFor(() => expect(result.getByText('Bench Press')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Bench Press')); });
+
+      await waitFor(() => {
+        expect(syncStateToWidget).toHaveBeenCalled();
+      });
     });
   });
 });

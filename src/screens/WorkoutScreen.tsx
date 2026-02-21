@@ -617,8 +617,11 @@ export default function WorkoutScreen() {
   // ─── Widget action handler ───
 
   function handleWidgetActions(actions: WidgetAction[]) {
+    if (!workoutRef.current) return;
     for (const action of actions) {
-      if (action.type === 'completeSet' && action.blockIndex != null && action.setIndex != null) {
+      if (action.type === 'completeSet' && action.blockIndex != null && action.setIndex != null
+        && action.blockIndex < blocksRef.current.length
+        && action.setIndex < (blocksRef.current[action.blockIndex]?.sets.length ?? 0)) {
         handleWidgetCompleteSet(action.blockIndex, action.setIndex, action.weight ?? 0, action.reps ?? 0);
       } else if (action.type === 'skipRest') {
         dismissRest();
@@ -805,7 +808,11 @@ export default function WorkoutScreen() {
       restEnabled: true,
     };
 
-    setExerciseBlocks((prev) => [...prev, newBlock]);
+    setExerciseBlocks((prev) => {
+      const updated = [...prev, newBlock];
+      syncWidgetState(updated);
+      return updated;
+    });
   }
 
   async function handleCreateAndAddExercise() {

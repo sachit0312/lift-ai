@@ -91,7 +91,6 @@ struct CompleteSetIntent: LiveActivityIntent {
         }
 
         // Advance to next set or next exercise
-        let isLastSet = state.next == nil
         if let next = state.next {
             state.current.setNumber = next.setNumber
             state.current.weight = next.weight
