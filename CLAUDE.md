@@ -173,6 +173,7 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 - Deep link tests at `src/__tests__/deepLinks.test.tsx` — deep link `liftai://workout` navigates to Workout tab, unknown deep link path does not crash, null getInitialURL does not crash, Sentry.addBreadcrumb called on tab navigation with correct category/level/message, breadcrumb includes destination route name. Renders full App component with mocked screens, AuthContext (logged-in session), services, and SafeAreaInsetsContext.
 - Shared test helpers at `src/__tests__/helpers/renderWithProviders.tsx` — wraps components in NavigationContainer.
 - Shared test mocks at `src/__tests__/helpers/mocks.ts` — mockNavigation, mockRoute, mockUseFocusEffect.
+- **Worktree gotcha**: Do NOT run `npx jest --testPathIgnorePatterns='.worktrees/'` from inside a worktree — the worktree path itself contains `.worktrees/` so all tests get excluded. Run tests from the main repo directory instead.
 - Test data factories at `src/__tests__/helpers/factories.ts` — createMockExercise, createMockWorkoutSet, createMockWorkout, createMockSession, createMockUpcomingWorkout (with nested exercises and sets).
 
 ## E2E Testing (Maestro)
@@ -192,6 +193,15 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 
 ## Working Style
 - Be proactive: run commands, check results, and take action without waiting for the user to tell you each step.
+
+## UI Conventions
+- Touch targets: All tappable icons (close, cancel) must have `minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center'`. Use `layout.touchMin` (44) from theme tokens.
+- Button heights: Primary buttons use `minHeight: layout.buttonHeight` (50), secondary buttons use `minHeight: layout.buttonHeightSm` (40).
+- List padding: Screens with bottom tab bar need `paddingBottom: 100` on FlatList/ScrollView content containers to ensure last items aren't obscured.
+- Screen padding: Use `layout.screenPaddingH` (20) for horizontal padding on all list screens — never raw numbers.
+- Empty state icons: Use `size={48}` consistently.
+- Button text on colored backgrounds: Use `colors.white`, not `colors.text`.
+- No magic numbers in StyleSheet — use `spacing.*`, `layout.*`, `fontSize.*`, `borderRadius.*` tokens from `src/theme/tokens.ts`.
 
 ## Notes
 - Alert.prompt is iOS-only; Android uses fallback Alert.alert patterns. Finish workout uses a custom Modal instead of Alert.alert for web compatibility.
