@@ -49,10 +49,11 @@ function makeSession(userId: string, email: string) {
 
 /** A consumer component that renders the auth context values for assertions. */
 function AuthConsumer() {
-  const { session, user, loading } = useAuth();
+  const { session, user, loading, syncing } = useAuth();
   return (
     <>
       <Text testID="loading">{String(loading)}</Text>
+      <Text testID="syncing">{String(syncing)}</Text>
       <Text testID="user-email">{user?.email ?? 'none'}</Text>
       <Text testID="user-id">{user?.id ?? 'none'}</Text>
       <Text testID="has-session">{session ? 'yes' : 'no'}</Text>
@@ -359,6 +360,7 @@ describe('AuthContext', () => {
     expect(pullExercisesAndTemplates).not.toHaveBeenCalled();
     expect(pullWorkoutHistory).not.toHaveBeenCalled();
     expect(pullUpcomingWorkout).not.toHaveBeenCalled();
+    expect(getByTestId('syncing').props.children).toBe('false');
   });
 
   // ---------------------------------------------------------------
@@ -515,6 +517,77 @@ describe('AuthContext', () => {
     });
 
     expect(Sentry.setUser).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------
+  // 19. syncing is true during sign-in data sync, false after
+  // ---------------------------------------------------------------
+  it('syncing is true during sign-in data sync and false after', async () => {
+    // Make pullExercisesAndTemplates take a moment so we can observe syncing=true
+    let resolvePull: () => void;
+    (pullExercisesAndTemplates as jest.Mock).mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolvePull = resolve; }),
+    );
+
+    const { getByTestId } = render(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(getByTestId('loading').props.children).toBe('false');
+    });
+
+    // Initially syncing is false
+    expect(getByTestId('syncing').props.children).toBe('false');
+
+    // Start sign-in (don't await — we want to check mid-sync)
+    const newSession = makeSession('user-sync', 'sync@example.com');
+    act(() => {
+      authStateCallback!('SIGNED_IN', newSession);
+    });
+
+    // syncing should be true while pull is pending
+    await waitFor(() => {
+      expect(getByTestId('syncing').props.children).toBe('true');
+    });
+
+    // Resolve the pull
+    await act(async () => {
+      resolvePull!();
+    });
+
+    // syncing should be false after sync completes
+    await waitFor(() => {
+      expect(getByTestId('syncing').props.children).toBe('false');
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // 20. syncing becomes false even when sync fails
+  // ---------------------------------------------------------------
+  it('syncing becomes false even when sync fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    (clearAllLocalData as jest.Mock).mockRejectedValueOnce(new Error('sync failed'));
+
+    const { getByTestId } = render(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(getByTestId('loading').props.children).toBe('false');
+    });
+
+    const newSession = makeSession('user-sync-fail', 'syncfail@example.com');
+    await act(async () => {
+      await authStateCallback!('SIGNED_IN', newSession);
+    });
+
+    expect(getByTestId('syncing').props.children).toBe('false');
+    (console.error as jest.Mock).mockRestore();
   });
 
   // ---------------------------------------------------------------

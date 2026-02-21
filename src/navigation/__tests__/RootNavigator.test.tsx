@@ -66,7 +66,7 @@ import RootNavigator from '../RootNavigator';
 
 describe('RootNavigator', () => {
   it('shows ActivityIndicator when loading is true', () => {
-    mockUseAuth.mockReturnValue({ session: null, loading: true });
+    mockUseAuth.mockReturnValue({ session: null, loading: true, syncing: false });
 
     const { UNSAFE_getByType, queryByText } = render(
       <NavigationContainer>
@@ -81,8 +81,27 @@ describe('RootNavigator', () => {
     expect(queryByText('TabNavigator')).toBeNull();
   });
 
+  it('shows ActivityIndicator when syncing is true', () => {
+    mockUseAuth.mockReturnValue({
+      session: { access_token: 'test-token', user: { id: 'user-1' } },
+      loading: false,
+      syncing: true,
+    });
+
+    const { UNSAFE_getByType, queryByText } = render(
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>,
+    );
+
+    const indicator = UNSAFE_getByType(ActivityIndicator);
+    expect(indicator).toBeTruthy();
+    expect(queryByText('Login')).toBeNull();
+    expect(queryByText('TabNavigator')).toBeNull();
+  });
+
   it('shows Login screen when session is null and loading is false', () => {
-    mockUseAuth.mockReturnValue({ session: null, loading: false });
+    mockUseAuth.mockReturnValue({ session: null, loading: false, syncing: false });
 
     const { getByText } = render(
       <NavigationContainer>
@@ -97,6 +116,7 @@ describe('RootNavigator', () => {
     mockUseAuth.mockReturnValue({
       session: { access_token: 'test-token', user: { id: 'user-1' } },
       loading: false,
+      syncing: false,
     });
 
     const { getByText } = render(
@@ -112,6 +132,7 @@ describe('RootNavigator', () => {
     mockUseAuth.mockReturnValue({
       session: { access_token: 'test-token', user: { id: 'user-1' } },
       loading: false,
+      syncing: false,
     });
 
     const { queryByText } = render(

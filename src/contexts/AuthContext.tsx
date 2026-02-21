@@ -5,10 +5,13 @@ import { supabase } from '../services/supabase';
 import { clearAllLocalData } from '../services/database';
 import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 
+const SYNC_TIMEOUT_MS = 30000;
+
 interface AuthContextValue {
   session: Session | null;
   user: User | null;
   loading: boolean;
+  syncing: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -16,6 +19,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const previousUserIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
@@ -46,16 +50,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             Sentry.setUser({ email: newSession.user.email, id: newSession.user.id });
           }
           if (newUserId !== prevUserId) {
+            setSyncing(true);
             try {
-              await clearAllLocalData();
-              await Promise.all([
-                pullExercisesAndTemplates(),
-                pullWorkoutHistory(),
+              await Promise.race([
+                (async () => {
+                  await clearAllLocalData();
+                  await Promise.all([
+                    pullExercisesAndTemplates(),
+                    pullWorkoutHistory(),
+                  ]);
+                  await pullUpcomingWorkout();
+                })(),
+                new Promise<void>((_, reject) =>
+                  setTimeout(() => reject(new Error('sign-in sync timeout')), SYNC_TIMEOUT_MS),
+                ),
               ]);
-              await pullUpcomingWorkout();
             } catch (error) {
               Sentry.captureException(error);
               console.error('Failed to sync data on sign in:', error);
+            } finally {
+              setSyncing(false);
             }
           }
         } else if (event === 'SIGNED_OUT') {
@@ -72,8 +86,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const user = session?.user ?? null;
 
   const value = useMemo(
-    () => ({ session, user, loading }),
-    [session, user, loading]
+    () => ({ session, user, loading, syncing }),
+    [session, user, loading, syncing]
   );
 
   return (

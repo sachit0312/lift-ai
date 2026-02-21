@@ -10,7 +10,8 @@ module.exports = {
     '^expo-notifications$': '<rootDir>/src/__mocks__/expo-notifications.ts',
     '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
   },
-  testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/'],
+  testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/', '.worktrees/'],
+  modulePathIgnorePatterns: ['<rootDir>/.worktrees/'],
   clearMocks: true,
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };

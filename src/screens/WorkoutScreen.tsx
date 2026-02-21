@@ -72,6 +72,8 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+const BACKGROUND_PULL_TIMEOUT_MS = 15000;
+
 // ─── Types for local state ───
 
 interface PreviousSetData {
@@ -206,7 +208,7 @@ export default function WorkoutScreen() {
     // Start workout history pull in parallel (for PREV data)
     historyPulledRef.current = Promise.race([
       pullWorkoutHistory(),
-      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
     ]).catch((e) => {
       console.error('pullWorkoutHistory failed or timed out', e);
     });
@@ -215,7 +217,7 @@ export default function WorkoutScreen() {
     try {
       await Promise.race([
         pullExercisesAndTemplates(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
       ]);
       // Reload templates since pull may have added/modified them
       const t = await getAllTemplates();
@@ -228,7 +230,7 @@ export default function WorkoutScreen() {
     try {
       await Promise.race([
         pullUpcomingWorkout(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
       ]);
     } catch (e: unknown) {
       console.error('pullUpcomingWorkout failed or timed out', e);
