@@ -34,7 +34,19 @@ import {
   stopRestTimerActivity,
   requestNotificationPermissions,
   getRestTimerRemainingSeconds,
+  startWorkoutActivity,
+  updateWorkoutActivityForSet,
+  updateWorkoutActivityForRest,
+  stopWorkoutActivity,
 } from '../services/liveActivity';
+import {
+  syncStateToWidget,
+  startPolling,
+  stopPolling,
+  clearWidgetState,
+  type WidgetState,
+  type WidgetAction,
+} from '../services/workoutBridge';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
 import {
@@ -153,6 +165,117 @@ export default function WorkoutScreen() {
 
   // Keep blocksRef in sync for stable callbacks
   blocksRef.current = exerciseBlocks;
+
+  // ─── Widget state sync helper ───
+
+  function buildWidgetState(blocks: ExerciseBlock[], isResting: boolean, restEnd: number): WidgetState {
+    // Find first incomplete set across all blocks
+    let currentBlockIdx = -1;
+    let currentSetIdx = -1;
+
+    for (let bi = 0; bi < blocks.length; bi++) {
+      for (let si = 0; si < blocks[bi].sets.length; si++) {
+        if (!blocks[bi].sets[si].is_completed) {
+          currentBlockIdx = bi;
+          currentSetIdx = si;
+          break;
+        }
+      }
+      if (currentBlockIdx >= 0) break;
+    }
+
+    // If all sets complete, use last block/set
+    if (currentBlockIdx < 0 && blocks.length > 0) {
+      currentBlockIdx = blocks.length - 1;
+      currentSetIdx = blocks[currentBlockIdx].sets.length - 1;
+    }
+
+    if (currentBlockIdx < 0) {
+      return {
+        current: { exerciseName: 'Workout', exerciseBlockIndex: 0, setNumber: 1, totalSets: 1, weight: 0, reps: 0, restSeconds: 0, restEnabled: false },
+        next: null,
+        nextExercise: null,
+        isResting,
+        restEndTime: restEnd,
+        workoutActive: true,
+      };
+    }
+
+    const block = blocks[currentBlockIdx];
+    const set = block.sets[currentSetIdx];
+    const target = upcomingTargets
+      ?.find(e => e.exercise_id === block.exercise.id)
+      ?.sets?.find(s => s.set_number === set.set_number);
+
+    const weight = set.weight ? Number(set.weight) : (target?.target_weight ?? set.previous?.weight ?? 0);
+    const reps = set.reps ? Number(set.reps) : (target?.target_reps ?? set.previous?.reps ?? 0);
+
+    const current = {
+      exerciseName: block.exercise.name,
+      exerciseBlockIndex: currentBlockIdx,
+      setNumber: set.set_number,
+      totalSets: block.sets.length,
+      weight,
+      reps,
+      restSeconds: block.restSeconds,
+      restEnabled: block.restEnabled,
+    };
+
+    // Next set in same exercise
+    let next = null;
+    const nextSetIdx = currentSetIdx + 1;
+    if (nextSetIdx < block.sets.length) {
+      const ns = block.sets[nextSetIdx];
+      const nt = upcomingTargets
+        ?.find(e => e.exercise_id === block.exercise.id)
+        ?.sets?.find(s => s.set_number === ns.set_number);
+      next = {
+        exerciseName: block.exercise.name,
+        setNumber: ns.set_number,
+        weight: ns.weight ? Number(ns.weight) : (nt?.target_weight ?? ns.previous?.weight ?? weight),
+        reps: ns.reps ? Number(ns.reps) : (nt?.target_reps ?? ns.previous?.reps ?? reps),
+      };
+    }
+
+    // Next exercise
+    let nextExercise = null;
+    if (currentBlockIdx + 1 < blocks.length) {
+      const nb = blocks[currentBlockIdx + 1];
+      const ns = nb.sets[0];
+      if (ns) {
+        const nt = upcomingTargets
+          ?.find(e => e.exercise_id === nb.exercise.id)
+          ?.sets?.find(s => s.set_number === ns.set_number);
+        nextExercise = {
+          exerciseName: nb.exercise.name,
+          setNumber: ns.set_number,
+          totalSets: nb.sets.length,
+          weight: ns.weight ? Number(ns.weight) : (nt?.target_weight ?? ns.previous?.weight ?? 0),
+          reps: ns.reps ? Number(ns.reps) : (nt?.target_reps ?? ns.previous?.reps ?? 0),
+        };
+      }
+    }
+
+    return {
+      current,
+      next,
+      nextExercise,
+      isResting,
+      restEndTime: restEnd,
+      workoutActive: true,
+    };
+  }
+
+  function syncWidgetState(blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) {
+    const b = blocks ?? blocksRef.current;
+    const resting = isResting ?? (restRef.current !== null);
+    const end = restEnd ?? (resting ? currentEndTimeRef.current : 0);
+    const state = buildWidgetState(b, resting, end);
+    syncStateToWidget(state);
+  }
+
+  // Track rest end time for widget sync
+  const currentEndTimeRef = useRef(0);
 
   // ─── Check for active workout on focus ───
 
@@ -292,6 +415,16 @@ export default function WorkoutScreen() {
 
     setExerciseBlocks(blocks);
     startElapsedTimer(workout.started_at);
+
+    // Resume persistent Live Activity and widget sync
+    const firstIncomplete = blocks.find(b => b.sets.some(s => !s.is_completed));
+    if (firstIncomplete) {
+      const setIdx = firstIncomplete.sets.findIndex(s => !s.is_completed);
+      const setNum = setIdx >= 0 ? firstIncomplete.sets[setIdx].set_number : 1;
+      startWorkoutActivity(firstIncomplete.exercise.name, `Set ${setNum}/${firstIncomplete.sets.length}`);
+    }
+    syncWidgetState(blocks, false, 0);
+    startPolling(handleWidgetActions);
   }
 
   // ─── Helpers ───
@@ -342,16 +475,26 @@ export default function WorkoutScreen() {
     setRestSeconds(total);
     setRestExerciseName(exerciseName);
 
-    // Start Live Activity on lock screen
+    // Track end time for widget sync
+    const endTime = Date.now() + total * 1000;
+    currentEndTimeRef.current = endTime;
+
+    // Start Live Activity rest timer on lock screen
     startRestTimerActivity(total, exerciseName);
+
+    // Sync widget state to rest mode
+    syncWidgetState(undefined, true, endTime);
 
     restRef.current = setInterval(() => {
       setRestSeconds((prev) => {
         if (prev <= 1) {
           if (restRef.current) clearInterval(restRef.current);
           restRef.current = null;
-          // Stop Live Activity when timer ends
+          currentEndTimeRef.current = 0;
+          // Stop rest timer view (returns to set entry)
           stopRestTimerActivity();
+          // Sync widget back to set entry
+          syncWidgetState(undefined, false, 0);
           // Vibrate when timer ends
           try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
           return 0;
@@ -380,8 +523,9 @@ export default function WorkoutScreen() {
     if (restRef.current) clearInterval(restRef.current);
     restRef.current = null;
     setRestSeconds(0);
+    currentEndTimeRef.current = 0;
 
-    // Stop Live Activity + cancel notification
+    // Stop rest timer view (returns to set entry)
     stopRestTimerActivity();
   }
 
@@ -470,12 +614,71 @@ export default function WorkoutScreen() {
     return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal], restEnabled: true };
   }
 
+  // ─── Widget action handler ───
+
+  function handleWidgetActions(actions: WidgetAction[]) {
+    for (const action of actions) {
+      if (action.type === 'completeSet' && action.blockIndex != null && action.setIndex != null) {
+        handleWidgetCompleteSet(action.blockIndex, action.setIndex, action.weight ?? 0, action.reps ?? 0);
+      } else if (action.type === 'skipRest') {
+        dismissRest();
+        syncWidgetState(undefined, false, 0);
+      }
+    }
+  }
+
+  async function handleWidgetCompleteSet(blockIdx: number, setIdx: number, weight: number, reps: number) {
+    const block = blocksRef.current[blockIdx];
+    const set = block?.sets[setIdx];
+    if (!set || !block) return;
+
+    // Update local state with widget values
+    setExerciseBlocks((prev) => {
+      const next = [...prev];
+      const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+      updatedBlock.sets[setIdx] = {
+        ...updatedBlock.sets[setIdx],
+        weight: String(weight),
+        reps: String(reps),
+        is_completed: true,
+      };
+      next[blockIdx] = updatedBlock;
+      return next;
+    });
+
+    // Persist to SQLite
+    await updateWorkoutSet(set.id, {
+      weight,
+      reps,
+      is_completed: true,
+    });
+
+    // Haptic feedback
+    try { Vibration.vibrate(50); } catch {}
+
+    // Start rest timer if enabled
+    if (block.restEnabled) {
+      startRestTimer(block.restSeconds, block.exercise.name);
+    } else {
+      // Sync widget to show next set
+      syncWidgetState();
+    }
+  }
+
   function activateWorkout(workout: Workout, blocks: ExerciseBlock[], name: string | null = null) {
     setTemplateName(name);
     setActiveWorkout(workout);
     workoutRef.current = workout;
     setExerciseBlocks(blocks);
     startElapsedTimer(workout.started_at);
+
+    // Start persistent Live Activity and widget sync
+    const firstBlock = blocks[0];
+    if (firstBlock) {
+      startWorkoutActivity(firstBlock.exercise.name, `Set 1/${firstBlock.sets.length}`);
+      syncWidgetState(blocks, false, 0);
+    }
+    startPolling(handleWidgetActions);
   }
 
   // ─── Start workout handlers ───
@@ -715,7 +918,13 @@ export default function WorkoutScreen() {
       // Use captured values, not stale state
       if (restEnabled) {
         startRestTimer(blockRestSeconds, exerciseName);
+      } else {
+        // Sync widget to show next set
+        syncWidgetState();
       }
+    } else {
+      // Un-completing a set: sync widget
+      syncWidgetState();
     }
   }, []);
 
@@ -878,6 +1087,9 @@ export default function WorkoutScreen() {
             if (timerRef.current) clearInterval(timerRef.current);
             clearPendingNotes();
             dismissRest();
+            stopPolling();
+            stopWorkoutActivity();
+            clearWidgetState();
             setActiveWorkout(null);
             workoutRef.current = null;
             setTemplateName(null);
@@ -932,6 +1144,9 @@ export default function WorkoutScreen() {
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();
+    stopPolling();
+    stopWorkoutActivity();
+    clearWidgetState();
 
     // Celebration vibration
     try { Vibration.vibrate([0, 100, 50, 100, 50, 200]); } catch {}
@@ -950,6 +1165,7 @@ export default function WorkoutScreen() {
     workoutRef.current = null;
     setTemplateName(null);
     setExerciseBlocks([]);
+    setUpcomingTargets(null);
     loadState();
   }
 
@@ -967,16 +1183,25 @@ export default function WorkoutScreen() {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && restRef.current !== null) {
-        const remaining = getRestTimerRemainingSeconds();
-        if (remaining === null || remaining <= 0) {
-          if (restRef.current) clearInterval(restRef.current);
-          restRef.current = null;
-          setRestSeconds(0);
-          stopRestTimerActivity();
-          try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
-        } else {
-          setRestSeconds(remaining);
+      if (nextState === 'active') {
+        // Resync rest timer on foreground return
+        if (restRef.current !== null) {
+          const remaining = getRestTimerRemainingSeconds();
+          if (remaining === null || remaining <= 0) {
+            if (restRef.current) clearInterval(restRef.current);
+            restRef.current = null;
+            currentEndTimeRef.current = 0;
+            setRestSeconds(0);
+            stopRestTimerActivity();
+            syncWidgetState(undefined, false, 0);
+            try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
+          } else {
+            setRestSeconds(remaining);
+          }
+        }
+        // Sync widget state on foreground return (picks up any changes)
+        if (workoutRef.current) {
+          syncWidgetState();
         }
       }
     });
@@ -990,6 +1215,7 @@ export default function WorkoutScreen() {
       if (timerRef.current) clearInterval(timerRef.current);
       if (restRef.current) clearInterval(restRef.current);
       flushPendingNotes();
+      stopPolling();
     };
   }, []);
 

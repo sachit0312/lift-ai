@@ -41,24 +41,33 @@ export async function requestNotificationPermissions(): Promise<void> {
   }
 }
 
-export function startRestTimerActivity(totalSeconds: number, exerciseName: string): void {
+// ─── Persistent Workout Activity ───
+
+/**
+ * Start a persistent Live Activity for the entire workout.
+ * The activity stays active and switches between set entry and rest timer views.
+ */
+export function startWorkoutActivity(exerciseName: string, subtitle: string): void {
   if (Platform.OS !== 'ios') return;
   try {
     // Stop any existing activity first
-    stopRestTimerActivitySync();
-
+    if (currentActivityId) {
+      try {
+        LiveActivity.stopActivity(currentActivityId, { title: 'Done', subtitle: '' });
+      } catch {
+        // Activity may already be dismissed
+      }
+    }
+    currentEndTime = 0;
     currentExerciseName = exerciseName;
-    const endTime = Date.now() + totalSeconds * 1000;
-    currentEndTime = endTime;
+    cancelTimerEndNotification();
 
     const activityId = LiveActivity.startActivity(
       {
         title: exerciseName,
-        subtitle: 'Rest Timer',
-        progressBar: { date: endTime },
+        subtitle,
       },
       {
-        timerType: 'circular',
         deepLinkUrl: '/workout',
         backgroundColor: colors.surface,
         titleColor: colors.text,
@@ -68,11 +77,122 @@ export function startRestTimerActivity(totalSeconds: number, exerciseName: strin
     );
 
     currentActivityId = activityId ?? null;
+  } catch (e: unknown) {
+    console.error('Failed to start workout Live Activity', e);
+  }
+}
+
+/**
+ * Update the persistent workout activity for set entry view.
+ * The interactive widget reads full state from UserDefaults;
+ * this update triggers the SwiftUI re-render.
+ */
+export function updateWorkoutActivityForSet(exerciseName: string, setNumber: number, totalSets: number): void {
+  if (Platform.OS !== 'ios' || !currentActivityId) return;
+  try {
+    currentExerciseName = exerciseName;
+    currentEndTime = 0;
+
+    LiveActivity.updateActivity(currentActivityId, {
+      title: exerciseName,
+      subtitle: `Set ${setNumber}/${totalSets}`,
+    });
+
+    cancelTimerEndNotification();
+  } catch (e: unknown) {
+    console.error('Failed to update workout activity for set', e);
+  }
+}
+
+/**
+ * Update the persistent workout activity for rest timer view.
+ * Transitions the lock screen to show the rest timer countdown.
+ */
+export function updateWorkoutActivityForRest(exerciseName: string, totalSeconds: number): void {
+  if (Platform.OS !== 'ios' || !currentActivityId) return;
+  try {
+    const endTime = Date.now() + totalSeconds * 1000;
+    currentEndTime = endTime;
+    currentExerciseName = exerciseName;
+
+    LiveActivity.updateActivity(currentActivityId, {
+      title: exerciseName,
+      subtitle: 'Rest Timer',
+      progressBar: { date: endTime },
+    });
 
     // Schedule notification for when timer ends
     scheduleTimerEndNotification(totalSeconds, exerciseName);
   } catch (e: unknown) {
-    console.error('Failed to start Live Activity', e);
+    console.error('Failed to update workout activity for rest', e);
+  }
+}
+
+/**
+ * Stop the persistent workout activity.
+ */
+export function stopWorkoutActivity(): void {
+  if (Platform.OS !== 'ios') return;
+  try {
+    if (currentActivityId) {
+      try {
+        LiveActivity.stopActivity(currentActivityId, {
+          title: 'Workout Complete',
+          subtitle: '',
+        });
+      } catch {
+        // Activity may already be dismissed
+      }
+      currentActivityId = null;
+    }
+    currentEndTime = 0;
+    currentExerciseName = '';
+    cancelTimerEndNotification();
+  } catch (e: unknown) {
+    console.error('Failed to stop workout Live Activity', e);
+  }
+}
+
+// ─── Rest Timer Functions (now operate within persistent activity) ───
+
+export function startRestTimerActivity(totalSeconds: number, exerciseName: string): void {
+  if (Platform.OS !== 'ios') return;
+  try {
+    currentExerciseName = exerciseName;
+    const endTime = Date.now() + totalSeconds * 1000;
+    currentEndTime = endTime;
+
+    if (currentActivityId) {
+      // Update existing persistent activity to show rest timer
+      LiveActivity.updateActivity(currentActivityId, {
+        title: exerciseName,
+        subtitle: 'Rest Timer',
+        progressBar: { date: endTime },
+      });
+    } else {
+      // Fallback: start a new activity if none exists
+      const activityId = LiveActivity.startActivity(
+        {
+          title: exerciseName,
+          subtitle: 'Rest Timer',
+          progressBar: { date: endTime },
+        },
+        {
+          timerType: 'circular',
+          deepLinkUrl: '/workout',
+          backgroundColor: colors.surface,
+          titleColor: colors.text,
+          subtitleColor: colors.textSecondary,
+          progressViewTint: colors.primary,
+        },
+      );
+      currentActivityId = activityId ?? null;
+    }
+
+    // Schedule notification for when timer ends
+    scheduleTimerEndNotification(totalSeconds, exerciseName);
+  } catch (e: unknown) {
+    console.error('Failed to start rest timer', e);
   }
 }
 
@@ -95,37 +215,28 @@ export function adjustRestTimerActivity(deltaSeconds: number): void {
       scheduleTimerEndNotification(remainingSeconds);
     }
   } catch (e: unknown) {
-    console.error('Failed to adjust Live Activity', e);
+    console.error('Failed to adjust rest timer', e);
   }
 }
 
 export function stopRestTimerActivity(): void {
-  if (Platform.OS !== 'ios') return;
+  if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
-    stopRestTimerActivitySync();
+    currentEndTime = 0;
+
+    // Update activity back to set entry view (don't stop it)
+    LiveActivity.updateActivity(currentActivityId, {
+      title: currentExerciseName,
+      subtitle: 'Next Set',
+    });
+
+    cancelTimerEndNotification();
   } catch (e: unknown) {
-    console.error('Failed to stop Live Activity', e);
+    console.error('Failed to stop rest timer', e);
   }
 }
 
 // ─── Internal helpers ───
-
-function stopRestTimerActivitySync(): void {
-  if (currentActivityId) {
-    try {
-      LiveActivity.stopActivity(currentActivityId, {
-        title: 'Rest Complete',
-        subtitle: '',
-      });
-    } catch {
-      // Activity may already be dismissed
-    }
-    currentActivityId = null;
-  }
-  currentEndTime = 0;
-  currentExerciseName = '';
-  cancelTimerEndNotification();
-}
 
 async function scheduleTimerEndNotification(seconds: number, exerciseName?: string): Promise<void> {
   try {

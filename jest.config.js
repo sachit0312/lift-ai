@@ -9,6 +9,7 @@ module.exports = {
     '^expo-live-activity$': '<rootDir>/src/__mocks__/expo-live-activity.ts',
     '^expo-notifications$': '<rootDir>/src/__mocks__/expo-notifications.ts',
     '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
+    'modules/shared-user-defaults$': '<rootDir>/src/__mocks__/shared-user-defaults.ts',
   },
   testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/', '.worktrees/'],
   modulePathIgnorePatterns: ['<rootDir>/.worktrees/'],

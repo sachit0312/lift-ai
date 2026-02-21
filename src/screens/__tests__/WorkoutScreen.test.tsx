@@ -45,6 +45,17 @@ jest.mock('../../services/liveActivity', () => ({
   stopRestTimerActivity: jest.fn(),
   requestNotificationPermissions: jest.fn(),
   getRestTimerRemainingSeconds: jest.fn().mockReturnValue(null),
+  startWorkoutActivity: jest.fn(),
+  updateWorkoutActivityForSet: jest.fn(),
+  updateWorkoutActivityForRest: jest.fn(),
+  stopWorkoutActivity: jest.fn(),
+}));
+
+jest.mock('../../services/workoutBridge', () => ({
+  syncStateToWidget: jest.fn(),
+  startPolling: jest.fn(),
+  stopPolling: jest.fn(),
+  clearWidgetState: jest.fn(),
 }));
 
 jest.mock('@react-navigation/native', () => ({
