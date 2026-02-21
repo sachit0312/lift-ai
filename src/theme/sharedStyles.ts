@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from './tokens';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from './tokens';
 
 export const modalStyles = StyleSheet.create({
   overlay: {
@@ -47,6 +47,8 @@ export const modalStyles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.md,
+    minHeight: layout.buttonHeightSm,
+    justifyContent: 'center',
   },
   cancelText: {
     color: colors.textSecondary,
@@ -57,10 +59,120 @@ export const modalStyles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
     borderRadius: borderRadius.md,
+    minHeight: layout.buttonHeightSm,
+    justifyContent: 'center',
   },
   confirmText: {
     color: colors.white,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
+  },
+});
+
+export const cardStyles = StyleSheet.create({
+  base: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: layout.cardPadding,
+    marginBottom: layout.cardGap,
+  },
+});
+
+export const buttonStyles = StyleSheet.create({
+  primary: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.lg,
+    minHeight: layout.buttonHeight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  primaryText: {
+    color: colors.white,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+  secondary: {
+    backgroundColor: colors.surfaceLight,
+    borderRadius: borderRadius.md,
+    minHeight: layout.buttonHeightSm,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  secondaryText: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  ghost: {
+    backgroundColor: 'transparent',
+    borderRadius: borderRadius.md,
+    minHeight: layout.buttonHeightSm,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  ghostText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+  },
+  destructive: {
+    backgroundColor: colors.errorBg,
+    borderRadius: borderRadius.lg,
+    minHeight: layout.buttonHeight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  destructiveText: {
+    color: colors.error,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+  },
+});
+
+export const inputStyles = StyleSheet.create({
+  base: {
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    color: colors.text,
+    fontSize: fontSize.md,
+    minHeight: layout.inputHeight,
+  },
+  search: {
+    backgroundColor: colors.surfaceLight,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    color: colors.text,
+    fontSize: fontSize.md,
+    minHeight: layout.inputHeight,
+  },
+});
+
+export const emptyStateStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: layout.screenPaddingH,
+  },
+  icon: {
+    marginBottom: spacing.md,
+  },
+  title: {
+    color: colors.textSecondary,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+  },
+  subtitle: {
+    color: colors.textMuted,
+    fontSize: fontSize.md,
+    textAlign: 'center',
   },
 });

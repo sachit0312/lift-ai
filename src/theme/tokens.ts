@@ -19,6 +19,8 @@ export const colors = {
   primaryPlaceholder: 'rgba(124, 92, 252, 0.45)',
   successBg: 'rgba(82, 199, 124, 0.08)',
   errorBg: 'rgba(240, 82, 82, 0.08)',
+  borderSubtle: '#1F1F25',
+  primaryMuted: 'rgba(124, 92, 252, 0.12)',
 };
 
 export const spacing = {
@@ -48,6 +50,17 @@ export const fontWeight = {
   semibold: '600' as const,
   bold: '700' as const,
 };
+
+export const layout = {
+  screenPaddingH: 20,
+  cardGap: 12,
+  cardPadding: 16,
+  sectionGap: 32,
+  inputHeight: 48,
+  buttonHeight: 50,
+  buttonHeightSm: 40,
+  touchMin: 44,
+} as const;
 
 export const borderRadius = {
   sm: 6,
