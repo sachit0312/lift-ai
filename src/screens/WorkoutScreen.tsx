@@ -1888,7 +1888,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.sm,
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: spacing.xxs,
     borderRadius: borderRadius.md,
   },
@@ -1916,10 +1916,9 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   previousCol: {
-    color: colors.textMuted,
+    color: colors.textSecondary,
     fontSize: fontSize.sm,
     textAlign: 'center',
-    opacity: 0.5,
   },
   setInput: {
     backgroundColor: colors.surfaceLight,
@@ -1927,7 +1926,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     borderRadius: borderRadius.sm,
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: spacing.sm,
     textAlign: 'center',
     borderWidth: 1,
@@ -1958,8 +1957,8 @@ const styles = StyleSheet.create({
 
   // Checkbox
   checkBox: {
-    width: 40,
-    height: 40,
+    width: 34,
+    height: 34,
     borderRadius: borderRadius.sm,
     borderWidth: 1.5,
     borderColor: colors.border,
