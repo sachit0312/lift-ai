@@ -1814,7 +1814,7 @@ const styles = StyleSheet.create({
   exerciseCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
     marginBottom: spacing.md,
@@ -1824,7 +1824,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.md,
-    paddingHorizontal: spacing.xs,
   },
   exerciseNameContainer: {
     flex: 1,
@@ -1867,11 +1866,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.xs,
-    paddingHorizontal: spacing.xs,
+    paddingBottom: spacing.xs,
+    paddingHorizontal: spacing.xxs,
   },
   setHeaderCell: {
     color: colors.textMuted,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: fontWeight.semibold,
     textAlign: 'center',
     letterSpacing: 1,
@@ -1881,15 +1881,15 @@ const styles = StyleSheet.create({
   colPrev: { flex: 1, marginHorizontal: spacing.xs },
   colFlex: { flex: 1, marginHorizontal: spacing.xs },
   colRpe: { width: 40, marginHorizontal: spacing.xs },
-  checkCol: { width: 44, alignItems: 'center' as const },
+  checkCol: { width: 44, alignItems: 'center' as const, marginLeft: spacing.xs },
 
   // Set row
   setRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
-    paddingVertical: 10,
-    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.xxs,
     borderRadius: borderRadius.md,
   },
   setRowCompleted: {
@@ -1927,8 +1927,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     borderRadius: borderRadius.sm,
-    paddingVertical: 8,
-    paddingHorizontal: spacing.xs,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.sm,
     textAlign: 'center',
     borderWidth: 1,
     borderColor: 'transparent',
@@ -1958,8 +1958,8 @@ const styles = StyleSheet.create({
 
   // Checkbox
   checkBox: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: borderRadius.sm,
     borderWidth: 1.5,
     borderColor: colors.border,
