@@ -8,10 +8,6 @@ jest.mock('../../services/database', () => ({
   updateTemplate: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('../../utils/exerciseTypeColor', () => ({
-  exerciseTypeColor: () => '#7C5CFC',
-}));
-
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ goBack: jest.fn(), navigate: mockNavigate, setOptions: jest.fn() }),
@@ -66,9 +62,9 @@ describe('TemplateDetailScreen', () => {
     await waitFor(() => {
       expect(getByText('Bench Press')).toBeTruthy();
     });
-    // New UI uses stepper values instead of text pills
-    expect(getByTestId('sets-value-0')).toHaveTextContent('4');
-    expect(getByTestId('rest-value-0')).toHaveTextContent('2:00');
+    // New vertical layout shows value in stepper label
+    expect(getByTestId('sets-value-0')).toHaveTextContent('4 sets');
+    expect(getByTestId('rest-value-0')).toHaveTextContent('2:00 rest');
   });
 
   it('renders empty state when no exercises', async () => {

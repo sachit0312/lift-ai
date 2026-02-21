@@ -1553,38 +1553,11 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
 }: ExerciseBlockItemProps) {
   return (
     <View style={styles.exerciseCard}>
-      {/* Exercise header with name and timer controls */}
+      {/* Exercise header with name */}
       <View style={styles.exerciseHeaderRow}>
         <TouchableOpacity onPress={() => onExercisePress(block.exercise)} style={styles.exerciseNameContainer}>
           <Text style={styles.exerciseName}>{block.exercise.name}</Text>
         </TouchableOpacity>
-        <View style={styles.headerRestControls}>
-          <TouchableOpacity
-            style={styles.headerRestBtn}
-            onPress={() => onAdjustRest(blockIdx, -15)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.headerRestBtnText}>−</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => onToggleRestTimer(blockIdx)}
-            testID={`rest-timer-toggle-${blockIdx}`}
-            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-          >
-            <Text style={[styles.headerRestDisplay, !block.restEnabled && styles.headerRestDisplayOff]}>
-              {block.restEnabled
-                ? `${Math.floor(block.restSeconds / 60)}:${String(block.restSeconds % 60).padStart(2, '0')}`
-                : 'Off'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerRestBtn}
-            onPress={() => onAdjustRest(blockIdx, 15)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.headerRestBtnText}>+</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       {/* Set header row */}
@@ -1710,6 +1683,35 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
         </TouchableOpacity>
       </View>
 
+      {/* Rest timer controls */}
+      <View style={styles.restTimerRow}>
+        <TouchableOpacity
+          style={styles.headerRestBtn}
+          onPress={() => onAdjustRest(blockIdx, -15)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.headerRestBtnText}>−</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => onToggleRestTimer(blockIdx)}
+          testID={`rest-timer-toggle-${blockIdx}`}
+          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+        >
+          <Text style={[styles.headerRestDisplay, !block.restEnabled && styles.headerRestDisplayOff]}>
+            {block.restEnabled
+              ? `${Math.floor(block.restSeconds / 60)}:${String(block.restSeconds % 60).padStart(2, '0')}`
+              : 'Off'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.headerRestBtn}
+          onPress={() => onAdjustRest(blockIdx, 15)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.headerRestBtnText}>+</Text>
+        </TouchableOpacity>
+      </View>
+
       {block.notesExpanded && (
         <TextInput
           style={styles.notesInput}
@@ -1814,16 +1816,17 @@ const styles = StyleSheet.create({
   exerciseCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
     marginBottom: spacing.md,
   },
   exerciseHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.xs,
   },
   exerciseNameContainer: {
     flex: 1,
@@ -1833,15 +1836,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
   },
-  headerRestControls: {
+  restTimerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    marginTop: spacing.sm,
   },
   headerRestBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: borderRadius.sm,
+    flex: 1,
+    height: spacing.xl,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.surfaceLight,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1853,9 +1857,9 @@ const styles = StyleSheet.create({
   },
   headerRestDisplay: {
     color: colors.primary,
-    fontSize: fontSize.sm,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
-    minWidth: 40,
+    minWidth: 44,
     textAlign: 'center',
   },
   headerRestDisplayOff: {
@@ -1878,7 +1882,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase' as const,
   },
   setNumCol: { width: 36, alignItems: 'center' as const, justifyContent: 'center' as const },
-  colPrev: { flex: 1, marginHorizontal: spacing.xs },
+  colPrev: { flex: 1.3, marginHorizontal: spacing.xs },
   colFlex: { flex: 1, marginHorizontal: spacing.xs },
   colRpe: { width: 40, marginHorizontal: spacing.xs },
   checkCol: { width: 44, alignItems: 'center' as const, marginLeft: spacing.xs },
@@ -1917,7 +1921,8 @@ const styles = StyleSheet.create({
   },
   previousCol: {
     color: colors.textSecondary,
-    fontSize: fontSize.sm,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
     textAlign: 'center',
   },
   setInput: {
@@ -1973,8 +1978,7 @@ const styles = StyleSheet.create({
   // Exercise actions
   exerciseActions: {
     flexDirection: 'row',
-    marginTop: spacing.sm,
-    paddingTop: spacing.sm,
+    marginTop: spacing.xs,
     gap: spacing.sm,
   },
   actionBtn: {

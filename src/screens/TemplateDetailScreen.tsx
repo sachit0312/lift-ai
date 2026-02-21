@@ -8,7 +8,6 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
-import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
   getTemplateExercises,
   removeExerciseFromTemplate,
@@ -136,15 +135,25 @@ export default function TemplateDetailScreen() {
 
   const renderItem = useCallback(({ item, index }: { item: TemplateExercise; index: number }) => (
     <View style={styles.card}>
-      <View style={styles.cardBody}>
+      {/* Top row: name + delete */}
+      <View style={styles.cardTopRow}>
         <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
-        {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
-          <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
-        )}
-        <View style={styles.steppersRow}>
-          {/* Sets stepper */}
-          <View style={styles.stepperGroup}>
-            <Ionicons name="barbell-outline" size={16} color={colors.textSecondary} style={styles.stepperIcon} />
+        <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
+          <Ionicons name="close" size={20} color={colors.textMuted} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Muscle groups */}
+      {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
+        <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
+      )}
+
+      {/* Controls row */}
+      <View style={styles.controlsRow}>
+        {/* Sets stepper */}
+        <View style={styles.stepperGroup}>
+          <Text testID={`sets-value-${index}`} style={styles.stepperLabel}>{item.default_sets} {item.default_sets === 1 ? 'set' : 'sets'}</Text>
+          <View style={styles.stepperBtnRow}>
             <TouchableOpacity
               testID={`sets-decrease-${index}`}
               style={styles.stepperBtn}
@@ -152,9 +161,8 @@ export default function TemplateDetailScreen() {
               activeOpacity={0.7}
               hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
-              <Ionicons name="remove" size={16} color={colors.text} />
+              <Ionicons name="remove" size={22} color={colors.text} />
             </TouchableOpacity>
-            <Text testID={`sets-value-${index}`} style={styles.stepperValue}>{item.default_sets}</Text>
             <TouchableOpacity
               testID={`sets-increase-${index}`}
               style={styles.stepperBtn}
@@ -162,13 +170,15 @@ export default function TemplateDetailScreen() {
               activeOpacity={0.7}
               hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
-              <Ionicons name="add" size={16} color={colors.text} />
+              <Ionicons name="add" size={22} color={colors.text} />
             </TouchableOpacity>
           </View>
+        </View>
 
-          {/* Rest stepper */}
-          <View style={styles.stepperGroup}>
-            <Ionicons name="timer-outline" size={16} color={colors.textSecondary} style={styles.stepperIcon} />
+        {/* Rest stepper */}
+        <View style={styles.stepperGroup}>
+          <Text testID={`rest-value-${index}`} style={styles.stepperLabel}>{formatRestTime(item.rest_seconds)} rest</Text>
+          <View style={styles.stepperBtnRow}>
             <TouchableOpacity
               testID={`rest-decrease-${index}`}
               style={styles.stepperBtn}
@@ -176,9 +186,8 @@ export default function TemplateDetailScreen() {
               activeOpacity={0.7}
               hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
-              <Ionicons name="remove" size={16} color={colors.text} />
+              <Ionicons name="remove" size={22} color={colors.text} />
             </TouchableOpacity>
-            <Text testID={`rest-value-${index}`} style={styles.stepperValue}>{formatRestTime(item.rest_seconds)}</Text>
             <TouchableOpacity
               testID={`rest-increase-${index}`}
               style={styles.stepperBtn}
@@ -186,14 +195,11 @@ export default function TemplateDetailScreen() {
               activeOpacity={0.7}
               hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
-              <Ionicons name="add" size={16} color={colors.text} />
+              <Ionicons name="add" size={22} color={colors.text} />
             </TouchableOpacity>
           </View>
         </View>
       </View>
-      <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
-        <Ionicons name="trash-outline" size={18} color={colors.error} />
-      </TouchableOpacity>
     </View>
   ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
 
@@ -322,59 +328,61 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: layout.cardGap,
-    overflow: 'hidden',
+    padding: spacing.lg,
   },
-  cardBody: {
-    flex: 1,
-    padding: spacing.md,
+  cardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   exerciseName: {
     color: colors.text,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
+    flex: 1,
   },
   muscles: {
     color: colors.textMuted,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
   },
-  steppersRow: {
+  controlsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    gap: spacing.lg,
+    marginTop: spacing.md,
+    gap: spacing.xl,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
   },
   stepperGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start' as const,
   },
-  stepperIcon: {
-    marginRight: spacing.xs,
+  stepperLabel: {
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.sm,
+  },
+  stepperBtnRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
   },
   stepperBtn: {
-    width: 36,
-    height: 36,
+    width: layout.touchMin,
+    height: layout.touchMin,
     borderRadius: borderRadius.full,
     backgroundColor: colors.surfaceLight,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  stepperValue: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-    minWidth: 40,
-    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   removeBtn: {
-    width: 48,
-    height: 48,
+    minWidth: layout.touchMin,
+    minHeight: layout.touchMin,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.sm,
   },
   addBtn: {
     flexDirection: 'row',
