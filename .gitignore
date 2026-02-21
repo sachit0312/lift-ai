@@ -44,3 +44,6 @@ yarn-error.*
 .env
 .env.development
 .env.production
+
+# git worktrees
+.worktrees/
