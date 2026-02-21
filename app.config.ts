@@ -54,7 +54,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-secure-store',
     'expo-web-browser',
     'expo-live-activity',
-    './plugins/withInteractiveLiveActivity',
+    './plugins/withInteractiveLiveActivity', // Must run AFTER expo-live-activity (overwrites its Swift files)
     [
       '@sentry/react-native/expo',
       {

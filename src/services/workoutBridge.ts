@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import { setItem, getItem, removeItem } from '../../modules/shared-user-defaults';
 
 // ─── Types ───
@@ -39,7 +40,7 @@ export interface WidgetState {
 }
 
 export interface WidgetAction {
-  type: 'completeSet' | 'skipRest' | 'adjustRest';
+  type: 'completeSet' | 'skipRest';
   weight?: number;
   reps?: number;
   blockIndex?: number;
@@ -52,6 +53,7 @@ export interface WidgetAction {
 
 const WORKOUT_STATE_KEY = 'liftai_workout_state';
 const ACTION_QUEUE_KEY = 'liftai_action_queue';
+const POLLING_INTERVAL_MS = 500;
 
 // ─── Module-level state ───
 
@@ -65,6 +67,7 @@ export function syncStateToWidget(state: WidgetState): void {
     setItem(WORKOUT_STATE_KEY, JSON.stringify(state));
   } catch (e: unknown) {
     console.error('Failed to sync state to widget', e);
+    Sentry.captureException(e);
   }
 }
 
@@ -78,6 +81,7 @@ export function pollForActions(): WidgetAction[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch (e: unknown) {
     console.error('Failed to poll for widget actions', e);
+    Sentry.captureException(e);
     return [];
   }
 }
@@ -90,7 +94,7 @@ export function startPolling(callback: (actions: WidgetAction[]) => void): void 
     if (actions.length > 0) {
       callback(actions);
     }
-  }, 500);
+  }, POLLING_INTERVAL_MS);
 }
 
 export function stopPolling(): void {
@@ -107,5 +111,6 @@ export function clearWidgetState(): void {
     removeItem(ACTION_QUEUE_KEY);
   } catch (e: unknown) {
     console.error('Failed to clear widget state', e);
+    Sentry.captureException(e);
   }
 }
