@@ -44,6 +44,7 @@ jest.mock('../../services/liveActivity', () => ({
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
   requestNotificationPermissions: jest.fn(),
+  getRestTimerRemainingSeconds: jest.fn().mockReturnValue(null),
 }));
 
 jest.mock('@react-navigation/native', () => ({
@@ -75,6 +76,7 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
+  getRestTimerRemainingSeconds,
 } from '../../services/liveActivity';
 import WorkoutScreen from '../WorkoutScreen';
 
@@ -1151,6 +1153,139 @@ describe('WorkoutScreen', () => {
         const rpeInput = result.getByTestId('rpe-0-0');
         expect(rpeInput.props.placeholder).toBe('—');
       });
+    });
+  });
+
+  // ─── AppState rest timer resync ───
+
+  describe('AppState rest timer resync', () => {
+    let appStateCallback: (state: string) => void;
+    const mockRemove = jest.fn();
+
+    beforeEach(() => {
+      // Capture the AppState listener callback
+      const { AppState } = require('react-native');
+      jest.spyOn(AppState, 'addEventListener').mockImplementation((...args: unknown[]) => {
+        const [event, callback] = args as [string, (state: string) => void];
+        if (event === 'change') {
+          appStateCallback = callback;
+        }
+        return { remove: mockRemove };
+      });
+    });
+
+    it('resyncs rest timer when app returns to foreground', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Enter weight and reps, complete a set to start rest timer
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Verify rest timer is showing
+      await waitFor(() => {
+        expect(result.getByText(/Rest —/)).toBeTruthy();
+      });
+
+      // Simulate returning from background with 45 seconds remaining
+      (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(45);
+
+      await act(async () => {
+        appStateCallback('active');
+      });
+
+      // Timer should show the resynced value (0:45)
+      await waitFor(() => {
+        expect(result.getByText('0:45')).toBeTruthy();
+      });
+    });
+
+    it('does not call getRestTimerRemainingSeconds when no rest timer is running', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // No rest timer started — restRef.current is null
+      (getRestTimerRemainingSeconds as jest.Mock).mockClear();
+
+      // Simulate returning from background
+      await act(async () => {
+        appStateCallback('active');
+      });
+
+      // Should NOT query Live Activity state since no JS timer is running
+      expect(getRestTimerRemainingSeconds).not.toHaveBeenCalled();
+    });
+
+    it('dismisses rest timer when getRestTimerRemainingSeconds returns null', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Start rest timer by completing a set
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Verify rest timer is showing
+      await waitFor(() => {
+        expect(result.getByText(/Rest —/)).toBeTruthy();
+      });
+
+      (stopRestTimerActivity as jest.Mock).mockClear();
+
+      // Simulate Live Activity state cleared while backgrounded (returns null)
+      (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(null);
+
+      await act(async () => {
+        appStateCallback('active');
+      });
+
+      // Rest timer bar should be dismissed
+      await waitFor(() => {
+        expect(result.queryByText(/Rest —/)).toBeNull();
+      });
+
+      // Live Activity should be stopped
+      expect(stopRestTimerActivity).toHaveBeenCalled();
+    });
+
+    it('auto-dismisses rest timer if expired while backgrounded', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Enter weight and reps, complete a set to start rest timer
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Verify rest timer is showing
+      await waitFor(() => {
+        expect(result.getByText(/Rest —/)).toBeTruthy();
+      });
+
+      // Clear mocks so we can check stopRestTimerActivity was called by resync
+      (stopRestTimerActivity as jest.Mock).mockClear();
+
+      // Simulate returning from background with timer expired
+      (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(0);
+
+      await act(async () => {
+        appStateCallback('active');
+      });
+
+      // Rest timer bar should be dismissed
+      await waitFor(() => {
+        expect(result.queryByText(/Rest —/)).toBeNull();
+      });
+
+      // Live Activity should be stopped
+      expect(stopRestTimerActivity).toHaveBeenCalled();
     });
   });
 });

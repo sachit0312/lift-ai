@@ -8,6 +8,7 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
+  getRestTimerRemainingSeconds,
 } from '../liveActivity';
 
 // Helper to flush async microtasks (notification scheduling is async)
@@ -168,6 +169,38 @@ describe('liveActivity service', () => {
       expect(LiveActivity.updateActivity).not.toHaveBeenCalled();
       expect(LiveActivity.stopActivity).not.toHaveBeenCalled();
       expect(Notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getRestTimerRemainingSeconds', () => {
+    it('returns null when no timer is active', () => {
+      expect(getRestTimerRemainingSeconds()).toBeNull();
+    });
+
+    it('returns remaining seconds when timer is active', () => {
+      startRestTimerActivity(120, 'Bench Press');
+
+      const remaining = getRestTimerRemainingSeconds();
+      expect(remaining).not.toBeNull();
+      // Should be close to 120 (within a small margin for test execution time)
+      expect(remaining).toBeGreaterThanOrEqual(118);
+      expect(remaining).toBeLessThanOrEqual(120);
+    });
+
+    it('returns remaining seconds for a short-duration timer', () => {
+      // Start a 1s timer — test runs fast enough that it's still between 0-1
+      startRestTimerActivity(1, 'Squats');
+      const remaining = getRestTimerRemainingSeconds();
+      expect(remaining).not.toBeNull();
+      expect(remaining).toBeGreaterThanOrEqual(0);
+      expect(remaining).toBeLessThanOrEqual(1);
+    });
+
+    it('returns null after timer is stopped', () => {
+      startRestTimerActivity(120, 'Bench Press');
+      stopRestTimerActivity();
+
+      expect(getRestTimerRemainingSeconds()).toBeNull();
     });
   });
 

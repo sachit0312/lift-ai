@@ -15,6 +15,7 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,6 +33,7 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
+  getRestTimerRemainingSeconds,
 } from '../services/liveActivity';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
@@ -957,6 +959,26 @@ export default function WorkoutScreen() {
 
   useEffect(() => {
     requestNotificationPermissions();
+  }, []);
+
+  // ─── Resync rest timer on foreground return ───
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && restRef.current !== null) {
+        const remaining = getRestTimerRemainingSeconds();
+        if (remaining === null || remaining <= 0) {
+          if (restRef.current) clearInterval(restRef.current);
+          restRef.current = null;
+          setRestSeconds(0);
+          stopRestTimerActivity();
+          try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
+        } else {
+          setRestSeconds(remaining);
+        }
+      }
+    });
+    return () => subscription.remove();
   }, []);
 
   // ─── Cleanup ───
