@@ -14,7 +14,7 @@ import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, deleteAccount } from '../services/supabase';
 import { getWorkoutHistory, getPRsThisWeek } from '../services/database';
@@ -361,6 +361,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     marginTop: spacing.lg,
+    minHeight: layout.buttonHeight,
   },
   mcpTokenText: {
     color: colors.primary,
@@ -374,6 +375,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.md,
     marginTop: spacing.lg,
+    minHeight: layout.touchMin,
   },
   logoutText: {
     color: colors.error,
@@ -389,6 +391,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    minHeight: layout.touchMin,
   },
   deleteAccountText: {
     color: colors.error,
@@ -407,6 +410,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     textAlign: 'center',
     marginBottom: spacing.lg,
+    lineHeight: 22,
   },
   tokenBox: {
     backgroundColor: colors.background,
@@ -428,6 +432,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingVertical: spacing.md,
     marginBottom: spacing.lg,
+    minHeight: layout.buttonHeight,
   },
   copyButtonSuccess: {
     backgroundColor: colors.success + '20',
@@ -449,7 +454,7 @@ const styles = StyleSheet.create({
   instructionsText: {
     color: colors.textSecondary,
     fontSize: fontSize.sm,
-    lineHeight: 20,
+    lineHeight: 22,
     marginBottom: spacing.lg,
   },
   closeButton: {
@@ -457,6 +462,8 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingVertical: spacing.md,
     alignItems: 'center',
+    minHeight: layout.buttonHeight,
+    justifyContent: 'center',
   },
   closeButtonText: {
     color: colors.text,

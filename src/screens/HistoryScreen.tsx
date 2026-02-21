@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
 import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../services/database';
 import { formatDuration, formatDate } from '../utils/format';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
@@ -134,7 +134,6 @@ export default function HistoryScreen() {
         activeOpacity={0.7}
         onPress={() => handleExpand(item.id)}
       >
-        <View style={styles.cardAccent} />
         <View style={styles.cardInner}>
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
@@ -230,7 +229,7 @@ export default function HistoryScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="barbell-outline" size={64} color={colors.textMuted} />
+            <Ionicons name="barbell-outline" size={48} color={colors.textMuted} />
             <Text style={styles.emptyText}>No Workouts Yet</Text>
             <Text style={styles.emptySubtext}>
               Complete your first workout to see it here.
@@ -259,7 +258,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   titleSection: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.md,
   },
@@ -274,19 +273,15 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxs,
   },
   list: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
     paddingBottom: spacing.xxl,
   },
   card: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
-    marginBottom: spacing.sm,
+    marginBottom: layout.cardGap,
     flexDirection: 'row',
     overflow: 'hidden',
-  },
-  cardAccent: {
-    width: 3,
-    backgroundColor: colors.primaryDim,
   },
   cardInner: {
     flex: 1,
@@ -348,12 +343,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: spacing.sm,
-    marginBottom: spacing.xxs,
+    marginBottom: spacing.xs,
   },
   setDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
     marginRight: spacing.sm,
   },
   setText: {

@@ -15,7 +15,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '../services/supabase';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
 import type { AuthStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -167,7 +167,7 @@ export default function LoginScreen({ navigation }: Props) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.logoContainer}>
-          <Ionicons name="barbell" size={64} color={colors.primary} />
+          <Ionicons name="barbell" size={48} color={colors.primary} />
         </View>
 
         <Text style={styles.title}>Welcome Back</Text>
@@ -287,6 +287,7 @@ const styles = StyleSheet.create({
   forgotPasswordLink: {
     alignSelf: 'flex-end',
     marginBottom: spacing.sm,
+    paddingVertical: 12,
   },
   forgotPasswordText: {
     color: colors.primary,
@@ -301,7 +302,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: 18,
   },
   loginButton: {
     backgroundColor: colors.primary,
@@ -309,6 +310,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     alignItems: 'center',
     marginTop: spacing.sm,
+    minHeight: layout.buttonHeight,
+    justifyContent: 'center',
   },
   loginButtonText: {
     color: colors.white,
@@ -321,6 +324,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     alignItems: 'center',
     marginTop: spacing.md,
+    minHeight: layout.buttonHeight,
+    justifyContent: 'center',
   },
   googleButtonContent: {
     flexDirection: 'row',

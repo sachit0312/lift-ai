@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
 import { getAllExercises } from '../services/database';
 import { filterExercises } from '../utils/exerciseSearch';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
@@ -112,7 +112,7 @@ export default function ExercisesScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="barbell-outline" size={64} color={colors.textMuted} />
+            <Ionicons name="barbell-outline" size={48} color={colors.textMuted} />
             <Text style={styles.emptyText}>No Exercises Yet</Text>
             <Text style={styles.emptySubtext}>
               Exercises will appear here once you sync or create them from a template.
@@ -142,8 +142,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
+    paddingTop: spacing.xxl,
     paddingBottom: spacing.sm,
   },
   title: {
@@ -156,10 +156,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
-    marginHorizontal: spacing.md,
+    marginHorizontal: layout.screenPaddingH,
     marginBottom: spacing.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 12,
+    minHeight: layout.inputHeight,
   },
   searchInput: {
     flex: 1,
@@ -168,7 +169,7 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
   },
   listContent: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
     paddingBottom: spacing.xl,
   },
   emptyContainer: {
@@ -198,7 +199,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
-    marginBottom: spacing.sm,
+    marginBottom: layout.cardGap,
+    minHeight: 56,
   },
   exerciseInfo: {
     flex: 1,

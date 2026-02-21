@@ -23,7 +23,7 @@ import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeabl
 import Animated, { useAnimatedStyle, SharedValue, interpolate, Extrapolation } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Sentry from '@sentry/react-native';
-import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
@@ -1353,7 +1353,7 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.noActiveContent}>
         <View style={styles.heroSection}>
-          <Ionicons name="barbell-outline" size={48} color={colors.primary} />
+          <Ionicons name="barbell-outline" size={40} color={colors.primary} />
           <Text style={styles.heroTitle}>Start Workout</Text>
           <Text style={styles.heroSub}>Choose a template or start from scratch.</Text>
         </View>
@@ -1392,7 +1392,6 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
                   disabled={isLoading}
                   testID={`template-card-${t.id}`}
                 >
-                  <View style={styles.templateCardLeft} />
                   <View style={styles.templateCardBody}>
                     <Text style={styles.templateName}>{t.name}</Text>
                   </View>
@@ -1744,7 +1743,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.borderSubtle,
     backgroundColor: colors.background,
   },
   headerRow1: {
@@ -1786,7 +1785,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     borderRadius: borderRadius.full,
   },
   finishBtnText: {
@@ -1955,8 +1954,8 @@ const styles = StyleSheet.create({
 
   // Checkbox
   checkBox: {
-    width: 30,
-    height: 30,
+    width: 36,
+    height: 36,
     borderRadius: borderRadius.sm,
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -1980,7 +1979,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     borderRadius: borderRadius.md,
     backgroundColor: colors.surfaceLight,
   },
@@ -1997,7 +1996,8 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   removeExerciseBtn: {
-    width: 40,
+    minWidth: 44,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.sm,
@@ -2081,7 +2081,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceLight,
     borderRadius: borderRadius.full,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
   },
   restAdjustText: {
     color: colors.textSecondary,
@@ -2128,6 +2128,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     marginBottom: spacing.xl,
+    minHeight: layout.buttonHeight,
   },
   emptyBtnText: {
     color: colors.white,
@@ -2140,6 +2141,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     letterSpacing: 1.5,
     marginBottom: spacing.sm,
+    marginTop: layout.sectionGap,
   },
   templateCard: {
     backgroundColor: colors.surface,
@@ -2147,19 +2149,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.sm,
-    overflow: 'hidden',
   },
   templateCardDisabled: {
     opacity: 0.7,
   },
-  templateCardLeft: {
-    width: 3,
-    alignSelf: 'stretch',
-    backgroundColor: colors.primaryDim,
-  },
   templateCardBody: {
     flex: 1,
-    padding: spacing.md,
+    paddingVertical: 18,
+    paddingHorizontal: spacing.md,
   },
   templateName: {
     color: colors.text,
@@ -2177,6 +2174,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
+    minHeight: layout.buttonHeight,
+    justifyContent: 'center',
   },
   primaryBtnText: {
     color: colors.white,
@@ -2273,9 +2272,7 @@ const styles = StyleSheet.create({
 
   // Upcoming workout card
   upcomingCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
     marginBottom: spacing.lg,

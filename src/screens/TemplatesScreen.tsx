@@ -8,7 +8,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
-import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { getAllTemplates, createTemplate, deleteTemplate, getTemplateExerciseCount } from '../services/database';
 import type { Template } from '../types/database';
 
@@ -113,7 +113,6 @@ export default function TemplatesScreen() {
         onLongPress={() => handleLongPress(item)}
         activeOpacity={0.7}
       >
-        <View style={styles.cardLeft} />
         <View style={styles.cardBody}>
           <Text style={styles.cardTitle}>{item.name}</Text>
           <Text style={styles.cardSub}>
@@ -142,7 +141,7 @@ export default function TemplatesScreen() {
         contentContainerStyle={templates.length === 0 ? styles.emptyContainer : styles.list}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="documents-outline" size={64} color={colors.textMuted} />
+            <Ionicons name="documents-outline" size={48} color={colors.textMuted} />
             <Text style={styles.emptyTitle}>No Templates Yet</Text>
             <Text style={styles.emptySub}>
               Create your first workout template to get started.
@@ -191,7 +190,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   list: {
-    padding: spacing.md,
+    padding: layout.screenPaddingH,
     paddingBottom: 100,
   },
   emptyContainer: {
@@ -221,13 +220,8 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: layout.cardGap,
     overflow: 'hidden',
-  },
-  cardLeft: {
-    width: 3,
-    alignSelf: 'stretch',
-    backgroundColor: colors.primaryDim,
   },
   cardBody: {
     flex: 1,
@@ -250,7 +244,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: 80,
     borderRadius: borderRadius.lg,
-    marginBottom: spacing.sm,
+    marginBottom: layout.cardGap,
   },
   swipeDeleteText: {
     color: colors.white,

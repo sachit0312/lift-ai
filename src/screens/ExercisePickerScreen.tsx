@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { filterExercises } from '../utils/exerciseSearch';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
@@ -97,11 +97,10 @@ export default function ExercisePickerScreen() {
 
   const renderItem = useCallback(({ item }: { item: Exercise }) => (
     <TouchableOpacity style={styles.card} onPress={() => handlePick(item)} activeOpacity={0.7}>
-      <View style={[styles.typeDot, { backgroundColor: typeBadgeColor(item.type) }]} />
       <View style={styles.cardContent}>
         <View style={styles.cardTop}>
           <Text style={styles.exerciseName}>{item.name}</Text>
-          <View style={[styles.badge, { backgroundColor: typeBadgeColor(item.type) + '20', borderColor: typeBadgeColor(item.type) }]}>
+          <View style={[styles.badge, { backgroundColor: typeBadgeColor(item.type) + '20' }]}>
             <Text style={[styles.badgeText, { color: typeBadgeColor(item.type) }]}>{item.type}</Text>
           </View>
         </View>
@@ -281,8 +280,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
     borderRadius: borderRadius.lg,
     margin: spacing.md,
     marginBottom: 0,
@@ -396,6 +393,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    minHeight: 36,
   },
   muscleChipSelected: {
     backgroundColor: colors.primary,
@@ -405,6 +403,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: borderRadius.md,
     padding: spacing.md,
+    minHeight: layout.buttonHeight,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
@@ -433,12 +432,8 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: layout.cardGap,
     overflow: 'hidden',
-  },
-  typeDot: {
-    width: 3,
-    alignSelf: 'stretch',
   },
   cardContent: {
     flex: 1,
@@ -457,7 +452,6 @@ const styles = StyleSheet.create({
   },
   badge: {
     borderRadius: borderRadius.full,
-    borderWidth: 1,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     marginLeft: spacing.sm,

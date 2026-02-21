@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../services/supabase';
-import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
 import type { AuthStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Signup'>;
@@ -78,7 +78,7 @@ export default function SignupScreen({ navigation }: Props) {
         ) : (
           <>
             <View style={styles.logoContainer}>
-              <Ionicons name="barbell" size={64} color={colors.primary} />
+              <Ionicons name="barbell" size={48} color={colors.primary} />
             </View>
 
             <Text style={styles.title}>Create Account</Text>
@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: 18,
   },
   signupButton: {
     backgroundColor: colors.primary,
@@ -192,6 +192,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     alignItems: 'center',
     marginTop: spacing.sm,
+    minHeight: layout.buttonHeight,
+    justifyContent: 'center',
   },
   signupButtonText: {
     color: colors.white,

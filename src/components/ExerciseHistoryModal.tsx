@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Dimensions, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
-import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { getExerciseHistory } from '../services/database';
 import { calculateEstimated1RM } from '../utils/oneRepMax';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
@@ -140,7 +140,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         <View style={[modalStyles.card, styles.container]}>
           <View style={styles.header}>
             <Text style={[modalStyles.title, styles.title]}>{exercise.name}</Text>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={24} color={colors.text} />
             </TouchableOpacity>
           </View>
@@ -290,6 +290,12 @@ const styles = StyleSheet.create({
     flex: 1,
     marginBottom: 0,
   },
+  closeButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
   body: {
     paddingHorizontal: spacing.lg,
   },
@@ -324,6 +330,7 @@ const styles = StyleSheet.create({
   },
   chartContainer: {
     marginTop: spacing.lg,
+    marginBottom: spacing.xl,
   },
   sectionTitle: {
     color: colors.textSecondary,

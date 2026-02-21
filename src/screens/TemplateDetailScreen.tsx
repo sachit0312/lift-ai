@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
-import { colors, spacing, fontSize, fontWeight, borderRadius, modalStyles } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
   getTemplateExercises,
@@ -136,7 +136,6 @@ export default function TemplateDetailScreen() {
 
   const renderItem = useCallback(({ item, index }: { item: TemplateExercise; index: number }) => (
     <View style={styles.card}>
-      <View style={[styles.cardAccent, { backgroundColor: exerciseTypeColor(item.exercise?.type) }]} />
       <View style={styles.cardBody}>
         <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
         {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
@@ -151,6 +150,7 @@ export default function TemplateDetailScreen() {
               style={styles.stepperBtn}
               onPress={() => handleDecreaseSets(item)}
               activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
               <Ionicons name="remove" size={16} color={colors.text} />
             </TouchableOpacity>
@@ -160,6 +160,7 @@ export default function TemplateDetailScreen() {
               style={styles.stepperBtn}
               onPress={() => handleIncreaseSets(item)}
               activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
               <Ionicons name="add" size={16} color={colors.text} />
             </TouchableOpacity>
@@ -173,6 +174,7 @@ export default function TemplateDetailScreen() {
               style={styles.stepperBtn}
               onPress={() => handleDecreaseRest(item)}
               activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
               <Ionicons name="remove" size={16} color={colors.text} />
             </TouchableOpacity>
@@ -182,6 +184,7 @@ export default function TemplateDetailScreen() {
               style={styles.stepperBtn}
               onPress={() => handleIncreaseRest(item)}
               activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             >
               <Ionicons name="add" size={16} color={colors.text} />
             </TouchableOpacity>
@@ -277,7 +280,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
     padding: spacing.md,
-    paddingVertical: spacing.lg,
+    paddingVertical: 28,
   },
   nameRowInner: {
     flexDirection: 'row',
@@ -320,12 +323,8 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: layout.cardGap,
     overflow: 'hidden',
-  },
-  cardAccent: {
-    width: 3,
-    alignSelf: 'stretch',
   },
   cardBody: {
     flex: 1,
@@ -355,8 +354,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.xs,
   },
   stepperBtn: {
-    width: 28,
-    height: 28,
+    width: 36,
+    height: 36,
     borderRadius: borderRadius.full,
     backgroundColor: colors.surfaceLight,
     alignItems: 'center',
@@ -382,6 +381,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     margin: spacing.md,
     padding: spacing.md,
+    minHeight: layout.buttonHeightSm,
     borderRadius: borderRadius.md,
     borderWidth: 1.5,
     borderColor: colors.primary,
