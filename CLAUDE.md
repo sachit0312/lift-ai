@@ -123,6 +123,11 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 - `npx expo prebuild --clean` — regenerates native projects (needed after adding plugins like expo-live-activity)
 - `SENTRY_DISABLE_AUTO_UPLOAD=true npx expo run:ios --device "iPhone" --configuration Release` — prod build to device (skips Sentry source map upload which requires CLI auth)
 - **Important**: Always test via native build on physical iPhone, not Expo Go. Live Activity requires a native build (not Expo Go).
+- **Cache clearing when switching environments** (dev ↔ prod): Metro and Expo cache stale env vars across builds. When switching between `.env.development` and `.env.production` (or `--configuration Debug` vs `Release`), clear caches to avoid connecting to the wrong Supabase instance:
+  - `npx expo start --clear` — clears Metro bundler cache (fixes stale JS env vars)
+  - `npx expo run:ios --device --no-build-cache` — forces Xcode rebuild without cached build artifacts
+  - Full nuclear reset: `watchman watch-del-all && rm -rf /tmp/metro-* && npx expo run:ios --device` — clears watchman + Metro temp files + rebuilds
+  - After switching env: verify correct Supabase URL in app by checking network requests or adding a temporary `console.log(process.env.EXPO_PUBLIC_SUPABASE_URL)` in App.tsx
 - **Updating app icon**: Replace `assets/icon.png` (1024x1024 PNG, no alpha, full-bleed — no pre-rendered rounded corners). Also copy to `ios/liftai/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png` for dev builds (or run `npx expo prebuild --clean`). The `ios/` dir is gitignored — EAS cloud builds use `assets/icon.png` from `app.config.ts`.
 
 ## Deployment (EAS Build + App Store + OTA)
