@@ -258,7 +258,7 @@ export default function ExercisePickerScreen() {
         keyboardDismissMode="on-drag"
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="search" size={40} color={colors.textMuted} />
+            <Ionicons name="search" size={48} color={colors.textMuted} />
             <Text style={styles.empty}>
               {search ? 'No exercises match your search.' : 'No exercises yet. Create one above.'}
             </Text>

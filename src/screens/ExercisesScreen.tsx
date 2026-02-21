@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: layout.screenPaddingH,
-    paddingBottom: spacing.xl,
+    paddingBottom: 100,
   },
   emptyContainer: {
     flex: 1,

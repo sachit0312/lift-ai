@@ -160,7 +160,7 @@ export default function HistoryScreen() {
                   <TouchableOpacity onPress={() => {
                     const ex = exerciseMap[group.exerciseId];
                     if (ex) setHistoryModalExercise(ex);
-                  }}>
+                  }} style={{ paddingVertical: spacing.xs }}>
                     <Text style={styles.exerciseGroupName}>{group.exerciseName}</Text>
                   </TouchableOpacity>
                   {group.sets.map((s) => {
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingHorizontal: layout.screenPaddingH,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 100,
   },
   card: {
     backgroundColor: colors.surface,

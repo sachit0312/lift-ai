@@ -466,7 +466,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   closeButtonText: {
-    color: colors.text,
+    color: colors.white,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

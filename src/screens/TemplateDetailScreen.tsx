@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
     padding: spacing.md,
-    paddingVertical: 28,
+    paddingVertical: spacing.lg,
   },
   nameRowInner: {
     flexDirection: 'row',
@@ -294,7 +294,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   list: {
-    padding: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
+    paddingVertical: spacing.md,
     paddingBottom: 100,
   },
   emptyContainer: {

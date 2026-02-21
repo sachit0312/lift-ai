@@ -1111,7 +1111,7 @@ export default function WorkoutScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow1}>
-          <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} testID="cancel-workout-btn">
+          <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }} testID="cancel-workout-btn">
             <Ionicons name="close" size={24} color={colors.textMuted} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -1198,7 +1198,7 @@ export default function WorkoutScreen() {
         <View style={styles.addExerciseModal}>
           <View style={styles.addExerciseModalHeader}>
             <Text style={styles.addExerciseModalTitle}>Add Exercise</Text>
-            <TouchableOpacity onPress={() => setShowAddExercise(false)}>
+            <TouchableOpacity onPress={() => setShowAddExercise(false)} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
               <Ionicons name="close" size={24} color={colors.text} />
             </TouchableOpacity>
           </View>
@@ -1787,6 +1787,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     borderRadius: borderRadius.full,
+    minHeight: layout.touchMin,
+    justifyContent: 'center',
   },
   finishBtnText: {
     color: colors.white,
@@ -2092,7 +2094,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryDim + '30',
     borderRadius: borderRadius.full,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
+    minHeight: layout.buttonHeightSm,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   restSkipText: {
     color: colors.primaryLight,
@@ -2155,7 +2160,7 @@ const styles = StyleSheet.create({
   },
   templateCardBody: {
     flex: 1,
-    paddingVertical: 18,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
   },
   templateName: {
