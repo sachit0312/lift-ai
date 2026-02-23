@@ -18,6 +18,9 @@ jest.mock('../../services/database', () => ({
     id: `ws-${params.set_number}`,
     ...params,
   })),
+  addWorkoutSetsBatch: jest.fn().mockImplementation(async (sets: any[]) =>
+    sets.map((s: any, i: number) => ({ id: `ws-${s.set_number}`, ...s })),
+  ),
   getWorkoutSets: jest.fn().mockResolvedValue([]),
   updateWorkoutSet: jest.fn().mockResolvedValue(undefined),
   deleteWorkoutSet: jest.fn().mockResolvedValue(undefined),
@@ -27,6 +30,7 @@ jest.mock('../../services/database', () => ({
   getAllExercises: jest.fn().mockResolvedValue([
     { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null },
   ]),
+  getBulkExercises: jest.fn().mockResolvedValue([]),
   getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
   createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '', notes: null }),
   updateExerciseNotes: jest.fn().mockResolvedValue(undefined),

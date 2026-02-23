@@ -66,6 +66,7 @@ import {
   createExercise,
   updateExerciseNotes,
   getBulkExercises,
+  addWorkoutSetsBatch,
 } from '../services/database';
 import type {
   Template,
@@ -407,8 +408,7 @@ export default function WorkoutScreen() {
       const exercise = exerciseLookup.get(exId);
       if (!exercise) continue;
 
-      const lastTime = await formatLastTime(exId);
-      const previousSets = await getPreviousSets(exId);
+      const { lastTime, previousSets } = await getExerciseHistoryData(exId);
       const setNotes = wSets[0]?.notes;
       const restoredNotes = setNotes || exercise.notes || '';
 
@@ -449,30 +449,22 @@ export default function WorkoutScreen() {
 
   // ─── Helpers ───
 
-  async function getPreviousSets(exerciseId: string): Promise<PreviousSetData[]> {
+  async function getExerciseHistoryData(exerciseId: string): Promise<{ previousSets: PreviousSetData[]; lastTime: string | null }> {
     try {
       const hist = await getExerciseHistory(exerciseId, 1);
-      if (hist.length === 0) return [];
-      return hist[0].sets
-        .filter((s) => s.is_completed)
-        .map((s) => ({ weight: s.weight ?? 0, reps: s.reps ?? 0 }));
-    } catch {
-      return [];
-    }
-  }
-
-  async function formatLastTime(exerciseId: string): Promise<string | null> {
-    try {
-      const hist = await getExerciseHistory(exerciseId, 1);
-      if (hist.length === 0) return null;
+      if (hist.length === 0) return { previousSets: [], lastTime: null };
       const sets = hist[0].sets.filter((s) => s.is_completed);
-      if (sets.length === 0) return null;
-      const setCount = sets.length;
-      const avgReps = Math.round(sets.reduce((a, s) => a + (s.reps ?? 0), 0) / setCount);
-      const maxWeight = Math.max(...sets.map((s) => s.weight ?? 0));
-      return `Last: ${setCount}\u00D7${avgReps} @ ${maxWeight}lb`;
+      const previousSets = sets.map((s) => ({ weight: s.weight ?? 0, reps: s.reps ?? 0 }));
+      let lastTime: string | null = null;
+      if (sets.length > 0) {
+        const setCount = sets.length;
+        const avgReps = Math.round(sets.reduce((a, s) => a + (s.reps ?? 0), 0) / setCount);
+        const maxWeight = Math.max(...sets.map((s) => s.weight ?? 0));
+        lastTime = `Last: ${setCount}\u00D7${avgReps} @ ${maxWeight}lb`;
+      }
+      return { previousSets, lastTime };
     } catch {
-      return null;
+      return { previousSets: [], lastTime: null };
     }
   }
 
@@ -537,8 +529,14 @@ export default function WorkoutScreen() {
     });
     setRestTotal((prev) => Math.max(prev + delta, 1));
 
+    // Update end time ref so background→foreground resume calculates correctly
+    currentEndTimeRef.current += delta * 1000;
+
     // Update Live Activity countdown
     adjustRestTimerActivity(delta);
+
+    // Sync widget so lock screen shows updated rest end time
+    syncWidgetState(undefined, true, currentEndTimeRef.current);
   }
 
   function dismissRest() {
@@ -605,33 +603,30 @@ export default function WorkoutScreen() {
     setCount: number,
     restSec?: number,
   ): Promise<ExerciseBlock> {
-    const previousSets = await getPreviousSets(exercise.id);
-    const sets: LocalSet[] = [];
-    for (let i = 1; i <= setCount; i++) {
-      const ws = await addWorkoutSet({
-        workout_id: workoutId,
-        exercise_id: exercise.id,
-        set_number: i,
-        reps: null,
-        weight: null,
-        tag: 'working',
-        rpe: null,
-        is_completed: false,
-        notes: null,
-      });
-      sets.push({
-        id: ws.id,
-        exercise_id: exercise.id,
-        set_number: i,
-        weight: '',
-        reps: '',
-        rpe: '',
-        tag: 'working',
-        is_completed: false,
-        previous: previousSets[i - 1] ?? null,
-      });
-    }
-    const lastTime = await formatLastTime(exercise.id);
+    const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
+    const setsToInsert = Array.from({ length: setCount }, (_, i) => ({
+      workout_id: workoutId,
+      exercise_id: exercise.id,
+      set_number: i + 1,
+      reps: null,
+      weight: null,
+      tag: 'working' as const,
+      rpe: null,
+      is_completed: false,
+      notes: null,
+    }));
+    const inserted = await addWorkoutSetsBatch(setsToInsert);
+    const sets: LocalSet[] = inserted.map((ws, i) => ({
+      id: ws.id,
+      exercise_id: exercise.id,
+      set_number: i + 1,
+      weight: '',
+      reps: '',
+      rpe: '',
+      tag: 'working' as const,
+      is_completed: false,
+      previous: previousSets[i] ?? null,
+    }));
     const stickyNotes = exercise.notes ?? '';
     return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal], restEnabled: true };
   }
@@ -796,7 +791,7 @@ export default function WorkoutScreen() {
     if (!workout) return;
 
     setShowAddExercise(false);
-    const previousSets = await getPreviousSets(exercise.id);
+    const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
     const ws = await addWorkoutSet({
       workout_id: workout.id,
       exercise_id: exercise.id,
@@ -808,8 +803,6 @@ export default function WorkoutScreen() {
       is_completed: false,
       notes: null,
     });
-
-    const lastTime = await formatLastTime(exercise.id);
     const stickyNotes = exercise.notes ?? '';
     const newBlock: ExerciseBlock = {
       exercise,
@@ -974,7 +967,7 @@ export default function WorkoutScreen() {
     const exerciseId = block.exercise.id;
     const newSetNumber = block.sets.length + 1;
 
-    const previousSets = await getPreviousSets(exerciseId);
+    const { previousSets } = await getExerciseHistoryData(exerciseId);
     const ws = await addWorkoutSet({
       workout_id: workout.id,
       exercise_id: exerciseId,
@@ -1021,6 +1014,10 @@ export default function WorkoutScreen() {
       update: { type: LayoutAnimation.Types.easeInEaseOut },
       delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
     });
+
+    // Compute remaining sets before state update for DB persistence
+    const remainingSets = block.sets.filter((_, i) => i !== setIdx);
+
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const b = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
@@ -1030,6 +1027,11 @@ export default function WorkoutScreen() {
       next[blockIdx] = b;
       return next;
     });
+
+    // Persist renumbered set_numbers to SQLite
+    for (let i = 0; i < remainingSets.length; i++) {
+      await updateWorkoutSet(remainingSets[i].id, { set_number: i + 1 });
+    }
   }, []);
 
   const handleToggleNotes = useCallback((blockIdx: number) => {

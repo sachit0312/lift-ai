@@ -660,7 +660,7 @@ describe('pullUpcomingWorkout', () => {
     expect(Sentry.captureException).toHaveBeenCalledWith(exerciseError);
   });
 
-  it('continues to next exercise when sets fetch fails (uses continue, not return)', async () => {
+  it('reports to Sentry when batch sets fetch fails but still inserts exercises', async () => {
     setSessionAuthenticated();
 
     const mockWorkout = {
@@ -683,30 +683,16 @@ describe('pullUpcomingWorkout', () => {
     const exerciseBuilder = mockQueryBuilder(mockExercises, null);
     mockFromHandlers['upcoming_workout_exercises'] = exerciseBuilder;
 
-    // Sets builder: error on first call, success on second
+    // Batch sets fetch returns error
     const setsError = { message: 'sets fetch failed' };
-    let setsCallCount = 0;
-    const setsBuilder: any = {};
-    setsBuilder.select = jest.fn().mockReturnValue(setsBuilder);
-    setsBuilder.eq = jest.fn().mockImplementation(() => {
-      setsCallCount++;
-      if (setsCallCount === 1) {
-        const errorBuilder: any = {};
-        errorBuilder.order = jest.fn().mockResolvedValue({ data: null, error: setsError });
-        return errorBuilder;
-      } else {
-        const successBuilder: any = {};
-        successBuilder.order = jest.fn().mockResolvedValue({ data: [], error: null });
-        return successBuilder;
-      }
-    });
+    const setsBuilder = mockQueryBuilder(null, setsError);
     mockFromHandlers['upcoming_workout_sets'] = setsBuilder;
 
     await pullUpcomingWorkout();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(setsError);
 
-    // Should still insert both exercises (continues after sets error)
+    // Both exercises should still be inserted (sets error doesn't block exercise inserts)
     const exInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO upcoming_workout_exercises'),
     );
@@ -1036,7 +1022,7 @@ describe('pullExercisesAndTemplates', () => {
     await pullExercisesAndTemplates();
 
     expect(mockFrom).toHaveBeenCalledWith('template_exercises');
-    expect(teBuilder.eq).toHaveBeenCalledWith('template_id', 'tpl-1');
+    expect(teBuilder.in).toHaveBeenCalledWith('template_id', ['tpl-1']);
     expect(teBuilder.order).toHaveBeenCalledWith('sort_order');
 
     const teInserts = __mockDb.runAsync.mock.calls.filter(
@@ -1144,7 +1130,7 @@ describe('pullExercisesAndTemplates', () => {
     expect(exInserts).toHaveLength(0);
   });
 
-  it('reports to Sentry when template_exercises fetch fails and continues to next template', async () => {
+  it('reports to Sentry when template_exercises batch fetch fails but still inserts templates', async () => {
     setSessionAuthenticated();
 
     const exerciseBuilder = mockQueryBuilder([], null);
@@ -1158,30 +1144,16 @@ describe('pullExercisesAndTemplates', () => {
     const templateBuilder = mockQueryBuilder(mockTemplates, null);
     mockFromHandlers['templates'] = templateBuilder;
 
-    // template_exercises: error on first call, success on second
+    // template_exercises batch fetch returns error
     const teError = { message: 'template_exercises fetch failed' };
-    let teCallCount = 0;
-    const teBuilder: any = {};
-    teBuilder.select = jest.fn().mockReturnValue(teBuilder);
-    teBuilder.eq = jest.fn().mockImplementation(() => {
-      teCallCount++;
-      if (teCallCount === 1) {
-        const errorBuilder: any = {};
-        errorBuilder.order = jest.fn().mockResolvedValue({ data: null, error: teError });
-        return errorBuilder;
-      } else {
-        const successBuilder: any = {};
-        successBuilder.order = jest.fn().mockResolvedValue({ data: [], error: null });
-        return successBuilder;
-      }
-    });
+    const teBuilder = mockQueryBuilder(null, teError);
     mockFromHandlers['template_exercises'] = teBuilder;
 
     await pullExercisesAndTemplates();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(teError);
 
-    // Both templates should still be inserted
+    // Both templates should still be inserted (template_exercises error doesn't block template upserts)
     const tplInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO templates'),
     );

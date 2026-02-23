@@ -9,7 +9,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
-import { getAllTemplates, createTemplate, deleteTemplate, getTemplateExerciseCount } from '../services/database';
+import { getAllTemplates, createTemplate, deleteTemplate, getTemplateExerciseCountsBatch } from '../services/database';
 import type { Template } from '../types/database';
 
 interface TemplateWithCount extends Template {
@@ -29,12 +29,11 @@ export default function TemplatesScreen() {
   const loadTemplates = useCallback(() => {
     if (!hasLoadedOnce.current) setLoading(true);
     getAllTemplates().then(async (ts) => {
-      const withCounts = await Promise.all(
-        ts.map(async (t) => ({
-          ...t,
-          exerciseCount: await getTemplateExerciseCount(t.id),
-        })),
-      );
+      const countsMap = await getTemplateExerciseCountsBatch(ts.map(t => t.id));
+      const withCounts = ts.map((t) => ({
+        ...t,
+        exerciseCount: countsMap.get(t.id) ?? 0,
+      }));
       setTemplates(withCounts);
     }).catch((e: unknown) => console.error('Failed to load templates', e))
       .finally(() => { setLoading(false); hasLoadedOnce.current = true; });

@@ -5,7 +5,7 @@ jest.mock('../../services/database', () => ({
   getAllTemplates: jest.fn().mockResolvedValue([]),
   createTemplate: jest.fn().mockResolvedValue({ id: 't1', name: 'Test Template' }),
   deleteTemplate: jest.fn().mockResolvedValue(undefined),
-  getTemplateExerciseCount: jest.fn().mockResolvedValue(0),
+  getTemplateExerciseCountsBatch: jest.fn().mockResolvedValue(new Map()),
 }));
 
 const mockNavigate = jest.fn();

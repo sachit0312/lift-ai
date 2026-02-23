@@ -458,6 +458,25 @@ export async function getTemplateExerciseCount(templateId: string): Promise<numb
   }
 }
 
+export async function getTemplateExerciseCountsBatch(templateIds: string[]): Promise<Map<string, number>> {
+  if (templateIds.length === 0) return new Map();
+  try {
+    const database = await getDb();
+    const placeholders = templateIds.map(() => '?').join(',');
+    const rows = await database.getAllAsync<{ template_id: string; count: number }>(
+      `SELECT template_id, COUNT(*) as count FROM template_exercises WHERE template_id IN (${placeholders}) GROUP BY template_id`,
+      ...templateIds,
+    );
+    const map = new Map<string, number>();
+    for (const r of rows) map.set(r.template_id, r.count);
+    return map;
+  } catch (error) {
+    console.error('getTemplateExerciseCountsBatch error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
+}
+
 export async function addExerciseToTemplate(templateId: string, exerciseId: string, defaults?: { sets?: number; rest_seconds?: number }): Promise<TemplateExercise> {
   try {
     const database = await getDb();
@@ -600,6 +619,30 @@ export async function addWorkoutSet(set: Omit<WorkoutSet, 'id'>): Promise<Workou
     return { id, ...set };
   } catch (error) {
     console.error('addWorkoutSet error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
+}
+
+export async function addWorkoutSetsBatch(sets: Omit<WorkoutSet, 'id'>[]): Promise<WorkoutSet[]> {
+  if (sets.length === 0) return [];
+  try {
+    const database = await getDb();
+    const ids = sets.map(() => uuid());
+    const placeholderGroup = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    const placeholders = sets.map(() => placeholderGroup).join(', ');
+    const values: (string | number | null)[] = [];
+    for (let i = 0; i < sets.length; i++) {
+      const set = sets[i];
+      values.push(ids[i], set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes);
+    }
+    await database.runAsync(
+      `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes) VALUES ${placeholders}`,
+      ...values,
+    );
+    return sets.map((set, i) => ({ id: ids[i], ...set }));
+  } catch (error) {
+    console.error('addWorkoutSetsBatch error:', error);
     Sentry.captureException(error);
     throw error;
   }

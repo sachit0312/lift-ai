@@ -46,6 +46,8 @@ function mockQueryBuilder(resolvedData: any = [], resolvedError: any = null) {
   const builder: any = {};
   builder.select = jest.fn().mockReturnValue(builder);
   builder.eq = jest.fn().mockReturnValue(builder);
+  builder.in = jest.fn().mockReturnValue(builder);
+  builder.not = jest.fn().mockReturnValue(builder);
   builder.order = jest.fn().mockReturnValue(builder);
   builder.limit = jest.fn().mockResolvedValue({ data: resolvedData, error: resolvedError });
   builder.upsert = jest.fn().mockResolvedValue({ error: null });
@@ -301,7 +303,7 @@ describe('pullUpcomingWorkout resilience', () => {
     expect(workoutInsert).toBeDefined();
   });
 
-  it('sets query fails for one exercise — continues with other exercises, reports to Sentry', async () => {
+  it('batch sets query fails — reports to Sentry, exercises still inserted', async () => {
     setSessionAuthenticated();
 
     const workoutBuilder = mockQueryBuilder([MOCK_UPCOMING_WORKOUT], null);
@@ -310,28 +312,9 @@ describe('pullUpcomingWorkout resilience', () => {
     const exerciseBuilder = mockQueryBuilder(MOCK_UPCOMING_EXERCISES, null);
     mockFromHandlers['upcoming_workout_exercises'] = exerciseBuilder;
 
-    // Sets builder: error on first exercise, success on second
+    // Batch sets fetch returns error
     const setsError = { message: 'connection timeout on sets fetch', code: 'PGRST301' };
-    let setsCallCount = 0;
-    const setsBuilder: any = {};
-    setsBuilder.select = jest.fn().mockReturnValue(setsBuilder);
-    setsBuilder.eq = jest.fn().mockImplementation(() => {
-      setsCallCount++;
-      if (setsCallCount === 1) {
-        // First exercise sets fetch fails
-        const errorBuilder: any = {};
-        errorBuilder.order = jest.fn().mockResolvedValue({ data: null, error: setsError });
-        return errorBuilder;
-      } else {
-        // Second exercise sets fetch succeeds with one set
-        const successBuilder: any = {};
-        successBuilder.order = jest.fn().mockResolvedValue({
-          data: [{ id: 'uws-2', upcoming_exercise_id: 'uwe-2', set_number: 1, target_weight: 100, target_reps: 8 }],
-          error: null,
-        });
-        return successBuilder;
-      }
-    });
+    const setsBuilder = mockQueryBuilder(null, setsError);
     mockFromHandlers['upcoming_workout_sets'] = setsBuilder;
 
     await pullUpcomingWorkout();
@@ -339,18 +322,17 @@ describe('pullUpcomingWorkout resilience', () => {
     // Should report the sets error
     expect(Sentry.captureException).toHaveBeenCalledWith(setsError);
 
-    // Both exercises should still be inserted (continue, not return)
+    // Both exercises should still be inserted (sets error doesn't block exercise inserts)
     const exInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO upcoming_workout_exercises'),
     );
     expect(exInserts).toHaveLength(2);
 
-    // Sets for second exercise should still be inserted
+    // No sets should be inserted since batch query failed
     const setInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO upcoming_workout_sets'),
     );
-    expect(setInserts).toHaveLength(1);
-    expect(setInserts[0][1]).toBe('uws-2');
+    expect(setInserts).toHaveLength(0);
   });
 
   it('SQLite insert fails during local write — reports to Sentry', async () => {
@@ -451,7 +433,7 @@ describe('pullExercisesAndTemplates resilience', () => {
     expect(__mockDb.runAsync).not.toHaveBeenCalled();
   });
 
-  it('Supabase template_exercises query error for one template — continues to next template', async () => {
+  it('Supabase template_exercises batch query error — reports to Sentry, templates still inserted', async () => {
     setSessionAuthenticated();
 
     const exerciseBuilder = mockQueryBuilder([], null);
@@ -465,29 +447,16 @@ describe('pullExercisesAndTemplates resilience', () => {
     const templateBuilder = mockQueryBuilder(mockTemplates, null);
     mockFromHandlers['templates'] = templateBuilder;
 
+    // Batch template_exercises fetch returns error
     const teError = { message: 'timeout on template_exercises', code: 'PGRST301' };
-    let teCallCount = 0;
-    const teBuilder: any = {};
-    teBuilder.select = jest.fn().mockReturnValue(teBuilder);
-    teBuilder.eq = jest.fn().mockImplementation(() => {
-      teCallCount++;
-      if (teCallCount === 1) {
-        const errorBuilder: any = {};
-        errorBuilder.order = jest.fn().mockResolvedValue({ data: null, error: teError });
-        return errorBuilder;
-      } else {
-        const successBuilder: any = {};
-        successBuilder.order = jest.fn().mockResolvedValue({ data: [], error: null });
-        return successBuilder;
-      }
-    });
+    const teBuilder = mockQueryBuilder(null, teError);
     mockFromHandlers['template_exercises'] = teBuilder;
 
     await pullExercisesAndTemplates();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(teError);
 
-    // Both templates should be upserted (continue, not return)
+    // Both templates should be upserted (template_exercises error doesn't block template upserts)
     const tplInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO templates'),
     );

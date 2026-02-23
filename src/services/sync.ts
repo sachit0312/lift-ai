@@ -209,49 +209,60 @@ async function pullTemplates(): Promise<void> {
   }
   if (!templates || templates.length === 0) return;
 
-  for (const t of templates as PullTemplateRow[]) {
+  const templateList = templates as PullTemplateRow[];
+  const templateIds = templateList.map(t => t.id);
+
+  // Upsert all templates
+  for (const t of templateList) {
     await db.runAsync(
       `INSERT INTO templates (id, user_id, name, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, name=excluded.name, updated_at=excluded.updated_at`,
       t.id, t.user_id, t.name, t.created_at, t.updated_at,
     );
+  }
 
-    // Fetch template_exercises for this template
-    const { data: templateExercises, error: teErr } = await supabase
-      .from('template_exercises')
-      .select('*')
-      .eq('template_id', t.id)
-      .order('sort_order');
+  // Fetch all template_exercises in one query instead of per-template
+  const { data: allTemplateExercises, error: teErr } = await supabase
+    .from('template_exercises')
+    .select('*')
+    .in('template_id', templateIds)
+    .order('sort_order');
 
-    if (teErr) {
-      if (__DEV__) console.error(`Pull template_exercises error for template ${t.id}:`, teErr);
-      Sentry.captureException(teErr);
-      continue;
+  if (teErr) {
+    if (__DEV__) console.error('Pull template_exercises error:', teErr);
+    Sentry.captureException(teErr);
+  } else {
+    // Group by template_id
+    const teByTemplate = new Map<string, PullTemplateExerciseRow[]>();
+    for (const te of (allTemplateExercises ?? []) as PullTemplateExerciseRow[]) {
+      if (!teByTemplate.has(te.template_id)) teByTemplate.set(te.template_id, []);
+      teByTemplate.get(te.template_id)!.push(te);
     }
 
-    const teList = (templateExercises ?? []) as PullTemplateExerciseRow[];
+    for (const t of templateList) {
+      const teList = teByTemplate.get(t.id) ?? [];
 
-    // Delete template_exercises removed by MCP
-    if (teList.length > 0) {
-      const placeholders = teList.map(() => '?').join(', ');
-      await db.runAsync(
-        `DELETE FROM template_exercises WHERE template_id = ? AND id NOT IN (${placeholders})`,
-        t.id, ...teList.map(te => te.id),
-      );
-    } else {
-      // If MCP removed all exercises from this template, delete them all locally
-      await db.runAsync('DELETE FROM template_exercises WHERE template_id = ?', t.id);
-    }
+      // Delete template_exercises removed by MCP
+      if (teList.length > 0) {
+        const placeholders = teList.map(() => '?').join(', ');
+        await db.runAsync(
+          `DELETE FROM template_exercises WHERE template_id = ? AND id NOT IN (${placeholders})`,
+          t.id, ...teList.map(te => te.id),
+        );
+      } else {
+        await db.runAsync('DELETE FROM template_exercises WHERE template_id = ?', t.id);
+      }
 
-    // Upsert each template_exercise, preserving local rest_seconds
-    for (const te of teList) {
-      await db.runAsync(
-        `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds)
-         VALUES (?, ?, ?, ?, ?, COALESCE((SELECT rest_seconds FROM template_exercises WHERE id = ?), 150))
-         ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets`,
-        te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.id,
-      );
+      // Upsert each template_exercise, preserving local rest_seconds
+      for (const te of teList) {
+        await db.runAsync(
+          `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds)
+           VALUES (?, ?, ?, ?, ?, COALESCE((SELECT rest_seconds FROM template_exercises WHERE id = ?), 150))
+           ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets`,
+          te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.id,
+        );
+      }
     }
   }
 
@@ -411,30 +422,34 @@ export async function pullUpcomingWorkout(): Promise<void> {
       return;
     }
 
-    for (const ex of exercises ?? []) {
+    const exerciseList = exercises ?? [];
+
+    for (const ex of exerciseList) {
       await db.runAsync(
         'INSERT INTO upcoming_workout_exercises (id, upcoming_workout_id, exercise_id, sort_order, rest_seconds, notes) VALUES (?, ?, ?, ?, ?, ?)',
         ex.id, ex.upcoming_workout_id, ex.exercise_id, ex.sort_order, ex.rest_seconds, ex.notes,
       );
+    }
 
-      // Fetch sets for this exercise
-      const { data: sets, error: sErr } = await supabase
+    // Fetch all sets in one query instead of per-exercise
+    if (exerciseList.length > 0) {
+      const exerciseIds = exerciseList.map(ex => ex.id);
+      const { data: allSets, error: sErr } = await supabase
         .from('upcoming_workout_sets')
         .select('*')
-        .eq('upcoming_exercise_id', ex.id)
+        .in('upcoming_exercise_id', exerciseIds)
         .order('set_number');
 
       if (sErr) {
         if (__DEV__) console.error('Pull upcoming_workout_sets error:', sErr);
         Sentry.captureException(sErr);
-        continue;
-      }
-
-      for (const s of sets ?? []) {
-        await db.runAsync(
-          'INSERT INTO upcoming_workout_sets (id, upcoming_exercise_id, set_number, target_weight, target_reps, target_rpe) VALUES (?, ?, ?, ?, ?, ?)',
-          s.id, s.upcoming_exercise_id, s.set_number, s.target_weight, s.target_reps, s.target_rpe ?? null,
-        );
+      } else {
+        for (const s of allSets ?? []) {
+          await db.runAsync(
+            'INSERT INTO upcoming_workout_sets (id, upcoming_exercise_id, set_number, target_weight, target_reps, target_rpe) VALUES (?, ?, ?, ?, ?, ?)',
+            s.id, s.upcoming_exercise_id, s.set_number, s.target_weight, s.target_reps, s.target_rpe ?? null,
+          );
+        }
       }
     }
 
