@@ -29,7 +29,6 @@ import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
 import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 import {
-  startRestTimerActivity,
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
@@ -271,7 +270,22 @@ export default function WorkoutScreen() {
     const resting = isResting ?? (restRef.current !== null);
     const end = restEnd ?? (resting ? currentEndTimeRef.current : 0);
     const state = buildWidgetState(b, resting, end);
+
+    // Write to UserDefaults (for intent logic + action queue)
     syncStateToWidget(state);
+
+    // Also update ContentState (triggers widget view re-render)
+    if (resting && end > 0) {
+      updateWorkoutActivityForRest(state.current.exerciseName, Math.round((end - Date.now()) / 1000));
+    } else {
+      updateWorkoutActivityForSet(
+        state.current.exerciseName,
+        state.current.setNumber,
+        state.current.totalSets,
+        state.current.weight,
+        state.current.reps
+      );
+    }
   }
 
   // Track rest end time for widget sync
@@ -484,10 +498,7 @@ export default function WorkoutScreen() {
     const endTime = Date.now() + total * 1000;
     currentEndTimeRef.current = endTime;
 
-    // Start Live Activity rest timer on lock screen
-    startRestTimerActivity(total, exerciseName);
-
-    // Sync widget state to rest mode
+    // Sync widget state to rest mode (also updates Live Activity ContentState + schedules notification)
     syncWidgetState(undefined, true, endTime);
 
     restRef.current = setInterval(() => {

@@ -83,11 +83,11 @@ import {
 } from '../../services/database';
 
 import {
-  startRestTimerActivity,
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
   getRestTimerRemainingSeconds,
+  updateWorkoutActivityForRest,
 } from '../../services/liveActivity';
 import {
   syncStateToWidget,
@@ -454,7 +454,7 @@ describe('WorkoutScreen', () => {
       });
     });
 
-    it('starts Live Activity when rest timer starts', async () => {
+    it('updates Live Activity for rest when rest timer starts', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
@@ -464,12 +464,12 @@ describe('WorkoutScreen', () => {
         fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
       });
 
-      // Complete the set (triggers rest timer)
+      // Complete the set (triggers rest timer via syncWidgetState → updateWorkoutActivityForRest)
       await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
 
-      expect(startRestTimerActivity).toHaveBeenCalledWith(
-        expect.any(Number),
+      expect(updateWorkoutActivityForRest).toHaveBeenCalledWith(
         'Bench Press',
+        expect.any(Number),
       );
     });
 
