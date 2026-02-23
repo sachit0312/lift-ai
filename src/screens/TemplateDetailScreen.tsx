@@ -176,14 +176,14 @@ export default function TemplateDetailScreen() {
       <View style={styles.controlsRow}>
         {/* Warmup stepper */}
         <View style={styles.stepperGroup}>
-          <Text testID={`warmup-value-${index}`} style={styles.stepperLabel}>{item.warmup_sets} warmup</Text>
+          <Text testID={`warmup-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{item.warmup_sets} warmup</Text>
           <View style={styles.stepperBtnRow}>
             <TouchableOpacity
               testID={`warmup-decrease-${index}`}
               style={styles.stepperBtn}
               onPress={() => handleDecreaseWarmupSets(item)}
               activeOpacity={0.7}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Ionicons name="remove" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -192,7 +192,7 @@ export default function TemplateDetailScreen() {
               style={styles.stepperBtn}
               onPress={() => handleIncreaseWarmupSets(item)}
               activeOpacity={0.7}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Ionicons name="add" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -201,14 +201,14 @@ export default function TemplateDetailScreen() {
 
         {/* Working sets stepper */}
         <View style={styles.stepperGroup}>
-          <Text testID={`sets-value-${index}`} style={styles.stepperLabel}>{item.default_sets} working</Text>
+          <Text testID={`sets-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{item.default_sets} working</Text>
           <View style={styles.stepperBtnRow}>
             <TouchableOpacity
               testID={`sets-decrease-${index}`}
               style={styles.stepperBtn}
               onPress={() => handleDecreaseSets(item)}
               activeOpacity={0.7}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Ionicons name="remove" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -217,7 +217,7 @@ export default function TemplateDetailScreen() {
               style={styles.stepperBtn}
               onPress={() => handleIncreaseSets(item)}
               activeOpacity={0.7}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Ionicons name="add" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -226,14 +226,14 @@ export default function TemplateDetailScreen() {
 
         {/* Rest stepper */}
         <View style={styles.stepperGroup}>
-          <Text testID={`rest-value-${index}`} style={styles.stepperLabel}>{formatRestTime(item.rest_seconds)} rest</Text>
+          <Text testID={`rest-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{formatRestTime(item.rest_seconds)} rest</Text>
           <View style={styles.stepperBtnRow}>
             <TouchableOpacity
               testID={`rest-decrease-${index}`}
               style={styles.stepperBtn}
               onPress={() => handleDecreaseRest(item)}
               activeOpacity={0.7}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Ionicons name="remove" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -242,7 +242,7 @@ export default function TemplateDetailScreen() {
               style={styles.stepperBtn}
               onPress={() => handleIncreaseRest(item)}
               activeOpacity={0.7}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Ionicons name="add" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -399,12 +399,13 @@ const styles = StyleSheet.create({
   controlsRow: {
     flexDirection: 'row',
     marginTop: spacing.md,
-    gap: spacing.xl,
+    gap: spacing.sm,
     paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.borderSubtle,
   },
   stepperGroup: {
+    flex: 1,
     alignItems: 'flex-start' as const,
   },
   stepperLabel: {
@@ -415,11 +416,11 @@ const styles = StyleSheet.create({
   },
   stepperBtnRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   stepperBtn: {
-    width: layout.touchMin,
-    height: layout.touchMin,
+    width: 36,
+    height: 36,
     borderRadius: borderRadius.full,
     backgroundColor: colors.surfaceLight,
     alignItems: 'center',
