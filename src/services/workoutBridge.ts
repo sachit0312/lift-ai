@@ -40,7 +40,7 @@ export interface WidgetState {
 }
 
 export interface WidgetAction {
-  type: 'completeSet' | 'skipRest' | 'adjustWeight' | 'adjustReps' | 'adjustRest';
+  type: 'completeSet' | 'skipRest' | 'adjustRest';
   weight?: number;
   reps?: number;
   blockIndex?: number;

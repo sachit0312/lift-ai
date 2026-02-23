@@ -1,6 +1,5 @@
 const {
   withEntitlementsPlist,
-  withDangerousMod,
   withFinalizedMod,
   withPlugins,
 } = require('expo/config-plugins');
@@ -29,16 +28,15 @@ const REPLACEMENT_FILES = {
  * Execution order of Expo config plugin mod types:
  *   dangerous (-2) → xcodeproj (-1) → ... → finalized (1)
  *
- * expo-live-activity creates the LiveActivity target in withXcodeProject.
- * We use:
- *   - withDangerousMod for file copies + entitlements (runs before xcodeproj, no dependency)
- *   - withFinalizedMod to add Swift files to Xcode project (runs AFTER xcodeproj,
- *     so the LiveActivity target exists on disk)
+ * expo-live-activity creates the LiveActivity target and writes default Swift files
+ * AND empty widget entitlements in withXcodeProject (priority -1). We must do ALL
+ * our customizations AFTER that, so we use:
+ *   - withFinalizedMod to copy Swift files, merge widget entitlements, and add
+ *     new files to Xcode project (runs AFTER xcodeproj at priority 1)
  */
 function withInteractiveLiveActivity(config) {
   return withPlugins(config, [
     withAppGroupsEntitlement,
-    withWidgetFiles,
     withWidgetXcodeProjectFinalized,
   ]);
 }
@@ -51,19 +49,19 @@ function withAppGroupsEntitlement(config) {
   });
 }
 
-// Copy Swift files and update widget entitlements (filesystem only, no Xcode project dependency)
-function withWidgetFiles(config) {
-  return withDangerousMod(config, [
+// Copy Swift files, merge widget entitlements, and add new files to Xcode project
+// using withFinalizedMod.
+// This runs AFTER withXcodeProject (priority -1) where expo-live-activity creates
+// the LiveActivity target and writes default Swift files. By copying here, our
+// interactive replacements overwrite the defaults and persist into the final build.
+function withWidgetXcodeProjectFinalized(config) {
+  return withFinalizedMod(config, [
     'ios',
     (config) => {
-      const platformProjectRoot = config.modRequest.platformProjectRoot;
+      const { platformProjectRoot, projectName } = config.modRequest;
+
       const widgetPath = path.join(platformProjectRoot, WIDGET_TARGET_NAME);
       const pluginSwiftDir = path.join(__dirname, 'swift');
-
-      // Ensure widget directory exists
-      if (!fs.existsSync(widgetPath)) {
-        fs.mkdirSync(widgetPath, { recursive: true });
-      }
 
       // Copy replacement files (overwrite expo-live-activity defaults)
       for (const [source, dest] of Object.entries(REPLACEMENT_FILES)) {
@@ -71,21 +69,23 @@ function withWidgetFiles(config) {
         const destPath = path.join(widgetPath, dest);
         if (fs.existsSync(sourcePath)) {
           fs.copyFileSync(sourcePath, destPath);
-          console.log(`[withInteractiveLiveActivity] Replaced ${dest}`);
+          console.log(`[withInteractiveLiveActivity] Replaced ${dest} (finalized)`);
         }
       }
 
-      // Copy new Swift files
-      for (const file of NEW_SWIFT_FILES) {
-        const sourcePath = path.join(pluginSwiftDir, file);
-        const destPath = path.join(widgetPath, file);
-        if (fs.existsSync(sourcePath)) {
-          fs.copyFileSync(sourcePath, destPath);
-          console.log(`[withInteractiveLiveActivity] Copied ${file}`);
+      // Verify replacement worked by checking for the interactive struct name
+      const viewPath = path.join(widgetPath, 'LiveActivityView.swift');
+      if (fs.existsSync(viewPath)) {
+        const content = fs.readFileSync(viewPath, 'utf8');
+        if (content.includes('InteractiveLiveActivityView')) {
+          console.log(`[withInteractiveLiveActivity] ✓ Verified: LiveActivityView.swift contains interactive version`);
+        } else {
+          console.warn(`[withInteractiveLiveActivity] ✗ WARNING: LiveActivityView.swift does NOT contain interactive version`);
         }
       }
 
-      // Merge App Groups entitlement into widget extension (preserving existing entitlements)
+      // Merge App Groups entitlement into widget extension
+      // (must happen here in finalized, AFTER expo-live-activity writes empty entitlements in xcodeproj)
       const entitlementsPath = path.join(widgetPath, `${WIDGET_TARGET_NAME}.entitlements`);
       const plist = require('@expo/plist');
       let entitlements = {};
@@ -95,20 +95,19 @@ function withWidgetFiles(config) {
       }
       entitlements['com.apple.security.application-groups'] = [APP_GROUP_ID];
       fs.writeFileSync(entitlementsPath, plist.default.build(entitlements));
-      console.log(`[withInteractiveLiveActivity] Updated widget entitlements with App Groups`);
+      console.log(`[withInteractiveLiveActivity] ✓ Merged App Groups entitlement into widget entitlements (finalized)`);
 
-      return config;
-    },
-  ]);
-}
+      // Copy new Swift files
+      for (const file of NEW_SWIFT_FILES) {
+        const sourcePath = path.join(pluginSwiftDir, file);
+        const destPath = path.join(widgetPath, file);
+        if (fs.existsSync(sourcePath)) {
+          fs.copyFileSync(sourcePath, destPath);
+          console.log(`[withInteractiveLiveActivity] Copied ${file} (finalized)`);
+        }
+      }
 
-// Add new Swift files to the Xcode project using withFinalizedMod
-// This runs AFTER withXcodeProject (where expo-live-activity creates the LiveActivity target)
-function withWidgetXcodeProjectFinalized(config) {
-  return withFinalizedMod(config, [
-    'ios',
-    (config) => {
-      const { platformProjectRoot, projectName } = config.modRequest;
+      // Add new files to Xcode project
       addFilesToXcodeProject(platformProjectRoot, projectName);
       return config;
     },

@@ -57,37 +57,23 @@ describe('liveActivity service', () => {
   });
 
   describe('updateWorkoutActivityForSet', () => {
-    it('updates activity with set info including weight and reps', () => {
+    it('updates activity with set info', () => {
       startWorkoutActivity('Bench Press', 'Set 1/4');
       jest.clearAllMocks();
 
-      updateWorkoutActivityForSet('Bench Press', 2, 4, 225, 8);
+      updateWorkoutActivityForSet('Bench Press', 2, 4);
 
       expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
         'mock-activity-id',
         expect.objectContaining({
           title: 'Bench Press',
-          subtitle: 'Set 2/4 \u00B7 225 lbs \u00D7 8',
-        }),
-      );
-    });
-
-    it('formats decimal weights correctly', () => {
-      startWorkoutActivity('Bench Press', 'Set 1/4');
-      jest.clearAllMocks();
-
-      updateWorkoutActivityForSet('Bench Press', 1, 3, 132.5, 5);
-
-      expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
-        'mock-activity-id',
-        expect.objectContaining({
-          subtitle: 'Set 1/3 \u00B7 132.5 lbs \u00D7 5',
+          subtitle: 'Set 2/4',
         }),
       );
     });
 
     it('no-ops when no activity is active', () => {
-      updateWorkoutActivityForSet('Bench Press', 1, 4, 135, 10);
+      updateWorkoutActivityForSet('Bench Press', 1, 4);
       expect(LiveActivity.updateActivity).not.toHaveBeenCalled();
     });
   });
@@ -290,7 +276,7 @@ describe('liveActivity service', () => {
       Object.defineProperty(Platform, 'OS', { value: 'android', writable: true });
 
       startWorkoutActivity('Bench Press', 'Set 1/4');
-      updateWorkoutActivityForSet('Bench Press', 2, 4, 135, 10);
+      updateWorkoutActivityForSet('Bench Press', 2, 4);
       updateWorkoutActivityForRest('Bench Press', 90);
       startRestTimerActivity(120, 'Bench Press');
       adjustRestTimerActivity(15);

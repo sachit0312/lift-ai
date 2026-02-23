@@ -7,15 +7,21 @@ public class SharedUserDefaultsModule: Module {
     Name("SharedUserDefaults")
 
     Function("setItem") { (key: String, value: String) in
-      UserDefaults(suiteName: self.appGroupID)?.set(value, forKey: key)
+      let defaults = UserDefaults(suiteName: self.appGroupID)
+      defaults?.set(value, forKey: key)
+      defaults?.synchronize()
     }
 
     Function("getItem") { (key: String) -> String? in
-      return UserDefaults(suiteName: self.appGroupID)?.string(forKey: key)
+      let defaults = UserDefaults(suiteName: self.appGroupID)
+      defaults?.synchronize()
+      return defaults?.string(forKey: key)
     }
 
     Function("removeItem") { (key: String) in
-      UserDefaults(suiteName: self.appGroupID)?.removeObject(forKey: key)
+      let defaults = UserDefaults(suiteName: self.appGroupID)
+      defaults?.removeObject(forKey: key)
+      defaults?.synchronize()
     }
   }
 }

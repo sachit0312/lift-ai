@@ -88,18 +88,16 @@ export function startWorkoutActivity(exerciseName: string, subtitle: string): vo
  * this update triggers the SwiftUI re-render.
  */
 export function updateWorkoutActivityForSet(
-  exerciseName: string, setNumber: number, totalSets: number,
-  weight: number, reps: number
+  exerciseName: string, setNumber: number, totalSets: number
 ): void {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
     currentExerciseName = exerciseName;
     currentEndTime = 0;
 
-    const weightStr = weight % 1 === 0 ? String(weight) : weight.toFixed(1);
     LiveActivity.updateActivity(currentActivityId, {
       title: exerciseName,
-      subtitle: `Set ${setNumber}/${totalSets} \u00B7 ${weightStr} lbs \u00D7 ${reps}`,
+      subtitle: `Set ${setNumber}/${totalSets}`,
     });
 
     cancelTimerEndNotification();
@@ -125,7 +123,8 @@ export function updateWorkoutActivityForRest(exerciseName: string, totalSeconds:
       progressBar: { date: endTime },
     });
 
-    // Schedule notification for when timer ends
+    // Cancel any existing notification before scheduling new one
+    cancelTimerEndNotification();
     scheduleTimerEndNotification(totalSeconds, exerciseName);
   } catch (e: unknown) {
     console.error('Failed to update workout activity for rest', e);

@@ -5,146 +5,6 @@ import os
 
 private let logger = Logger(subsystem: "com.sachitgoyal.liftai.LiveActivity", category: "Intents")
 
-// MARK: - Weight Intents (zero-parameter for reliable Live Activity buttons)
-
-@available(iOS 17.0, *)
-struct DecreaseWeightIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Decrease Weight"
-
-    func perform() async throws -> some IntentResult {
-        logger.info("DecreaseWeightIntent.perform() called")
-        let helper = WorkoutUserDefaultsHelper.shared
-        guard var state = helper.readWorkoutState() else {
-            logger.warning("DecreaseWeightIntent: no workout state found")
-            return .result()
-        }
-
-        state.current.weight = max(0, state.current.weight - 2.5)
-        logger.info("DecreaseWeightIntent: weight now \(state.current.weight)")
-        helper.writeWorkoutState(state)
-
-        // Enqueue action for RN to apply delta reliably from main app process
-        let action = WorkoutAction(
-            type: "adjustWeight",
-            weight: nil,
-            reps: nil,
-            blockIndex: state.current.exerciseBlockIndex,
-            setIndex: state.current.setNumber - 1,
-            delta: -2.5,
-            ts: Date().timeIntervalSince1970 * 1000
-        )
-        helper.appendAction(action)
-
-        await refreshLiveActivity(state: state)
-
-        return .result()
-    }
-}
-
-@available(iOS 17.0, *)
-struct IncreaseWeightIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Increase Weight"
-
-    func perform() async throws -> some IntentResult {
-        logger.info("IncreaseWeightIntent.perform() called")
-        let helper = WorkoutUserDefaultsHelper.shared
-        guard var state = helper.readWorkoutState() else {
-            logger.warning("IncreaseWeightIntent: no workout state found")
-            return .result()
-        }
-
-        state.current.weight = state.current.weight + 2.5
-        logger.info("IncreaseWeightIntent: weight now \(state.current.weight)")
-        helper.writeWorkoutState(state)
-
-        // Enqueue action for RN to apply delta reliably from main app process
-        let action = WorkoutAction(
-            type: "adjustWeight",
-            weight: nil,
-            reps: nil,
-            blockIndex: state.current.exerciseBlockIndex,
-            setIndex: state.current.setNumber - 1,
-            delta: 2.5,
-            ts: Date().timeIntervalSince1970 * 1000
-        )
-        helper.appendAction(action)
-
-        await refreshLiveActivity(state: state)
-
-        return .result()
-    }
-}
-
-// MARK: - Reps Intents (zero-parameter for reliable Live Activity buttons)
-
-@available(iOS 17.0, *)
-struct DecreaseRepsIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Decrease Reps"
-
-    func perform() async throws -> some IntentResult {
-        logger.info("DecreaseRepsIntent.perform() called")
-        let helper = WorkoutUserDefaultsHelper.shared
-        guard var state = helper.readWorkoutState() else {
-            logger.warning("DecreaseRepsIntent: no workout state found")
-            return .result()
-        }
-
-        state.current.reps = max(0, state.current.reps - 1)
-        logger.info("DecreaseRepsIntent: reps now \(state.current.reps)")
-        helper.writeWorkoutState(state)
-
-        // Enqueue action for RN to apply delta reliably from main app process
-        let action = WorkoutAction(
-            type: "adjustReps",
-            weight: nil,
-            reps: nil,
-            blockIndex: state.current.exerciseBlockIndex,
-            setIndex: state.current.setNumber - 1,
-            delta: -1.0,
-            ts: Date().timeIntervalSince1970 * 1000
-        )
-        helper.appendAction(action)
-
-        await refreshLiveActivity(state: state)
-
-        return .result()
-    }
-}
-
-@available(iOS 17.0, *)
-struct IncreaseRepsIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Increase Reps"
-
-    func perform() async throws -> some IntentResult {
-        logger.info("IncreaseRepsIntent.perform() called")
-        let helper = WorkoutUserDefaultsHelper.shared
-        guard var state = helper.readWorkoutState() else {
-            logger.warning("IncreaseRepsIntent: no workout state found")
-            return .result()
-        }
-
-        state.current.reps = state.current.reps + 1
-        logger.info("IncreaseRepsIntent: reps now \(state.current.reps)")
-        helper.writeWorkoutState(state)
-
-        // Enqueue action for RN to apply delta reliably from main app process
-        let action = WorkoutAction(
-            type: "adjustReps",
-            weight: nil,
-            reps: nil,
-            blockIndex: state.current.exerciseBlockIndex,
-            setIndex: state.current.setNumber - 1,
-            delta: 1.0,
-            ts: Date().timeIntervalSince1970 * 1000
-        )
-        helper.appendAction(action)
-
-        await refreshLiveActivity(state: state)
-
-        return .result()
-    }
-}
-
 // MARK: - Complete Set
 
 @available(iOS 17.0, *)
@@ -156,6 +16,12 @@ struct CompleteSetIntent: LiveActivityIntent {
         let helper = WorkoutUserDefaultsHelper.shared
         guard var state = helper.readWorkoutState() else {
             logger.warning("CompleteSetIntent: no workout state found")
+            return .result()
+        }
+
+        // No-op if no weight/reps data — user should tap Live Activity to open app
+        if state.current.weight == 0 && state.current.reps == 0 {
+            logger.info("CompleteSetIntent: no weight/reps data, skipping (user should open app)")
             return .result()
         }
 
@@ -324,8 +190,6 @@ private func refreshLiveActivity(state: WorkoutState) async {
         return
     }
 
-    // Include weight/reps in subtitle so the content state actually changes —
-    // without this, the system may skip the re-render if title+subtitle are identical
     let contentState: LiveActivityAttributes.ContentState
     if state.isResting {
         contentState = LiveActivityAttributes.ContentState(
@@ -337,12 +201,9 @@ private func refreshLiveActivity(state: WorkoutState) async {
             dynamicIslandImageName: nil
         )
     } else {
-        let weightStr = state.current.weight.truncatingRemainder(dividingBy: 1) == 0
-            ? "\(Int(state.current.weight))"
-            : String(format: "%.1f", state.current.weight)
         contentState = LiveActivityAttributes.ContentState(
             title: state.current.exerciseName,
-            subtitle: "Set \(state.current.setNumber)/\(state.current.totalSets) \u{00B7} \(weightStr) lbs \u{00D7} \(state.current.reps)",
+            subtitle: "Set \(state.current.setNumber)/\(state.current.totalSets)",
             timerEndDateInMilliseconds: nil,
             progress: nil,
             imageName: nil,

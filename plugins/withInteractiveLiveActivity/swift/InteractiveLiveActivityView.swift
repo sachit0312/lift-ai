@@ -17,31 +17,19 @@ struct ConditionalForegroundViewModifier: ViewModifier {
 
 // MARK: - Parsed State from ContentState
 
-/// Parses set data from ContentState subtitle format: "Set X/Y · W lbs × R"
+/// Parses set data from ContentState subtitle format: "Set X/Y"
 @available(iOS 17.0, *)
 struct ParsedSetState {
   var exerciseName: String
   var setNumber: Int
   var totalSets: Int
-  var weight: Double
-  var reps: Int
 
   static func from(_ cs: LiveActivityAttributes.ContentState) -> ParsedSetState? {
     guard let subtitle = cs.subtitle else { return nil }
-    let parts = subtitle.components(separatedBy: " \u{00B7} ")
-    guard parts.count == 2 else { return nil }
-    let setStr = parts[0].replacingOccurrences(of: "Set ", with: "")
+    let setStr = subtitle.replacingOccurrences(of: "Set ", with: "")
     let setParts = setStr.components(separatedBy: "/")
     guard setParts.count == 2, let setNum = Int(setParts[0]), let total = Int(setParts[1]) else { return nil }
-    let valParts = parts[1].components(separatedBy: " \u{00D7} ")
-    guard valParts.count == 2 else { return nil }
-    let weightStr = valParts[0].replacingOccurrences(of: " lbs", with: "")
-    guard let weight = Double(weightStr), let reps = Int(valParts[1]) else { return nil }
-    return ParsedSetState(exerciseName: cs.title, setNumber: setNum, totalSets: total, weight: weight, reps: reps)
-  }
-
-  func formatWeight() -> String {
-    weight.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(weight)) : String(format: "%.1f", weight)
+    return ParsedSetState(exerciseName: cs.title, setNumber: setNum, totalSets: total)
   }
 }
 
@@ -71,82 +59,28 @@ struct SetEntryView: View {
   let attributes: LiveActivityAttributes
 
   var body: some View {
-    VStack(spacing: 8) {
-      // Exercise name + set counter
+    VStack(spacing: 6) {
+      // Row 1: Exercise name + set counter
       HStack {
         Text(parsed.exerciseName)
-          .font(.headline)
+          .font(.subheadline)
           .fontWeight(.semibold)
           .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
           .lineLimit(1)
         Spacer()
         Text("Set \(parsed.setNumber)/\(parsed.totalSets)")
-          .font(.subheadline)
+          .font(.caption)
           .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
+          .invalidatableContent()
       }
 
-      // Weight stepper (full width row)
-      HStack {
-        Button(intent: DecreaseWeightIntent()) {
-          Image(systemName: "minus")
-            .font(.system(size: 16, weight: .bold))
-            .frame(width: 40, height: 40)
-            .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-
-        Text("\(parsed.formatWeight()) lbs")
-          .font(.callout)
-          .fontWeight(.bold)
-          .frame(maxWidth: .infinity)
-          .multilineTextAlignment(.center)
-          .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-
-        Button(intent: IncreaseWeightIntent()) {
-          Image(systemName: "plus")
-            .font(.system(size: 16, weight: .bold))
-            .frame(width: 40, height: 40)
-            .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-      }
-
-      // Reps stepper (full width row)
-      HStack {
-        Button(intent: DecreaseRepsIntent()) {
-          Image(systemName: "minus")
-            .font(.system(size: 16, weight: .bold))
-            .frame(width: 40, height: 40)
-            .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-
-        Text("\(parsed.reps) reps")
-          .font(.callout)
-          .fontWeight(.bold)
-          .frame(maxWidth: .infinity)
-          .multilineTextAlignment(.center)
-          .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-
-        Button(intent: IncreaseRepsIntent()) {
-          Image(systemName: "plus")
-            .font(.system(size: 16, weight: .bold))
-            .frame(width: 40, height: 40)
-            .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-      }
-
-      // Complete set button
+      // Row 2: Complete set button
       Button(intent: CompleteSetIntent()) {
         HStack {
           Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 16))
+            .font(.system(size: 14))
           Text("Complete Set")
+            .font(.subheadline)
             .fontWeight(.semibold)
         }
         .frame(maxWidth: .infinity)
@@ -158,7 +92,8 @@ struct SetEntryView: View {
       }
       .buttonStyle(.plain)
     }
-    .padding(12)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
   }
 }
 
@@ -171,15 +106,15 @@ struct RestTimerView: View {
   let attributes: LiveActivityAttributes
 
   var body: some View {
-    VStack(spacing: 10) {
+    VStack(spacing: 6) {
       // Header
       HStack {
         Text("Rest")
-          .font(.headline)
+          .font(.subheadline)
           .fontWeight(.semibold)
           .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-        Text("- \(exerciseName)")
-          .font(.subheadline)
+        Text("· \(exerciseName)")
+          .font(.caption)
           .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
           .lineLimit(1)
         Spacer()
@@ -187,20 +122,21 @@ struct RestTimerView: View {
 
       // Countdown timer
       Text(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
-        .font(.system(size: 36, weight: .bold, design: .rounded))
+        .font(.system(size: 28, weight: .bold, design: .rounded))
         .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
         .multilineTextAlignment(.center)
+        .invalidatableContent()
 
       // Progress bar
       ProgressView(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
         .tint(attributes.progressViewTint.map { Color(hex: $0) })
 
       // Timer controls + skip
-      HStack(spacing: 10) {
+      HStack(spacing: 8) {
         Button(intent: DecreaseRestIntent()) {
           Text("-15s")
-            .font(.subheadline)
-            .fontWeight(.medium)
+            .font(.caption)
+            .fontWeight(.semibold)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(Color.white.opacity(0.15))
@@ -210,8 +146,8 @@ struct RestTimerView: View {
 
         Button(intent: IncreaseRestIntent()) {
           Text("+15s")
-            .font(.subheadline)
-            .fontWeight(.medium)
+            .font(.caption)
+            .fontWeight(.semibold)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(Color.white.opacity(0.15))
@@ -221,7 +157,7 @@ struct RestTimerView: View {
 
         Button(intent: SkipRestIntent()) {
           Text("Skip")
-            .font(.subheadline)
+            .font(.caption)
             .fontWeight(.semibold)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
@@ -234,7 +170,8 @@ struct RestTimerView: View {
         .buttonStyle(.plain)
       }
     }
-    .padding(16)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
   }
 }
 

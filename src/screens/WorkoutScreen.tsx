@@ -158,6 +158,9 @@ export default function WorkoutScreen() {
   // Promise ref for background history pull (so workout start can await it)
   const historyPulledRef = useRef<Promise<void>>(Promise.resolve());
 
+  // Track which exercise block was last interacted with (for widget state scanning)
+  const lastActiveBlockRef = useRef(0);
+
   // Notes debouncing
   const pendingNotesRef = useRef<Map<string, { notes: string; setId: string | null }>>(new Map());
   const notesTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -167,12 +170,16 @@ export default function WorkoutScreen() {
 
   // ─── Widget state sync helper ───
 
-  function buildWidgetState(blocks: ExerciseBlock[], isResting: boolean, restEnd: number): WidgetState {
-    // Find first incomplete set across all blocks
+  function buildWidgetState(blocks: ExerciseBlock[], isResting: boolean, restEnd: number, preferBlockIdx?: number): WidgetState {
+    // Find first incomplete set, starting from the last-active block (wrap around)
     let currentBlockIdx = -1;
     let currentSetIdx = -1;
 
-    for (let bi = 0; bi < blocks.length; bi++) {
+    const startIdx = (preferBlockIdx != null && preferBlockIdx >= 0 && preferBlockIdx < blocks.length)
+      ? preferBlockIdx : 0;
+
+    for (let i = 0; i < blocks.length; i++) {
+      const bi = (startIdx + i) % blocks.length;
       for (let si = 0; si < blocks[bi].sets.length; si++) {
         if (!blocks[bi].sets[si].is_completed) {
           currentBlockIdx = bi;
@@ -269,21 +276,20 @@ export default function WorkoutScreen() {
     const b = blocks ?? blocksRef.current;
     const resting = isResting ?? (restRef.current !== null);
     const end = restEnd ?? (resting ? currentEndTimeRef.current : 0);
-    const state = buildWidgetState(b, resting, end);
+    const state = buildWidgetState(b, resting, end, lastActiveBlockRef.current);
 
     // Write to UserDefaults (for intent logic + action queue)
     syncStateToWidget(state);
 
-    // Also update ContentState (triggers widget view re-render)
+    // Always push ContentState from main app process (widget extension updates are unreliable)
+    // Update ContentState (triggers widget view re-render)
     if (resting && end > 0) {
       updateWorkoutActivityForRest(state.current.exerciseName, Math.round((end - Date.now()) / 1000));
     } else {
       updateWorkoutActivityForSet(
         state.current.exerciseName,
         state.current.setNumber,
-        state.current.totalSets,
-        state.current.weight,
-        state.current.reps
+        state.current.totalSets
       );
     }
   }
@@ -634,7 +640,6 @@ export default function WorkoutScreen() {
 
   function handleWidgetActions(actions: WidgetAction[]) {
     if (!workoutRef.current) return;
-    let updatedBlocks: ExerciseBlock[] | null = null;
     for (const action of actions) {
       if (action.type === 'completeSet' && action.blockIndex != null && action.setIndex != null
         && action.blockIndex < blocksRef.current.length
@@ -643,33 +648,9 @@ export default function WorkoutScreen() {
       } else if (action.type === 'skipRest') {
         dismissRest();
         syncWidgetState(undefined, false, 0);
-      } else if (action.type === 'adjustWeight' && action.blockIndex != null && action.setIndex != null && action.delta != null) {
-        const source: ExerciseBlock[] = updatedBlocks ?? blocksRef.current;
-        if (action.blockIndex < source.length && action.setIndex < (source[action.blockIndex]?.sets.length ?? 0)) {
-          if (!updatedBlocks) updatedBlocks = source.map(b => ({ ...b, sets: [...b.sets] }));
-          const set = updatedBlocks![action.blockIndex].sets[action.setIndex];
-          const currentWeight = parseFloat(set.weight) || 0;
-          const newWeight = Math.max(0, currentWeight + action.delta);
-          updatedBlocks![action.blockIndex].sets[action.setIndex] = { ...set, weight: String(newWeight) };
-          updateWorkoutSet(set.id, { weight: newWeight });
-        }
-      } else if (action.type === 'adjustReps' && action.blockIndex != null && action.setIndex != null && action.delta != null) {
-        const source: ExerciseBlock[] = updatedBlocks ?? blocksRef.current;
-        if (action.blockIndex < source.length && action.setIndex < (source[action.blockIndex]?.sets.length ?? 0)) {
-          if (!updatedBlocks) updatedBlocks = source.map(b => ({ ...b, sets: [...b.sets] }));
-          const set = updatedBlocks![action.blockIndex].sets[action.setIndex];
-          const currentReps = parseInt(set.reps, 10) || 0;
-          const newReps = Math.max(0, currentReps + action.delta);
-          updatedBlocks![action.blockIndex].sets[action.setIndex] = { ...set, reps: String(newReps) };
-          updateWorkoutSet(set.id, { reps: newReps });
-        }
       } else if (action.type === 'adjustRest' && action.delta != null) {
         adjustRestTimer(action.delta);
       }
-    }
-    if (updatedBlocks) {
-      setExerciseBlocks(updatedBlocks);
-      syncWidgetState(updatedBlocks);
     }
   }
 
@@ -677,6 +658,7 @@ export default function WorkoutScreen() {
     const block = blocksRef.current[blockIdx];
     const set = block?.sets[setIdx];
     if (!set || !block) return;
+    lastActiveBlockRef.current = blockIdx;
 
     // Build updated blocks BEFORE syncing widget to avoid stale state
     const updatedBlocks = [...blocksRef.current];
@@ -850,6 +832,10 @@ export default function WorkoutScreen() {
     };
 
     setExerciseBlocks((prev) => {
+      if (prev.length === 0) {
+        // First exercise added to empty workout — start the Live Activity now
+        startWorkoutActivity(newBlock.exercise.name, `Set 1/${newBlock.sets.length}`);
+      }
       const updated = [...prev, newBlock];
       syncWidgetState(updated);
       return updated;
@@ -885,6 +871,7 @@ export default function WorkoutScreen() {
     field: 'weight' | 'reps' | 'rpe',
     value: string,
   ) => {
+    lastActiveBlockRef.current = blockIdx;
     const block = blocksRef.current[blockIdx];
     const set = block?.sets[setIdx];
     if (!set) return;
@@ -961,6 +948,7 @@ export default function WorkoutScreen() {
     });
 
     if (newCompleted) {
+      lastActiveBlockRef.current = blockIdx;
       // Haptic feedback
       try { Vibration.vibrate(50); } catch {}
       // Use captured values, not stale state
