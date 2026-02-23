@@ -15,23 +15,34 @@ struct ConditionalForegroundViewModifier: ViewModifier {
   }
 }
 
-struct DebugLog: View {
-  #if DEBUG
-    private let message: String
-    init(_ message: String) {
-      self.message = message
-      print(message)
-    }
+// MARK: - Parsed State from ContentState
 
-    var body: some View {
-      Text(message)
-        .font(.caption2)
-        .foregroundStyle(.red)
-    }
-  #else
-    init(_: String) {}
-    var body: some View { EmptyView() }
-  #endif
+/// Parses set data from ContentState subtitle format: "Set X/Y · W lbs × R"
+@available(iOS 17.0, *)
+struct ParsedSetState {
+  var exerciseName: String
+  var setNumber: Int
+  var totalSets: Int
+  var weight: Double
+  var reps: Int
+
+  static func from(_ cs: LiveActivityAttributes.ContentState) -> ParsedSetState? {
+    guard let subtitle = cs.subtitle else { return nil }
+    let parts = subtitle.components(separatedBy: " \u{00B7} ")
+    guard parts.count == 2 else { return nil }
+    let setStr = parts[0].replacingOccurrences(of: "Set ", with: "")
+    let setParts = setStr.components(separatedBy: "/")
+    guard setParts.count == 2, let setNum = Int(setParts[0]), let total = Int(setParts[1]) else { return nil }
+    let valParts = parts[1].components(separatedBy: " \u{00D7} ")
+    guard valParts.count == 2 else { return nil }
+    let weightStr = valParts[0].replacingOccurrences(of: " lbs", with: "")
+    guard let weight = Double(weightStr), let reps = Int(valParts[1]) else { return nil }
+    return ParsedSetState(exerciseName: cs.title, setNumber: setNum, totalSets: total, weight: weight, reps: reps)
+  }
+
+  func formatWeight() -> String {
+    weight.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(weight)) : String(format: "%.1f", weight)
+  }
 }
 
 // MARK: - Interactive Lock Screen View (iOS 17+)
@@ -42,17 +53,11 @@ struct InteractiveLiveActivityView: View {
   let attributes: LiveActivityAttributes
 
   var body: some View {
-    let helper = WorkoutUserDefaultsHelper.shared
-    let workoutState = helper.readWorkoutState()
-
-    if let state = workoutState, state.workoutActive {
-      if state.isResting {
-        RestTimerView(state: state, attributes: attributes)
-      } else {
-        SetEntryView(state: state, attributes: attributes)
-      }
+    if let timerEnd = contentState.timerEndDateInMilliseconds, timerEnd > 0 {
+      RestTimerView(exerciseName: contentState.title, restEndTime: timerEnd, attributes: attributes)
+    } else if let parsed = ParsedSetState.from(contentState) {
+      SetEntryView(parsed: parsed, attributes: attributes)
     } else {
-      // Fallback to basic view when no workout state available
       FallbackLiveActivityView(contentState: contentState, attributes: attributes)
     }
   }
@@ -62,92 +67,78 @@ struct InteractiveLiveActivityView: View {
 
 @available(iOS 17.0, *)
 struct SetEntryView: View {
-  let state: WorkoutState
+  let parsed: ParsedSetState
   let attributes: LiveActivityAttributes
 
   var body: some View {
     VStack(spacing: 8) {
       // Exercise name + set counter
       HStack {
-        Text(state.current.exerciseName)
+        Text(parsed.exerciseName)
           .font(.headline)
           .fontWeight(.semibold)
           .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
           .lineLimit(1)
         Spacer()
-        Text("Set \(state.current.setNumber)/\(state.current.totalSets)")
+        Text("Set \(parsed.setNumber)/\(parsed.totalSets)")
           .font(.subheadline)
           .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
       }
 
-      // Weight stepper
+      // Weight stepper (full width row)
       HStack {
-        Text("LBS")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .frame(width: 36, alignment: .leading)
-
-        Button(intent: AdjustWeightIntent(delta: -2.5)) {
+        Button(intent: DecreaseWeightIntent()) {
           Image(systemName: "minus")
-            .font(.system(size: 14, weight: .bold))
-            .frame(width: 32, height: 32)
+            .font(.system(size: 16, weight: .bold))
+            .frame(width: 40, height: 40)
             .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
 
-        Text(formatWeight(state.current.weight))
-          .font(.title3)
+        Text("\(parsed.formatWeight()) lbs")
+          .font(.callout)
           .fontWeight(.bold)
-          .frame(minWidth: 60)
+          .frame(maxWidth: .infinity)
           .multilineTextAlignment(.center)
           .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
 
-        Button(intent: AdjustWeightIntent(delta: 2.5)) {
+        Button(intent: IncreaseWeightIntent()) {
           Image(systemName: "plus")
-            .font(.system(size: 14, weight: .bold))
-            .frame(width: 32, height: 32)
+            .font(.system(size: 16, weight: .bold))
+            .frame(width: 40, height: 40)
             .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-
-        Spacer()
       }
 
-      // Reps stepper
+      // Reps stepper (full width row)
       HStack {
-        Text("REPS")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .frame(width: 36, alignment: .leading)
-
-        Button(intent: AdjustRepsIntent(delta: -1)) {
+        Button(intent: DecreaseRepsIntent()) {
           Image(systemName: "minus")
-            .font(.system(size: 14, weight: .bold))
-            .frame(width: 32, height: 32)
+            .font(.system(size: 16, weight: .bold))
+            .frame(width: 40, height: 40)
             .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
 
-        Text("\(state.current.reps)")
-          .font(.title3)
+        Text("\(parsed.reps) reps")
+          .font(.callout)
           .fontWeight(.bold)
-          .frame(minWidth: 60)
+          .frame(maxWidth: .infinity)
           .multilineTextAlignment(.center)
           .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
 
-        Button(intent: AdjustRepsIntent(delta: 1)) {
+        Button(intent: IncreaseRepsIntent()) {
           Image(systemName: "plus")
-            .font(.system(size: 14, weight: .bold))
-            .frame(width: 32, height: 32)
+            .font(.system(size: 16, weight: .bold))
+            .frame(width: 40, height: 40)
             .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-
-        Spacer()
       }
 
       // Complete set button
@@ -159,7 +150,7 @@ struct SetEntryView: View {
             .fontWeight(.semibold)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(
           RoundedRectangle(cornerRadius: 10)
             .fill(Color(hex: attributes.progressViewTint ?? "#7C5CFC"))
@@ -167,14 +158,7 @@ struct SetEntryView: View {
       }
       .buttonStyle(.plain)
     }
-    .padding(16)
-  }
-
-  private func formatWeight(_ weight: Double) -> String {
-    if weight.truncatingRemainder(dividingBy: 1) == 0 {
-      return String(Int(weight))
-    }
-    return String(format: "%.1f", weight)
+    .padding(12)
   }
 }
 
@@ -182,7 +166,8 @@ struct SetEntryView: View {
 
 @available(iOS 17.0, *)
 struct RestTimerView: View {
-  let state: WorkoutState
+  let exerciseName: String
+  let restEndTime: Double
   let attributes: LiveActivityAttributes
 
   var body: some View {
@@ -193,7 +178,7 @@ struct RestTimerView: View {
           .font(.headline)
           .fontWeight(.semibold)
           .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-        Text("- \(state.current.exerciseName)")
+        Text("- \(exerciseName)")
           .font(.subheadline)
           .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
           .lineLimit(1)
@@ -201,35 +186,33 @@ struct RestTimerView: View {
       }
 
       // Countdown timer
-      if state.restEndTime > 0 {
-        Text(timerInterval: Date.toTimerInterval(miliseconds: state.restEndTime))
-          .font(.system(size: 36, weight: .bold, design: .rounded))
-          .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-          .multilineTextAlignment(.center)
+      Text(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
+        .font(.system(size: 36, weight: .bold, design: .rounded))
+        .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
+        .multilineTextAlignment(.center)
 
-        // Progress bar
-        ProgressView(timerInterval: Date.toTimerInterval(miliseconds: state.restEndTime))
-          .tint(attributes.progressViewTint.map { Color(hex: $0) })
-      }
+      // Progress bar
+      ProgressView(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
+        .tint(attributes.progressViewTint.map { Color(hex: $0) })
 
       // Timer controls + skip
-      HStack(spacing: 12) {
-        Button(intent: AdjustRestIntent(delta: -15)) {
+      HStack(spacing: 10) {
+        Button(intent: DecreaseRestIntent()) {
           Text("-15s")
             .font(.subheadline)
             .fontWeight(.medium)
-            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(Color.white.opacity(0.15))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
 
-        Button(intent: AdjustRestIntent(delta: 15)) {
+        Button(intent: IncreaseRestIntent()) {
           Text("+15s")
             .font(.subheadline)
             .fontWeight(.medium)
-            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(Color.white.opacity(0.15))
             .clipShape(Capsule())
@@ -240,7 +223,7 @@ struct RestTimerView: View {
           Text("Skip")
             .font(.subheadline)
             .fontWeight(.semibold)
-            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(
               Capsule()
