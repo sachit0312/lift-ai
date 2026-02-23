@@ -858,7 +858,7 @@ describe('WorkoutScreen', () => {
     const benchExercise = { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, user_id: 'local', created_at: '2026-01-01' };
     const templateExercises = [
       {
-        id: 'te1', template_id: 't1', exercise_id: 'ex1', order: 1, default_sets: 3, rest_seconds: 90,
+        id: 'te1', template_id: 't1', exercise_id: 'ex1', order: 1, default_sets: 3, warmup_sets: 0, rest_seconds: 90,
         exercise: benchExercise,
       },
     ];
@@ -955,7 +955,7 @@ describe('WorkoutScreen', () => {
     it('displays exercise sets and muscle groups', async () => {
       const multiExercises = [
         {
-          id: 'te1', template_id: 't1', exercise_id: 'ex1', order: 1, default_sets: 3, rest_seconds: 90,
+          id: 'te1', template_id: 't1', exercise_id: 'ex1', order: 1, default_sets: 3, warmup_sets: 0, rest_seconds: 90,
           exercise: { ...benchExercise, muscle_groups: ['Chest', 'Triceps'] },
         },
       ];

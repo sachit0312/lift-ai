@@ -153,7 +153,7 @@ describe('syncToSupabase', () => {
     setSessionAuthenticated();
 
     const mockTemplateExercises = [
-      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3, rest_seconds: 120 },
+      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3, warmup_sets: 0, rest_seconds: 120 },
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
@@ -694,7 +694,7 @@ describe('pullUpcomingWorkout', () => {
     ];
 
     const mockSets = [
-      { id: 'uws-1', upcoming_exercise_id: 'uwe-1', set_number: 1, target_weight: 135, target_reps: 10 },
+      { id: 'uws-1', upcoming_exercise_id: 'uwe-1', set_number: 1, target_weight: 135, target_reps: 10, tag: 'warmup' },
       { id: 'uws-2', upcoming_exercise_id: 'uwe-1', set_number: 2, target_weight: 145, target_reps: 8 },
     ];
 
@@ -718,9 +718,11 @@ describe('pullUpcomingWorkout', () => {
     expect(setInserts[0][3]).toBe(1);
     expect(setInserts[0][4]).toBe(135);
     expect(setInserts[0][5]).toBe(10);
+    expect(setInserts[0][7]).toBe('warmup'); // tag from Supabase
     expect(setInserts[1][1]).toBe('uws-2');
     expect(setInserts[1][4]).toBe(145);
     expect(setInserts[1][5]).toBe(8);
+    expect(setInserts[1][7]).toBe('working'); // default tag
   });
 
   it('reports to Sentry and returns when upcoming_workouts fetch fails', async () => {
@@ -1112,7 +1114,7 @@ describe('pullExercisesAndTemplates', () => {
     mockFromHandlers['templates'] = templateBuilder;
 
     const mockTe = [
-      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3, rest_seconds: 120 },
+      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3, warmup_sets: 2, rest_seconds: 120 },
       { id: 'te-2', template_id: 'tpl-1', exercise_id: 'ex-2', sort_order: 1, default_sets: 4 },
     ];
 
@@ -1129,14 +1131,17 @@ describe('pullExercisesAndTemplates', () => {
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO template_exercises'),
     );
     expect(teInserts).toHaveLength(2);
-    // SQL uses Supabase rest_seconds directly (synced via MCP), with ?? 150 fallback
+    // SQL uses Supabase rest_seconds + warmup_sets directly (synced via MCP), with fallbacks
     expect(teInserts[0][0]).toContain('rest_seconds=excluded.rest_seconds');
+    expect(teInserts[0][0]).toContain('warmup_sets=excluded.warmup_sets');
     expect(teInserts[0][1]).toBe('te-1');
     expect(teInserts[0][3]).toBe('ex-1');
     expect(teInserts[0][5]).toBe(3); // default_sets
-    expect(teInserts[0][6]).toBe(120); // rest_seconds from Supabase
-    // Second exercise has no rest_seconds in mock data — falls back to 150
-    expect(teInserts[1][6]).toBe(150);
+    expect(teInserts[0][6]).toBe(2); // warmup_sets from Supabase
+    expect(teInserts[0][7]).toBe(120); // rest_seconds from Supabase
+    // Second exercise has no rest_seconds/warmup_sets in mock data — falls back to defaults
+    expect(teInserts[1][6]).toBe(0); // warmup_sets default
+    expect(teInserts[1][7]).toBe(150); // rest_seconds default
   });
 
   it('deletes template_exercises removed by MCP', async () => {

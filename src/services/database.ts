@@ -56,6 +56,7 @@ interface TemplateExerciseJoinRow {
   exercise_id: string;
   sort_order: number;
   default_sets: number;
+  warmup_sets: number;
   rest_seconds: number | null;
   exercise_name: string;
   exercise_type: string;
@@ -136,6 +137,17 @@ interface UpcomingWorkoutRow {
   template_id: string | null;
   notes: string | null;
   created_at: string;
+}
+
+/** Raw row from upcoming_workout_sets table — tag may be null for pre-migration rows */
+interface UpcomingWorkoutSetRow {
+  id: string;
+  upcoming_exercise_id: string;
+  set_number: number;
+  target_weight: number;
+  target_reps: number;
+  target_rpe: number | null;
+  tag: string | null;
 }
 
 // ─── Helpers ───
@@ -283,6 +295,10 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 
   // Migration: add target_rpe column for MCP-prescribed RPE per set
   await database.runAsync('ALTER TABLE upcoming_workout_sets ADD COLUMN target_rpe REAL').catch(() => {});
+
+  // Migration: add warmup_sets to template_exercises and tag to upcoming_workout_sets
+  await database.runAsync('ALTER TABLE template_exercises ADD COLUMN warmup_sets INTEGER NOT NULL DEFAULT 0').catch(() => {});
+  await database.runAsync("ALTER TABLE upcoming_workout_sets ADD COLUMN tag TEXT DEFAULT 'working'").catch(() => {});
 }
 
 // ─── Exercises ───
@@ -426,6 +442,7 @@ export async function getTemplateExercises(templateId: string): Promise<Template
       exercise_id: r.exercise_id,
       order: r.sort_order,
       default_sets: r.default_sets,
+      warmup_sets: r.warmup_sets ?? 0,
       rest_seconds: r.rest_seconds ?? 150,
       exercise: {
         id: r.exercise_id,
@@ -477,18 +494,19 @@ export async function getTemplateExerciseCountsBatch(templateIds: string[]): Pro
   }
 }
 
-export async function addExerciseToTemplate(templateId: string, exerciseId: string, defaults?: { sets?: number; rest_seconds?: number }): Promise<TemplateExercise> {
+export async function addExerciseToTemplate(templateId: string, exerciseId: string, defaults?: { sets?: number; warmup_sets?: number; rest_seconds?: number }): Promise<TemplateExercise> {
   try {
     const database = await getDb();
     const id = uuid();
     const existing = await database.getAllAsync<MaxOrderRow>('SELECT MAX(sort_order) as max_order FROM template_exercises WHERE template_id = ?', templateId);
     const order = (existing[0]?.max_order ?? -1) + 1;
     const restSec = defaults?.rest_seconds ?? 150;
+    const warmupSets = defaults?.warmup_sets ?? 0;
     await database.runAsync(
-      'INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds) VALUES (?, ?, ?, ?, ?, ?)',
-      id, templateId, exerciseId, order, defaults?.sets ?? 3, restSec,
+      'INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, warmup_sets, rest_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id, templateId, exerciseId, order, defaults?.sets ?? 3, warmupSets, restSec,
     );
-    return { id, template_id: templateId, exercise_id: exerciseId, order, default_sets: defaults?.sets ?? 3, rest_seconds: restSec };
+    return { id, template_id: templateId, exercise_id: exerciseId, order, default_sets: defaults?.sets ?? 3, warmup_sets: warmupSets, rest_seconds: restSec };
   } catch (error) {
     console.error('addExerciseToTemplate error:', error);
     Sentry.captureException(error);
@@ -507,12 +525,13 @@ export async function removeExerciseFromTemplate(id: string): Promise<void> {
   }
 }
 
-export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; rest_seconds?: number }): Promise<void> {
+export async function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; warmup_sets?: number; rest_seconds?: number }): Promise<void> {
   try {
     const database = await getDb();
     const parts: string[] = [];
     const values: (string | number)[] = [];
     if (defaults.sets !== undefined) { parts.push('default_sets = ?'); values.push(defaults.sets); }
+    if (defaults.warmup_sets !== undefined) { parts.push('warmup_sets = ?'); values.push(defaults.warmup_sets); }
     if (defaults.rest_seconds !== undefined) { parts.push('rest_seconds = ?'); values.push(defaults.rest_seconds); }
     if (parts.length === 0) return;
     values.push(id);
@@ -868,10 +887,14 @@ export async function getUpcomingWorkoutForToday(): Promise<{
     const exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] = [];
 
     for (const r of exerciseRows) {
-      const sets = await database.getAllAsync<UpcomingWorkoutSet>(
+      const rawSets = await database.getAllAsync<UpcomingWorkoutSetRow>(
         'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
         r.id,
       );
+      const sets: UpcomingWorkoutSet[] = rawSets.map(s => ({
+        ...s,
+        tag: (s.tag ?? 'working') as SetTag,
+      }));
 
       exercises.push({
         id: r.id,

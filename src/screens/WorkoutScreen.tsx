@@ -602,6 +602,7 @@ export default function WorkoutScreen() {
     exercise: Exercise,
     setCount: number,
     restSec?: number,
+    tagOverrides?: SetTag[],
   ): Promise<ExerciseBlock> {
     const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
     const setsToInsert = Array.from({ length: setCount }, (_, i) => ({
@@ -610,7 +611,7 @@ export default function WorkoutScreen() {
       set_number: i + 1,
       reps: null,
       weight: null,
-      tag: 'working' as const,
+      tag: tagOverrides?.[i] ?? 'working' as SetTag,
       rpe: null,
       is_completed: false,
       notes: null,
@@ -623,7 +624,7 @@ export default function WorkoutScreen() {
       weight: '',
       reps: '',
       rpe: '',
-      tag: 'working' as const,
+      tag: tagOverrides?.[i] ?? 'working' as SetTag,
       is_completed: false,
       previous: previousSets[i] ?? null,
     }));
@@ -714,7 +715,12 @@ export default function WorkoutScreen() {
       const blocks: ExerciseBlock[] = [];
       for (const te of templateExercises) {
         if (!te.exercise) continue;
-        blocks.push(await buildExerciseBlock(workout.id, te.exercise, te.default_sets, te.rest_seconds));
+        const totalSets = te.warmup_sets + te.default_sets;
+        const tags: SetTag[] = [
+          ...Array(te.warmup_sets).fill('warmup' as SetTag),
+          ...Array(te.default_sets).fill('working' as SetTag),
+        ];
+        blocks.push(await buildExerciseBlock(workout.id, te.exercise, totalSets, te.rest_seconds, tags));
       }
 
       activateWorkout(workout, blocks, template.name);
@@ -763,8 +769,10 @@ export default function WorkoutScreen() {
 
       for (const upEx of upcomingWorkout.exercises) {
         if (!upEx.exercise) continue;
-        const setCount = Math.max((upEx.sets ?? []).length, 1);
-        blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount, upEx.rest_seconds));
+        const sets = upEx.sets ?? [];
+        const setCount = Math.max(sets.length, 1);
+        const tagOverrides: SetTag[] = sets.map(s => s.tag ?? 'working');
+        blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount, upEx.rest_seconds, tagOverrides));
       }
 
       setUpcomingTargets(upcomingWorkout.exercises);
@@ -1332,7 +1340,7 @@ export default function WorkoutScreen() {
                           {item.exercise?.name}
                         </Text>
                         <Text style={{ color: colors.textMuted, fontSize: fontSize.sm }}>
-                          {item.default_sets} sets · {item.exercise?.muscle_groups?.join(', ') || item.exercise?.type}
+                          {item.warmup_sets > 0 ? `${item.warmup_sets}W + ${item.default_sets} sets` : `${item.default_sets} sets`} · {item.exercise?.muscle_groups?.join(', ') || item.exercise?.type}
                         </Text>
                       </View>
                     </View>

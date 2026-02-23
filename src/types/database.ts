@@ -28,6 +28,7 @@ export interface TemplateExercise {
   exercise_id: string;
   order: number;
   default_sets: number;
+  warmup_sets: number;
   rest_seconds: number;
   exercise?: Exercise;
 }
@@ -82,4 +83,5 @@ export interface UpcomingWorkoutSet {
   target_weight: number;
   target_reps: number;
   target_rpe?: number | null;
+  tag?: SetTag;
 }

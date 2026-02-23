@@ -104,6 +104,22 @@ export default function TemplateDetailScreen() {
     }
   }, [loadExercises]);
 
+  const handleIncreaseWarmupSets = useCallback((item: TemplateExercise) => {
+    const newWarmup = item.warmup_sets + 1;
+    updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
+      .then(loadExercises)
+      .catch((e) => console.error('Failed to update warmup sets', e));
+  }, [loadExercises]);
+
+  const handleDecreaseWarmupSets = useCallback((item: TemplateExercise) => {
+    const newWarmup = Math.max(0, item.warmup_sets - 1);
+    if (newWarmup !== item.warmup_sets) {
+      updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
+        .then(loadExercises)
+        .catch((e) => console.error('Failed to update warmup sets', e));
+    }
+  }, [loadExercises]);
+
   const handleIncreaseRest = useCallback((item: TemplateExercise) => {
     const newRest = item.rest_seconds + 15;
     updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
@@ -158,9 +174,34 @@ export default function TemplateDetailScreen() {
 
       {/* Controls row */}
       <View style={styles.controlsRow}>
-        {/* Sets stepper */}
+        {/* Warmup stepper */}
         <View style={styles.stepperGroup}>
-          <Text testID={`sets-value-${index}`} style={styles.stepperLabel}>{item.default_sets} {item.default_sets === 1 ? 'set' : 'sets'}</Text>
+          <Text testID={`warmup-value-${index}`} style={styles.stepperLabel}>{item.warmup_sets} warmup</Text>
+          <View style={styles.stepperBtnRow}>
+            <TouchableOpacity
+              testID={`warmup-decrease-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleDecreaseWarmupSets(item)}
+              activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Ionicons name="remove" size={22} color={colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID={`warmup-increase-${index}`}
+              style={styles.stepperBtn}
+              onPress={() => handleIncreaseWarmupSets(item)}
+              activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Ionicons name="add" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Working sets stepper */}
+        <View style={styles.stepperGroup}>
+          <Text testID={`sets-value-${index}`} style={styles.stepperLabel}>{item.default_sets} working</Text>
           <View style={styles.stepperBtnRow}>
             <TouchableOpacity
               testID={`sets-decrease-${index}`}
@@ -209,7 +250,7 @@ export default function TemplateDetailScreen() {
         </View>
       </View>
     </View>
-  ), [handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
+  ), [handleDecreaseWarmupSets, handleIncreaseWarmupSets, handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
 
   if (loading) {
     return (
