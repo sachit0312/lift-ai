@@ -207,11 +207,11 @@ const styles = StyleSheet.create({
   },
   exerciseName: {
     color: colors.text,
-    fontSize: fontSize.md,
+    fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
   },
   exerciseMeta: {
-    color: colors.textMuted,
+    color: colors.textSecondary,
     fontSize: fontSize.sm,
     marginTop: spacing.xxs,
   },

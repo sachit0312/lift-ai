@@ -343,7 +343,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   muscles: {
-    color: colors.textMuted,
+    color: colors.textSecondary,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
   },
