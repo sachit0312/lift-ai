@@ -1748,7 +1748,7 @@ const styles = StyleSheet.create({
 
   // Header
   header: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
@@ -1810,7 +1810,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
+    paddingTop: spacing.md,
     paddingBottom: 200,
     maxWidth: 500,
     alignSelf: 'center' as const,
@@ -1839,7 +1840,7 @@ const styles = StyleSheet.create({
   exerciseName: {
     color: colors.text,
     fontSize: fontSize.lg,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.semibold,
   },
   restTimerRow: {
     flexDirection: 'row',
@@ -2117,7 +2118,7 @@ const styles = StyleSheet.create({
 
   // No active workout
   noActiveContent: {
-    padding: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
     paddingTop: spacing.xl,
   },
   heroSection: {
