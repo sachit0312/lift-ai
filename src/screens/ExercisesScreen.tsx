@@ -8,15 +8,24 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
-import { getAllExercises } from '../services/database';
+import { modalStyles } from '../theme/sharedStyles';
+import { getAllExercises, updateExercise } from '../services/database';
+import { syncToSupabase } from '../services/sync';
 import { filterExercises } from '../utils/exerciseSearch';
+import { exerciseTypeColor } from '../utils/exerciseTypeColor';
+import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
-import type { Exercise } from '../types/database';
+import type { Exercise, ExerciseType } from '../types/database';
 
 export default function ExercisesScreen() {
   const [loading, setLoading] = useState(true);
@@ -25,6 +34,13 @@ export default function ExercisesScreen() {
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const hasLoadedOnce = useRef(false);
+
+  // Edit modal state
+  const [editExercise, setEditExercise] = useState<Exercise | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editType, setEditType] = useState<ExerciseType>('weighted');
+  const [editMuscles, setEditMuscles] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -53,12 +69,43 @@ export default function ExercisesScreen() {
     }
   }, []);
 
+  const openEditModal = useCallback((exercise: Exercise) => {
+    setEditExercise(exercise);
+    setEditName(exercise.name);
+    setEditType(exercise.type);
+    setEditMuscles([...exercise.muscle_groups]);
+  }, []);
+
+  const closeEditModal = useCallback(() => {
+    setEditExercise(null);
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editExercise || !editName.trim() || editMuscles.length === 0) return;
+    setSaving(true);
+    try {
+      await updateExercise(editExercise.id, {
+        name: editName.trim(),
+        type: editType,
+        muscle_groups: editMuscles,
+      });
+      syncToSupabase().catch(() => {});
+      await loadExercises();
+      closeEditModal();
+    } catch {
+      Alert.alert('Error', 'Failed to save exercise. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }, [editExercise, editName, editType, editMuscles, closeEditModal]);
+
   const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
   const renderExercise = useCallback(({ item }: { item: Exercise }) => (
     <TouchableOpacity
       style={styles.exerciseCard}
       onPress={() => setSelectedExercise(item)}
+      onLongPress={() => openEditModal(item)}
       activeOpacity={0.7}
     >
       <View style={styles.exerciseInfo}>
@@ -69,7 +116,7 @@ export default function ExercisesScreen() {
       </View>
       <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
     </TouchableOpacity>
-  ), []);
+  ), [openEditModal]);
 
   if (loading) {
     return (
@@ -126,6 +173,82 @@ export default function ExercisesScreen() {
         exercise={selectedExercise}
         onClose={() => setSelectedExercise(null)}
       />
+
+      {/* Edit Exercise Modal */}
+      <Modal visible={!!editExercise} transparent animationType="fade" onRequestClose={closeEditModal}>
+        <KeyboardAvoidingView style={modalStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={[modalStyles.card, { width: '90%', maxWidth: 400 }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={modalStyles.title}>Edit Exercise</Text>
+
+              <Text style={styles.editLabel}>Name</Text>
+              <TextInput
+                style={modalStyles.input}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Exercise name"
+                placeholderTextColor={colors.textMuted}
+                testID="edit-exercise-name"
+              />
+
+              <Text style={styles.editLabel}>Type</Text>
+              <View style={styles.typeGrid}>
+                {EXERCISE_TYPE_OPTIONS_WITH_ICONS.map((t) => (
+                  <TouchableOpacity
+                    key={t.value}
+                    style={[
+                      styles.typeChip,
+                      editType === t.value && { backgroundColor: exerciseTypeColor(t.value), borderColor: exerciseTypeColor(t.value) },
+                    ]}
+                    onPress={() => setEditType(t.value)}
+                  >
+                    <Ionicons
+                      name={t.icon}
+                      size={14}
+                      color={editType === t.value ? colors.white : colors.textSecondary}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={[styles.chipText, editType === t.value && styles.chipTextActive]}>{t.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.editLabel}>Muscle Groups</Text>
+              <View style={styles.muscleGrid}>
+                {MUSCLE_GROUPS.map((mg) => {
+                  const selected = editMuscles.includes(mg);
+                  return (
+                    <TouchableOpacity
+                      key={mg}
+                      style={[styles.muscleChip, selected && styles.muscleChipSelected]}
+                      onPress={() =>
+                        setEditMuscles((prev) =>
+                          selected ? prev.filter((m) => m !== mg) : [...prev, mg],
+                        )
+                      }
+                    >
+                      <Text style={[styles.chipText, selected && styles.chipTextActive]}>{mg}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <View style={modalStyles.actions}>
+              <TouchableOpacity style={modalStyles.cancelBtn} onPress={closeEditModal}>
+                <Text style={modalStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[modalStyles.confirmBtn, { backgroundColor: colors.primary, opacity: (!editName.trim() || editMuscles.length === 0 || saving) ? 0.5 : 1 }]}
+                onPress={handleSaveEdit}
+                disabled={!editName.trim() || editMuscles.length === 0 || saving}
+              >
+                <Text style={modalStyles.confirmText}>{saving ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -216,5 +339,54 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.sm,
     marginTop: spacing.xxs,
+  },
+  editLabel: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  typeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  typeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  chipText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  chipTextActive: {
+    color: colors.white,
+    fontWeight: fontWeight.semibold,
+  },
+  muscleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  muscleChip: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: 36,
+  },
+  muscleChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
 });

@@ -8,6 +8,11 @@ jest.mock('../../services/database', () => ({
     { id: 'ex2', name: 'Squat', type: 'weighted', muscle_groups: ['Quads'], training_goal: 'strength', notes: null },
   ]),
   getExerciseHistory: jest.fn().mockResolvedValue([]),
+  updateExercise: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/sync', () => ({
+  syncToSupabase: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('@react-navigation/native', () => ({
@@ -88,6 +93,21 @@ describe('ExercisesScreen', () => {
       // The modal title shows the exercise name
       const titles = getAllByText('Bench Press');
       expect(titles.length).toBeGreaterThan(1); // One in list, one in modal
+    });
+  });
+
+  it('opens edit modal on long-press', async () => {
+    const { getByText, getByTestId } = render(<ExercisesScreen />);
+
+    await waitFor(() => {
+      expect(getByText('Bench Press')).toBeTruthy();
+    });
+
+    fireEvent(getByText('Bench Press'), 'longPress');
+
+    await waitFor(() => {
+      expect(getByText('Edit Exercise')).toBeTruthy();
+      expect(getByTestId('edit-exercise-name')).toBeTruthy();
     });
   });
 });

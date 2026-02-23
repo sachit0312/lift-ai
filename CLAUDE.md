@@ -37,6 +37,7 @@ Expo React Native workout tracking app with SQLite local storage and Supabase cl
 All screens in `src/screens/`. Key non-obvious behaviors:
 - **WorkoutScreen**: Handles idle + active states inline (no separate file). `ExerciseBlockItem` is a `React.memo` sub-component for per-block re-render isolation. Tags: tap set number to cycle (working -> warmup W -> failure F -> drop D). Long-press or swipe-left to delete set. Rest timer auto-starts on set completion when enabled (per-exercise seconds from template, default 150s). Set completion requires weight + reps (red border validation). Finish requires 1+ completed sets. Upcoming workout targets shown as muted purple placeholders (`rgba(124, 92, 252, 0.45)`), previous data as muted gray (`rgba(107, 107, 114, 0.5)`). All set changes persist to SQLite immediately.
 - **TemplateDetailScreen**: Three inline steppers per exercise — warmup sets (±1), working sets (±1), rest timer (±15s). TestIDs: `warmup-value-{idx}`, `sets-value-{idx}`, `rest-value-{idx}` (plus `-increase-`/`-decrease-` variants).
+- **ExercisesScreen**: Tap = history modal. Long-press = edit modal (name, type chips, muscle group chips). Syncs to Supabase on save.
 - **ExercisePickerScreen**: Search bar hidden when create form expanded. Muscle groups: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms.
 - **ExerciseHistoryModal** (`src/components/ExerciseHistoryModal.tsx`): 1RM chart (purple) + volume chart (green). PR banner + plateau detection (5+ sessions). Requires 3+ sessions for charts. RPE-adjusted Epley formula.
 - **ProfileScreen**: Stats, MCP token modal, delete account (Supabase Edge Function `delete-account`).
@@ -44,7 +45,7 @@ All screens in `src/screens/`. Key non-obvious behaviors:
 ## MCP AI Coach
 MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/`. Phone app -> Supabase <- MCP server -> Claude Desktop.
 
-**Tools (15)**: get_workout_history, get_workout_detail, get_exercise_list, get_all_templates, get_template, get_personal_records, get_exercise_history, get_upcoming_workout, create_exercise, add_exercise_to_template (rest_seconds default 150, warmup_sets default 0), remove_exercise_from_template, create_template, update_template (batch updates), update_template_exercise_rest, create_upcoming_workout (supports `rpe` -> `target_rpe`, `tag` -> SetTag).
+**Tools (16)**: get_workout_history, get_workout_detail, get_exercise_list, get_all_templates, get_template, get_personal_records, get_exercise_history, get_upcoming_workout, create_exercise, update_exercise (name/type/muscle_groups/description/training_goal, ownership-checked), add_exercise_to_template (rest_seconds default 150, warmup_sets default 0), remove_exercise_from_template, create_template, update_template (batch updates), update_template_exercise_rest, create_upcoming_workout (supports `rpe` -> `target_rpe`, `tag` -> SetTag).
 
 **Multi-User**: JWT auth. Token from ProfileScreen "Get MCP Token". User-scoped tools; exercises shared.
 

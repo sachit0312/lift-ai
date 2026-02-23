@@ -373,6 +373,29 @@ export async function updateExerciseNotes(exerciseId: string, notes: string | nu
   }
 }
 
+export async function updateExercise(
+  exerciseId: string,
+  updates: { name?: string; type?: string; muscle_groups?: string[]; training_goal?: string; description?: string }
+): Promise<void> {
+  try {
+    const database = await getDb();
+    const setClauses: string[] = [];
+    const values: (string | number | null)[] = [];
+    if (updates.name !== undefined) { setClauses.push('name = ?'); values.push(updates.name); }
+    if (updates.type !== undefined) { setClauses.push('type = ?'); values.push(updates.type); }
+    if (updates.muscle_groups !== undefined) { setClauses.push('muscle_groups = ?'); values.push(JSON.stringify(updates.muscle_groups)); }
+    if (updates.training_goal !== undefined) { setClauses.push('training_goal = ?'); values.push(updates.training_goal); }
+    if (updates.description !== undefined) { setClauses.push('description = ?'); values.push(updates.description); }
+    if (setClauses.length === 0) return;
+    values.push(exerciseId);
+    await database.runAsync(`UPDATE exercises SET ${setClauses.join(', ')} WHERE id = ?`, ...values);
+  } catch (error) {
+    console.error('updateExercise error:', error);
+    Sentry.captureException(error);
+    throw error;
+  }
+}
+
 // ─── Templates ───
 
 export async function getAllTemplates(): Promise<Template[]> {
