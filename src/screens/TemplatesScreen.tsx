@@ -222,6 +222,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: layout.cardGap,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   cardBody: {
     flex: 1,

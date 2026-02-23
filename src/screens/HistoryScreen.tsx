@@ -282,6 +282,8 @@ const styles = StyleSheet.create({
     marginBottom: layout.cardGap,
     flexDirection: 'row',
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   cardInner: {
     flex: 1,

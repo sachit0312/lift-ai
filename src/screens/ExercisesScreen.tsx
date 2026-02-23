@@ -201,6 +201,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: layout.cardGap,
     minHeight: 56,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   exerciseInfo: {
     flex: 1,

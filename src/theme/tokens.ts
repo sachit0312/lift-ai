@@ -21,6 +21,7 @@ export const colors = {
   errorBg: 'rgba(240, 82, 82, 0.08)',
   borderSubtle: '#1F1F25',
   primaryMuted: 'rgba(124, 92, 252, 0.12)',
+  primaryBorderSubtle: 'rgba(124, 92, 252, 0.2)',
 };
 
 export const spacing = {

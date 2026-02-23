@@ -393,7 +393,7 @@ const styles = StyleSheet.create({
     minHeight: layout.buttonHeightSm,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(124, 92, 252, 0.2)',
+    borderColor: colors.primaryBorderSubtle,
     backgroundColor: colors.primaryMuted,
     marginBottom: spacing.lg,
   },

@@ -1826,6 +1826,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
     marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   exerciseHeaderRow: {
     flexDirection: 'row',
@@ -2036,7 +2038,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(124, 92, 252, 0.2)',
+    borderColor: colors.primaryBorderSubtle,
     backgroundColor: colors.primaryMuted,
     marginBottom: spacing.md,
   },
