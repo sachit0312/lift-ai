@@ -618,6 +618,7 @@ export default function WorkoutScreen() {
 
   function handleWidgetActions(actions: WidgetAction[]) {
     if (!workoutRef.current) return;
+    let updatedBlocks: ExerciseBlock[] | null = null;
     for (const action of actions) {
       if (action.type === 'completeSet' && action.blockIndex != null && action.setIndex != null
         && action.blockIndex < blocksRef.current.length
@@ -626,7 +627,33 @@ export default function WorkoutScreen() {
       } else if (action.type === 'skipRest') {
         dismissRest();
         syncWidgetState(undefined, false, 0);
+      } else if (action.type === 'adjustWeight' && action.blockIndex != null && action.setIndex != null && action.delta != null) {
+        const source: ExerciseBlock[] = updatedBlocks ?? blocksRef.current;
+        if (action.blockIndex < source.length && action.setIndex < (source[action.blockIndex]?.sets.length ?? 0)) {
+          if (!updatedBlocks) updatedBlocks = source.map(b => ({ ...b, sets: [...b.sets] }));
+          const set = updatedBlocks![action.blockIndex].sets[action.setIndex];
+          const currentWeight = parseFloat(set.weight) || 0;
+          const newWeight = Math.max(0, currentWeight + action.delta);
+          updatedBlocks![action.blockIndex].sets[action.setIndex] = { ...set, weight: String(newWeight) };
+          updateWorkoutSet(set.id, { weight: newWeight });
+        }
+      } else if (action.type === 'adjustReps' && action.blockIndex != null && action.setIndex != null && action.delta != null) {
+        const source: ExerciseBlock[] = updatedBlocks ?? blocksRef.current;
+        if (action.blockIndex < source.length && action.setIndex < (source[action.blockIndex]?.sets.length ?? 0)) {
+          if (!updatedBlocks) updatedBlocks = source.map(b => ({ ...b, sets: [...b.sets] }));
+          const set = updatedBlocks![action.blockIndex].sets[action.setIndex];
+          const currentReps = parseInt(set.reps, 10) || 0;
+          const newReps = Math.max(0, currentReps + action.delta);
+          updatedBlocks![action.blockIndex].sets[action.setIndex] = { ...set, reps: String(newReps) };
+          updateWorkoutSet(set.id, { reps: newReps });
+        }
+      } else if (action.type === 'adjustRest' && action.delta != null) {
+        adjustRestTimer(action.delta);
       }
+    }
+    if (updatedBlocks) {
+      setExerciseBlocks(updatedBlocks);
+      syncWidgetState(updatedBlocks);
     }
   }
 
@@ -635,19 +662,18 @@ export default function WorkoutScreen() {
     const set = block?.sets[setIdx];
     if (!set || !block) return;
 
-    // Update local state with widget values
-    setExerciseBlocks((prev) => {
-      const next = [...prev];
-      const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      updatedBlock.sets[setIdx] = {
-        ...updatedBlock.sets[setIdx],
-        weight: String(weight),
-        reps: String(reps),
-        is_completed: true,
-      };
-      next[blockIdx] = updatedBlock;
-      return next;
-    });
+    // Build updated blocks BEFORE syncing widget to avoid stale state
+    const updatedBlocks = [...blocksRef.current];
+    updatedBlocks[blockIdx] = { ...updatedBlocks[blockIdx], sets: [...updatedBlocks[blockIdx].sets] };
+    updatedBlocks[blockIdx].sets[setIdx] = {
+      ...updatedBlocks[blockIdx].sets[setIdx],
+      weight: String(weight),
+      reps: String(reps),
+      is_completed: true,
+    };
+
+    // Update React state
+    setExerciseBlocks(updatedBlocks);
 
     // Persist to SQLite
     await updateWorkoutSet(set.id, {
@@ -659,12 +685,11 @@ export default function WorkoutScreen() {
     // Haptic feedback
     try { Vibration.vibrate(50); } catch {}
 
-    // Start rest timer if enabled
+    // Start rest timer if enabled, otherwise sync widget with updated blocks
     if (block.restEnabled) {
       startRestTimer(block.restSeconds, block.exercise.name);
     } else {
-      // Sync widget to show next set
-      syncWidgetState();
+      syncWidgetState(updatedBlocks);
     }
   }
 
