@@ -20,7 +20,7 @@ jest.mock('../supabase', () => ({
 }));
 
 // Import after mocks are set up
-import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../sync';
+import { syncToSupabase, deleteTemplateFromSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../sync';
 import { supabase } from '../supabase';
 
 // Cast for type safety
@@ -49,6 +49,7 @@ function setSessionNull() {
 function mockQueryBuilder(resolvedData: any = [], resolvedError: any = null) {
   const builder: any = {};
   builder.select = jest.fn().mockReturnValue(builder);
+  builder.delete = jest.fn().mockReturnValue(builder);
   builder.eq = jest.fn().mockReturnValue(builder);
   builder.not = jest.fn().mockReturnValue(builder);
   builder.in = jest.fn().mockReturnValue(builder);
@@ -441,6 +442,55 @@ describe('syncToSupabase', () => {
 
     const fromCalls = mockFrom.mock.calls.map((c: any[]) => c[0]);
     expect(fromCalls).toEqual(['exercises', 'templates', 'template_exercises', 'workouts', 'workout_sets']);
+  });
+});
+
+// ============================================================
+// deleteTemplateFromSupabase
+// ============================================================
+
+describe('deleteTemplateFromSupabase', () => {
+  it('skips when no session (user not authenticated)', async () => {
+    setSessionNull();
+
+    await deleteTemplateFromSupabase('tpl-1');
+
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('calls delete with correct template id and user_id', async () => {
+    setSessionAuthenticated();
+
+    const templateBuilder = mockQueryBuilder();
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await deleteTemplateFromSupabase('tpl-42');
+
+    expect(mockFrom).toHaveBeenCalledWith('templates');
+    expect(templateBuilder.delete).toHaveBeenCalled();
+    expect(templateBuilder.eq).toHaveBeenCalledWith('id', 'tpl-42');
+    expect(templateBuilder.eq).toHaveBeenCalledWith('user_id', 'user-123');
+  });
+
+  it('reports Supabase errors to Sentry without throwing', async () => {
+    setSessionAuthenticated();
+
+    const supabaseError = { message: 'RLS policy violation', code: '42501' };
+    const templateBuilder = mockQueryBuilder(null, supabaseError);
+    mockFromHandlers['templates'] = templateBuilder;
+
+    await deleteTemplateFromSupabase('tpl-1'); // should not throw
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
+  });
+
+  it('catches unexpected errors (e.g. getSession throw) and reports to Sentry', async () => {
+    const thrownError = new Error('Network failure');
+    mockGetSession.mockRejectedValue(thrownError);
+
+    await deleteTemplateFromSupabase('tpl-1'); // should not throw
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(thrownError);
   });
 });
 

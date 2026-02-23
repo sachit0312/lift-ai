@@ -82,13 +82,14 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 
 **Supabase Sync** (`src/services/sync.ts`):
 - `syncToSupabase()` — pushes exercises, templates, finished workouts + sets (including rpe and notes) to Supabase (auth-guarded, adds user_id)
+- `deleteTemplateFromSupabase(templateId)` — deletes a template from Supabase (auth-guarded, scoped by user_id). Called fire-and-forget from TemplatesScreen on delete. Supabase `ON DELETE CASCADE` handles template_exercises cleanup. Never throws — errors reported to Sentry silently.
 - `pullExercisesAndTemplates()` — pulls exercises and templates from Supabase into local SQLite (auth-guarded). Uses `INSERT ... ON CONFLICT` to upsert while preserving local-only columns (`exercises.notes`). `rest_seconds` is now synced bidirectionally (Supabase ↔ local) since MCP can set it via `update_template`/`update_template_exercise_rest`. Deletes template_exercises removed remotely (e.g. by MCP). Pulls exercises first (FK dependency), then templates, then batch-fetches all template_exercises in one `.in('template_id', ids)` query (grouped locally by template_id).
 - `pullWorkoutHistory()` — pulls finished workouts and their workout_sets from Supabase into local SQLite (auth-guarded). Enables PREV column data after re-login. Uses `INSERT ... ON CONFLICT` upsert. Converts `is_completed` boolean→integer for SQLite.
 - `pullUpcomingWorkout()` — pulls latest upcoming workout into local SQLite (auth-guarded). Batch-fetches all upcoming_workout_sets in one `.in('upcoming_exercise_id', ids)` query (grouped locally by exercise)
 - `clearAllLocalData()` in database.ts — deletes all rows from all tables in dependency order
 - All console.log/console.error in sync.ts are `__DEV__`-guarded (production only uses Sentry)
 - **Important**: Do NOT wrap sync pull loops in `withTransactionAsync` — pull functions run concurrently via Promise.all in AuthContext, and SQLite can't handle concurrent transactions
-- Sync triggers: on login (AuthContext SIGNED_IN: `clearAllLocalData` → `Promise.all([pullExercisesAndTemplates(), pullWorkoutHistory()])` → `pullUpcomingWorkout`), on workout finish (`syncToSupabase`), on WorkoutScreen focus (`pullExercisesAndTemplates` → reload templates → `pullWorkoutHistory` → `pullUpcomingWorkout`)
+- Sync triggers: on login (AuthContext SIGNED_IN: `clearAllLocalData` → `Promise.all([pullExercisesAndTemplates(), pullWorkoutHistory()])` → `pullUpcomingWorkout`), on workout finish (`syncToSupabase`), on WorkoutScreen focus (`pullExercisesAndTemplates` → reload templates → `pullWorkoutHistory` → `pullUpcomingWorkout`), on template delete (`deleteTemplateFromSupabase` fire-and-forget)
 
 ## Auth
 - `src/contexts/AuthContext.tsx` — AuthProvider with session management via Supabase. Exposes `useAuth()` hook returning `{ session, user, loading, syncing }`. On `SIGNED_IN` with new user, sets `syncing=true`, clears local data, pulls exercises & templates, pulls workout history, then pulls upcoming workout, then sets `syncing=false`. RootNavigator shows spinner when `loading || syncing`, preventing WorkoutScreen from mounting during sync (avoids race condition).

@@ -123,6 +123,27 @@ export async function syncToSupabase(): Promise<void> {
   }
 }
 
+export async function deleteTemplateFromSupabase(templateId: string): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const { error } = await supabase
+      .from('templates')
+      .delete()
+      .eq('id', templateId)
+      .eq('user_id', session.user.id);
+
+    if (error) {
+      if (__DEV__) console.error('Delete template from Supabase error:', error);
+      Sentry.captureException(error);
+    }
+  } catch (err) {
+    if (__DEV__) console.error('deleteTemplateFromSupabase failed:', err);
+    Sentry.captureException(err);
+  }
+}
+
 // ─── Pull Row Interfaces (Supabase → local SQLite) ───
 
 /** Exercise row from Supabase (muscle_groups is JSONB array) */

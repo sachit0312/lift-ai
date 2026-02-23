@@ -10,6 +10,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { getAllTemplates, createTemplate, deleteTemplate, getTemplateExerciseCountsBatch } from '../services/database';
+import { deleteTemplateFromSupabase } from '../services/sync';
 import type { Template } from '../types/database';
 
 interface TemplateWithCount extends Template {
@@ -85,6 +86,7 @@ export default function TemplatesScreen() {
             console.error('Failed to delete template', e);
             Alert.alert('Error', 'Failed to delete template. Please try again.');
           });
+          deleteTemplateFromSupabase(template.id);
         },
       },
     ]);
