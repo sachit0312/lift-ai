@@ -200,7 +200,7 @@ export default function ProfileScreen() {
       {/* Profile header */}
       <View style={styles.profileHeader}>
         <View style={styles.avatar}>
-          <Ionicons name="person" size={36} color={colors.textMuted} />
+          <Ionicons name="person" size={36} color={colors.primary} />
         </View>
         <Text style={styles.title}>Profile</Text>
         <Text style={styles.subtitle}>{user?.email ?? 'Athlete'}</Text>
@@ -208,8 +208,8 @@ export default function ProfileScreen() {
 
       <View style={styles.statsGrid}>
         {statCards.map((card, i) => (
-          <View key={i} style={styles.statCard}>
-            <Ionicons name={card.icon} size={20} color={card.color} style={{ marginBottom: spacing.xs }} />
+          <View key={i} style={[styles.statCard, { borderTopWidth: 2, borderTopColor: card.color }]}>
+            <Ionicons name={card.icon} size={24} color={card.color} style={{ marginBottom: spacing.xs }} />
             <Text style={styles.statValue}>{card.value}</Text>
             <Text style={styles.statLabel}>{card.label}</Text>
           </View>
@@ -311,12 +311,12 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.surfaceLight,
+    backgroundColor: colors.primaryMuted,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
     borderWidth: 2,
-    borderColor: colors.border,
+    borderColor: colors.primary,
   },
   title: {
     color: colors.text,
@@ -341,6 +341,8 @@ const styles = StyleSheet.create({
     width: '48%' as const,
     flexGrow: 1,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   statValue: {
     color: colors.text,
