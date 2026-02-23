@@ -87,15 +87,19 @@ export function startWorkoutActivity(exerciseName: string, subtitle: string): vo
  * The interactive widget reads full state from UserDefaults;
  * this update triggers the SwiftUI re-render.
  */
-export function updateWorkoutActivityForSet(exerciseName: string, setNumber: number, totalSets: number): void {
+export function updateWorkoutActivityForSet(
+  exerciseName: string, setNumber: number, totalSets: number,
+  weight: number, reps: number
+): void {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
     currentExerciseName = exerciseName;
     currentEndTime = 0;
 
+    const weightStr = weight % 1 === 0 ? String(weight) : weight.toFixed(1);
     LiveActivity.updateActivity(currentActivityId, {
       title: exerciseName,
-      subtitle: `Set ${setNumber}/${totalSets}`,
+      subtitle: `Set ${setNumber}/${totalSets} \u00B7 ${weightStr} lbs \u00D7 ${reps}`,
     });
 
     cancelTimerEndNotification();
