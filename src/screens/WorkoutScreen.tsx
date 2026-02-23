@@ -1941,7 +1941,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: colors.border,
   },
   setInputError: {
     borderColor: colors.error,
@@ -2015,7 +2015,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: spacing.sm,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.surfaceLight,
+    backgroundColor: 'transparent',
   },
   notesInput: {
     backgroundColor: colors.surfaceLight,
@@ -2034,10 +2034,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    borderStyle: 'dashed',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(124, 92, 252, 0.2)',
+    backgroundColor: colors.primaryMuted,
     marginBottom: spacing.md,
   },
   addExerciseBtnText: {
