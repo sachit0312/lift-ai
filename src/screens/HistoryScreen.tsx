@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.text,
-    fontSize: fontSize.title,
+    fontSize: fontSize.xxl,
     fontWeight: fontWeight.bold,
   },
   subtitle: {

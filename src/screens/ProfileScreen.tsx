@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   content: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: layout.screenPaddingH,
     paddingBottom: spacing.xxl,
   },
   profileHeader: {
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.text,
-    fontSize: fontSize.title,
+    fontSize: fontSize.xxl,
     fontWeight: fontWeight.bold,
   },
   subtitle: {
