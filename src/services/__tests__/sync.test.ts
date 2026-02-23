@@ -20,7 +20,7 @@ jest.mock('../supabase', () => ({
 }));
 
 // Import after mocks are set up
-import { syncToSupabase, deleteTemplateFromSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../sync';
+import { syncToSupabase, deleteTemplateFromSupabase, deleteTemplateExerciseFromSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../sync';
 import { supabase } from '../supabase';
 
 // Cast for type safety
@@ -489,6 +489,56 @@ describe('deleteTemplateFromSupabase', () => {
     mockGetSession.mockRejectedValue(thrownError);
 
     await deleteTemplateFromSupabase('tpl-1'); // should not throw
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(thrownError);
+  });
+});
+
+// ============================================================
+// deleteTemplateExerciseFromSupabase
+// ============================================================
+
+describe('deleteTemplateExerciseFromSupabase', () => {
+  it('skips when no session (user not authenticated)', async () => {
+    setSessionNull();
+
+    await deleteTemplateExerciseFromSupabase('te-1');
+
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('calls delete with correct template_exercise id (no user_id filter)', async () => {
+    setSessionAuthenticated();
+
+    const teBuilder = mockQueryBuilder();
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await deleteTemplateExerciseFromSupabase('te-99');
+
+    expect(mockFrom).toHaveBeenCalledWith('template_exercises');
+    expect(teBuilder.delete).toHaveBeenCalled();
+    expect(teBuilder.eq).toHaveBeenCalledWith('id', 'te-99');
+    // No user_id filter — ownership enforced via parent template RLS
+    expect(teBuilder.eq).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports Supabase errors to Sentry without throwing', async () => {
+    setSessionAuthenticated();
+
+    const supabaseError = { message: 'RLS policy violation', code: '42501' };
+    const teBuilder = mockQueryBuilder(null, supabaseError);
+    mockFromHandlers['template_exercises'] = teBuilder;
+
+    await deleteTemplateExerciseFromSupabase('te-1'); // should not throw
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
+  });
+
+  it('catches unexpected errors (e.g. getSession throw) and reports to Sentry', async () => {
+    const thrownError = new Error('Network failure');
+    mockGetSession.mockRejectedValue(thrownError);
+
+    await deleteTemplateExerciseFromSupabase('te-1'); // should not throw
 
     expect(Sentry.captureException).toHaveBeenCalledWith(thrownError);
   });

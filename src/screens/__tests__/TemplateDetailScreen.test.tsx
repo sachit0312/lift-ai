@@ -8,6 +8,10 @@ jest.mock('../../services/database', () => ({
   updateTemplate: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../../services/sync', () => ({
+  deleteTemplateExerciseFromSupabase: jest.fn().mockResolvedValue(undefined),
+}));
+
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ goBack: jest.fn(), navigate: mockNavigate, setOptions: jest.fn() }),
@@ -19,7 +23,8 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 import TemplateDetailScreen from '../TemplateDetailScreen';
-import { getTemplateExercises, updateTemplateExerciseDefaults } from '../../services/database';
+import { getTemplateExercises, removeExerciseFromTemplate, updateTemplateExerciseDefaults } from '../../services/database';
+import { deleteTemplateExerciseFromSupabase } from '../../services/sync';
 
 describe('TemplateDetailScreen', () => {
   beforeEach(() => {
@@ -270,5 +275,51 @@ describe('TemplateDetailScreen', () => {
         expect.objectContaining({ rest_seconds: 15 })
       );
     });
+  });
+
+  it('calls deleteTemplateExerciseFromSupabase when removing an exercise', async () => {
+    // Mock Alert.alert to auto-press the "Remove" button
+    const { Alert } = require('react-native');
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(
+      ((...args: any[]) => {
+        const buttons = args[2] as any[];
+        const removeBtn = buttons?.find((b: any) => b.text === 'Remove');
+        removeBtn?.onPress?.();
+      }) as any,
+    );
+
+    (getTemplateExercises as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'te1',
+        template_id: 'tmpl-1',
+        exercise_id: 'ex1',
+        order: 0,
+        default_sets: 4,
+        rest_seconds: 120,
+        exercise: {
+          id: 'ex1',
+          user_id: 'local',
+          name: 'Bench Press',
+          type: 'weighted',
+          muscle_groups: ['Chest'],
+          training_goal: 'hypertrophy',
+          description: '',
+          created_at: '2026-01-01',
+        },
+      },
+    ]);
+
+    const tree = render(<TemplateDetailScreen />);
+    await waitFor(() => expect(tree.getByText('Bench Press')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(tree.getByTestId('remove-btn-0'));
+    });
+
+    await waitFor(() => {
+      expect(deleteTemplateExerciseFromSupabase).toHaveBeenCalledWith('te1');
+    });
+
+    alertSpy.mockRestore();
   });
 });

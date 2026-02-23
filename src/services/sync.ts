@@ -144,6 +144,26 @@ export async function deleteTemplateFromSupabase(templateId: string): Promise<vo
   }
 }
 
+export async function deleteTemplateExerciseFromSupabase(templateExerciseId: string): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const { error } = await supabase
+      .from('template_exercises')
+      .delete()
+      .eq('id', templateExerciseId);
+
+    if (error) {
+      if (__DEV__) console.error('Delete template_exercise from Supabase error:', error);
+      Sentry.captureException(error);
+    }
+  } catch (err) {
+    if (__DEV__) console.error('deleteTemplateExerciseFromSupabase failed:', err);
+    Sentry.captureException(err);
+  }
+}
+
 // ─── Pull Row Interfaces (Supabase → local SQLite) ───
 
 /** Exercise row from Supabase (muscle_groups is JSONB array) */

@@ -14,6 +14,7 @@ import {
   updateTemplateExerciseDefaults,
   updateTemplate,
 } from '../services/database';
+import { deleteTemplateExerciseFromSupabase } from '../services/sync';
 import type { TemplateExercise } from '../types/database';
 
 const formatRestTime = (seconds: number): string => {
@@ -125,10 +126,17 @@ export default function TemplateDetailScreen() {
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: () => removeExerciseFromTemplate(item.id).then(loadExercises).catch((e) => {
-          console.error('Failed to remove exercise', e);
-          Alert.alert('Error', 'Failed to remove exercise. Please try again.');
-        }),
+        onPress: () => {
+          removeExerciseFromTemplate(item.id)
+            .then(() => {
+              deleteTemplateExerciseFromSupabase(item.id); // fire-and-forget
+              return loadExercises();
+            })
+            .catch((e) => {
+              console.error('Failed to remove exercise', e);
+              Alert.alert('Error', 'Failed to remove exercise. Please try again.');
+            });
+        },
       },
     ]);
   }, [loadExercises]);
@@ -138,7 +146,7 @@ export default function TemplateDetailScreen() {
       {/* Top row: name + delete */}
       <View style={styles.cardTopRow}>
         <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
-        <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
+        <TouchableOpacity testID={`remove-btn-${index}`} style={styles.removeBtn} onPress={() => handleRemove(item)}>
           <Ionicons name="close" size={20} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
