@@ -1970,9 +1970,9 @@ const styles = StyleSheet.create({
 
   // Checkbox
   checkBox: {
-    width: layout.touchMin,
-    height: layout.touchMin,
-    borderRadius: borderRadius.md,
+    width: 34,
+    height: 34,
+    borderRadius: borderRadius.sm,
     borderWidth: 1.5,
     borderColor: colors.border,
     alignItems: 'center',
