@@ -75,6 +75,8 @@ export const cardStyles = StyleSheet.create({
     borderRadius: borderRadius.lg,
     padding: layout.cardPadding,
     marginBottom: layout.cardGap,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
 });
 
