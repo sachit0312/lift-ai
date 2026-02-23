@@ -70,9 +70,9 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 - **Night**: Chat with Claude Desktop to review workouts and create tomorrow's upcoming workout
 - **Morning**: Phone app pulls upcoming workout from Supabase, shows target values as muted purple placeholders in input fields
 
-**MCP Tools (12 total)**:
-- Read: get_workout_history, get_workout_detail, get_exercise_list, get_all_templates, get_template, get_personal_records, get_exercise_history, get_upcoming_workout
-- Write: create_exercise, add_exercise_to_template, remove_exercise_from_template, create_upcoming_workout (supports optional `rpe` per set → `target_rpe`)
+**MCP Tools (15 total)**:
+- Read: get_workout_history, get_workout_detail, get_exercise_list, get_all_templates, get_template (includes rest_seconds), get_personal_records, get_exercise_history, get_upcoming_workout
+- Write: create_exercise, add_exercise_to_template (supports optional rest_seconds, default 150), remove_exercise_from_template, create_template, update_template (batch rename + exercise updates: sort_order, default_sets, rest_seconds), update_template_exercise_rest (single-exercise rest timer update), create_upcoming_workout (supports optional `rpe` per set → `target_rpe`)
 
 **Multi-User Support**: MCP server supports JWT authentication for multi-user access. Users get their JWT token from the "Get MCP Token" button in ProfileScreen. User-scoped tools filter by user_id; exercises are shared across users; `create_exercise` tracks creator via `user_id`.
 
@@ -82,7 +82,7 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/` connects to Claude Desktop 
 
 **Supabase Sync** (`src/services/sync.ts`):
 - `syncToSupabase()` — pushes exercises, templates, finished workouts + sets (including rpe and notes) to Supabase (auth-guarded, adds user_id)
-- `pullExercisesAndTemplates()` — pulls exercises and templates from Supabase into local SQLite (auth-guarded). Uses `INSERT ... ON CONFLICT` to upsert while preserving local-only columns (`exercises.notes`, `template_exercises.rest_seconds`). Deletes template_exercises removed remotely (e.g. by MCP). Pulls exercises first (FK dependency), then templates, then batch-fetches all template_exercises in one `.in('template_id', ids)` query (grouped locally by template_id).
+- `pullExercisesAndTemplates()` — pulls exercises and templates from Supabase into local SQLite (auth-guarded). Uses `INSERT ... ON CONFLICT` to upsert while preserving local-only columns (`exercises.notes`). `rest_seconds` is now synced bidirectionally (Supabase ↔ local) since MCP can set it via `update_template`/`update_template_exercise_rest`. Deletes template_exercises removed remotely (e.g. by MCP). Pulls exercises first (FK dependency), then templates, then batch-fetches all template_exercises in one `.in('template_id', ids)` query (grouped locally by template_id).
 - `pullWorkoutHistory()` — pulls finished workouts and their workout_sets from Supabase into local SQLite (auth-guarded). Enables PREV column data after re-login. Uses `INSERT ... ON CONFLICT` upsert. Converts `is_completed` boolean→integer for SQLite.
 - `pullUpcomingWorkout()` — pulls latest upcoming workout into local SQLite (auth-guarded). Batch-fetches all upcoming_workout_sets in one `.in('upcoming_exercise_id', ids)` query (grouped locally by exercise)
 - `clearAllLocalData()` in database.ts — deletes all rows from all tables in dependency order

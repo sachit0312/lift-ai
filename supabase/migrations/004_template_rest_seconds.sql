@@ -1,0 +1,1 @@
+ALTER TABLE template_exercises ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 150;

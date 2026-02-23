@@ -27,6 +27,7 @@ interface SyncTemplateExerciseRow {
   exercise_id: string;
   sort_order: number;
   default_sets: number;
+  rest_seconds: number;
 }
 
 /** Workout row for sync — subset of columns selected */
@@ -84,8 +85,8 @@ export async function syncToSupabase(): Promise<void> {
       if (error) { if (__DEV__) console.error('Sync templates error:', error); Sentry.captureException(error); return; }
     }
 
-    // Template exercises — select specific columns
-    const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, sort_order, default_sets FROM template_exercises');
+    // Template exercises — select specific columns (including rest_seconds for Supabase sync)
+    const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, sort_order, default_sets, rest_seconds FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
       if (error) { if (__DEV__) console.error('Sync template_exercises error:', error); Sentry.captureException(error); return; }
@@ -145,13 +146,14 @@ interface PullTemplateRow {
   updated_at: string;
 }
 
-/** Template exercise row from Supabase */
+/** Template exercise row from Supabase (includes rest_seconds) */
 interface PullTemplateExerciseRow {
   id: string;
   template_id: string;
   exercise_id: string;
   sort_order: number;
   default_sets: number;
+  rest_seconds: number;
 }
 
 // ─── Pull Exercises & Templates from Supabase ───
@@ -254,13 +256,13 @@ async function pullTemplates(): Promise<void> {
         await db.runAsync('DELETE FROM template_exercises WHERE template_id = ?', t.id);
       }
 
-      // Upsert each template_exercise, preserving local rest_seconds
+      // Upsert each template_exercise, using Supabase rest_seconds (MCP-editable)
       for (const te of teList) {
         await db.runAsync(
           `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, rest_seconds)
-           VALUES (?, ?, ?, ?, ?, COALESCE((SELECT rest_seconds FROM template_exercises WHERE id = ?), 150))
-           ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets`,
-          te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.id,
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets, rest_seconds=excluded.rest_seconds`,
+          te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.rest_seconds ?? 150,
         );
       }
     }

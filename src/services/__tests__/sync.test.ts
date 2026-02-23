@@ -152,7 +152,7 @@ describe('syncToSupabase', () => {
     setSessionAuthenticated();
 
     const mockTemplateExercises = [
-      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 },
+      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3, rest_seconds: 120 },
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
@@ -998,7 +998,7 @@ describe('pullExercisesAndTemplates', () => {
     expect(insertCall![3]).toBe('Push Day');
   });
 
-  it('pulls template_exercises with rest_seconds defaulting to 150', async () => {
+  it('pulls template_exercises with rest_seconds from Supabase (defaults to 150 when missing)', async () => {
     setSessionAuthenticated();
 
     const exerciseBuilder = mockQueryBuilder([], null);
@@ -1012,7 +1012,7 @@ describe('pullExercisesAndTemplates', () => {
     mockFromHandlers['templates'] = templateBuilder;
 
     const mockTe = [
-      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 },
+      { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3, rest_seconds: 120 },
       { id: 'te-2', template_id: 'tpl-1', exercise_id: 'ex-2', sort_order: 1, default_sets: 4 },
     ];
 
@@ -1029,12 +1029,14 @@ describe('pullExercisesAndTemplates', () => {
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO template_exercises'),
     );
     expect(teInserts).toHaveLength(2);
-    // Check the SQL uses COALESCE with 150 default
-    expect(teInserts[0][0]).toContain('COALESCE');
-    expect(teInserts[0][0]).toContain('150');
+    // SQL uses Supabase rest_seconds directly (synced via MCP), with ?? 150 fallback
+    expect(teInserts[0][0]).toContain('rest_seconds=excluded.rest_seconds');
     expect(teInserts[0][1]).toBe('te-1');
     expect(teInserts[0][3]).toBe('ex-1');
     expect(teInserts[0][5]).toBe(3); // default_sets
+    expect(teInserts[0][6]).toBe(120); // rest_seconds from Supabase
+    // Second exercise has no rest_seconds in mock data — falls back to 150
+    expect(teInserts[1][6]).toBe(150);
   });
 
   it('deletes template_exercises removed by MCP', async () => {
