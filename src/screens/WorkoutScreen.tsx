@@ -327,9 +327,14 @@ export default function WorkoutScreen() {
     if (timerRef.current) clearInterval(timerRef.current);
     const update = () => {
       const diff = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
-      const m = Math.floor(diff / 60);
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
       const s = diff % 60;
-      setElapsed(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+      if (h > 0) {
+        setElapsed(`${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+      } else {
+        setElapsed(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+      }
     };
     update();
     timerRef.current = setInterval(update, 1000);
@@ -1962,9 +1967,9 @@ const styles = StyleSheet.create({
 
   // Checkbox
   checkBox: {
-    width: 34,
-    height: 34,
-    borderRadius: borderRadius.sm,
+    width: layout.touchMin,
+    height: layout.touchMin,
+    borderRadius: borderRadius.md,
     borderWidth: 1.5,
     borderColor: colors.border,
     alignItems: 'center',
