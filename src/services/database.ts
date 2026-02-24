@@ -886,7 +886,8 @@ export async function getUpcomingWorkoutForToday(): Promise<{
 } | null> {
   try {
     const database = await getDb();
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     const workouts = await database.getAllAsync<UpcomingWorkoutRow>(
       'SELECT * FROM upcoming_workouts WHERE date = ? ORDER BY created_at DESC LIMIT 1',
