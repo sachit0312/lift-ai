@@ -14,7 +14,7 @@ import {
   updateTemplateExerciseDefaults,
   updateTemplate,
 } from '../services/database';
-import { deleteTemplateExerciseFromSupabase } from '../services/sync';
+import { deleteTemplateExerciseFromSupabase, syncToSupabase } from '../services/sync';
 import type { TemplateExercise } from '../types/database';
 
 const formatRestTime = (seconds: number): string => {
@@ -91,7 +91,7 @@ export default function TemplateDetailScreen() {
   const handleIncreaseSets = useCallback((item: TemplateExercise) => {
     const newSets = item.default_sets + 1;
     updateTemplateExerciseDefaults(item.id, { sets: newSets })
-      .then(loadExercises)
+      .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
       .catch((e) => console.error('Failed to update sets', e));
   }, [loadExercises]);
 
@@ -99,7 +99,7 @@ export default function TemplateDetailScreen() {
     const newSets = Math.max(1, item.default_sets - 1);
     if (newSets !== item.default_sets) {
       updateTemplateExerciseDefaults(item.id, { sets: newSets })
-        .then(loadExercises)
+        .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
         .catch((e) => console.error('Failed to update sets', e));
     }
   }, [loadExercises]);
@@ -107,7 +107,7 @@ export default function TemplateDetailScreen() {
   const handleIncreaseWarmupSets = useCallback((item: TemplateExercise) => {
     const newWarmup = item.warmup_sets + 1;
     updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
-      .then(loadExercises)
+      .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
       .catch((e) => console.error('Failed to update warmup sets', e));
   }, [loadExercises]);
 
@@ -115,7 +115,7 @@ export default function TemplateDetailScreen() {
     const newWarmup = Math.max(0, item.warmup_sets - 1);
     if (newWarmup !== item.warmup_sets) {
       updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
-        .then(loadExercises)
+        .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
         .catch((e) => console.error('Failed to update warmup sets', e));
     }
   }, [loadExercises]);
@@ -123,7 +123,7 @@ export default function TemplateDetailScreen() {
   const handleIncreaseRest = useCallback((item: TemplateExercise) => {
     const newRest = item.rest_seconds + 15;
     updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
-      .then(loadExercises)
+      .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
       .catch((e) => console.error('Failed to update rest', e));
   }, [loadExercises]);
 
@@ -131,7 +131,7 @@ export default function TemplateDetailScreen() {
     const newRest = Math.max(15, item.rest_seconds - 15);
     if (newRest !== item.rest_seconds) {
       updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
-        .then(loadExercises)
+        .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
         .catch((e) => console.error('Failed to update rest', e));
     }
   }, [loadExercises]);

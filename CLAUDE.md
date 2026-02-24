@@ -45,7 +45,7 @@ All screens in `src/screens/`. Key non-obvious behaviors:
 ## MCP AI Coach
 MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/`. Phone app -> Supabase <- MCP server -> Claude Desktop.
 
-**Tools (16)**: get_workout_history, get_workout_detail, get_exercise_list, get_all_templates, get_template, get_personal_records, get_exercise_history, get_upcoming_workout, create_exercise, update_exercise (name/type/muscle_groups/description/training_goal, ownership-checked), add_exercise_to_template (rest_seconds default 150, warmup_sets default 0), remove_exercise_from_template, create_template, update_template (batch updates), update_template_exercise_rest, create_upcoming_workout (supports `rpe` -> `target_rpe`, `tag` -> SetTag).
+**Tools (16)**: get_workout_history, get_workout_detail, get_exercise_list, get_all_templates, get_template, get_personal_records, get_exercise_history, get_upcoming_workout, create_exercise, update_exercise (name/type/muscle_groups/description/training_goal, ownership-checked), add_exercise_to_template (rest_seconds default 150, warmup_sets default 0), remove_exercise_from_template, create_template, update_template (batch updates: sort_order, default_sets, rest_seconds, warmup_sets), update_template_exercise_rest, create_upcoming_workout (supports `rpe` -> `target_rpe`, `tag` -> SetTag).
 
 **Multi-User**: JWT auth. Token from ProfileScreen "Get MCP Token". User-scoped tools; exercises shared.
 
@@ -58,7 +58,7 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/`. Phone app -> Supabase <- M
 - `pullWorkoutHistory()` — upserts finished workouts + sets. Converts `is_completed` bool->int for SQLite.
 - `pullUpcomingWorkout()` — pulls latest upcoming workout + exercises + sets
 - **Important**: Do NOT wrap sync pull loops in `withTransactionAsync` — they run concurrently via Promise.all, SQLite can't handle concurrent transactions
-- **Sync triggers**: login (clear -> pull all), workout finish (push), WorkoutScreen focus (pull all sequentially), template/exercise delete (fire-and-forget push)
+- **Sync triggers**: login (clear -> pull all), workout finish (push), WorkoutScreen focus (pull all sequentially), template/exercise delete (fire-and-forget push), template exercise stepper edits (fire-and-forget push)
 - All console.log/error are `__DEV__`-guarded (prod uses Sentry only)
 
 ## Building & Running
