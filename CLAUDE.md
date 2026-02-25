@@ -95,6 +95,7 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/`. Phone app -> Supabase <- M
 - Exercise types: weighted=primary, bodyweight=success, machine=warning, cable=accent.
 
 ## Gotchas
+- **Supabase migrations**: When adding columns referenced by sync or MCP, run the migration on both dev (`gcpnqpqqwcwvyzoivolp`) and prod (`lgnkxjiqzsqiwrqrsxww`) via SQL Editor before deploying code. Migration files go in `supabase/migrations/`.
 - Alert.prompt is iOS-only; use Modal or Alert.alert for cross-platform.
 - metro.config.js adds COOP/COEP headers for expo-sqlite OPFS VFS on web.
 - `withInteractiveLiveActivity` plugin must run AFTER `expo-live-activity` in plugins array.
