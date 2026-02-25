@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as LiveActivity from 'expo-live-activity';
+import type { LiveActivityState } from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
@@ -102,7 +103,7 @@ export async function updateWorkoutActivityForSet(
     currentTotalSets = totalSets;
     currentEndTime = 0;
 
-    LiveActivity.updateActivity(currentActivityId, {
+    safeUpdateActivity({
       title: exerciseName,
       subtitle: `Set ${setNumber}/${totalSets}`,
     });
@@ -129,7 +130,7 @@ export async function updateWorkoutActivityForRest(
     currentSetNumber = setNumber;
     currentTotalSets = totalSets;
 
-    LiveActivity.updateActivity(currentActivityId, {
+    safeUpdateActivity({
       title: exerciseName,
       subtitle: `Set ${setNumber}/${totalSets}`,
       progressBar: { date: endTime },
@@ -184,7 +185,7 @@ export async function startRestTimerActivity(totalSeconds: number, exerciseName:
 
     if (currentActivityId) {
       // Update existing persistent activity to show rest timer
-      LiveActivity.updateActivity(currentActivityId, {
+      safeUpdateActivity({
         title: exerciseName,
         subtitle: 'Rest Timer',
         progressBar: { date: endTime },
@@ -226,7 +227,7 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
 
     const remainingSeconds = Math.max(0, Math.round((newEndTime - Date.now()) / 1000));
 
-    LiveActivity.updateActivity(currentActivityId, {
+    safeUpdateActivity({
       title: currentExerciseName,
       progressBar: { date: newEndTime },
     });
@@ -248,7 +249,7 @@ export async function stopRestTimerActivity(): Promise<void> {
     currentEndTime = 0;
 
     // Update activity back to set entry view with parseable "Set X/Y" subtitle
-    LiveActivity.updateActivity(currentActivityId, {
+    safeUpdateActivity({
       title: currentExerciseName,
       subtitle: `Set ${currentSetNumber}/${currentTotalSets}`,
     });
@@ -261,6 +262,21 @@ export async function stopRestTimerActivity(): Promise<void> {
 }
 
 // ─── Internal helpers ───
+
+/**
+ * Wrapper around LiveActivity.updateActivity that catches ActivityNotFoundException.
+ * When the user (or iOS) dismisses the Live Activity, the stale currentActivityId
+ * causes cascading errors. This helper nulls it out so future calls short-circuit.
+ */
+function safeUpdateActivity(contentState: LiveActivityState): void {
+  if (!currentActivityId) return;
+  try {
+    LiveActivity.updateActivity(currentActivityId, contentState);
+  } catch {
+    // Activity was dismissed by user/iOS — null out so future calls short-circuit
+    currentActivityId = null;
+  }
+}
 
 async function scheduleTimerEndNotification(seconds: number): Promise<void> {
   try {

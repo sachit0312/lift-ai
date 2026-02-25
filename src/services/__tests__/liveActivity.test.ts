@@ -392,4 +392,27 @@ describe('liveActivity service', () => {
       await expect(stopWorkoutActivity()).resolves.not.toThrow();
     });
   });
+
+  describe('dismissed activity recovery', () => {
+    it('nulls out activity ID after updateActivity throws, subsequent calls no-op', async () => {
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+
+      // Simulate the activity being dismissed by user/iOS
+      (LiveActivity.updateActivity as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('ActivityNotFoundException: Activity with ID not found');
+      });
+
+      // First call after dismiss — should catch and null out the ID
+      await updateWorkoutActivityForSet('Bench Press', 2, 4);
+      jest.clearAllMocks();
+
+      // Subsequent calls should no-op (not call updateActivity or throw)
+      await updateWorkoutActivityForSet('Bench Press', 3, 4);
+      await updateWorkoutActivityForRest('Bench Press', 90, 3, 4);
+      await adjustRestTimerActivity(15);
+      await stopRestTimerActivity();
+
+      expect(LiveActivity.updateActivity).not.toHaveBeenCalled();
+    });
+  });
 });
