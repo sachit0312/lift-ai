@@ -53,7 +53,9 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         .map((h) => {
           const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
           if (completedSets.length === 0) return null;
-          const best = Math.max(...completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, s.rpe)));
+          const estimates = completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, s.rpe)).filter(v => isFinite(v) && v > 0);
+          if (estimates.length === 0) return null;
+          const best = Math.max(...estimates);
           const d = new Date(h.workout.started_at);
           return { date: `${d.getMonth() + 1}/${d.getDate()}`, best1RM: Math.round(best) };
         })
@@ -67,7 +69,10 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         .map((h) => {
           const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
           if (completedSets.length === 0) return null;
-          const volume = completedSets.reduce((sum, s) => sum + (s.weight ?? 0) * (s.reps ?? 0), 0);
+          const volume = completedSets.reduce((sum, s) => {
+            const v = (s.weight ?? 0) * (s.reps ?? 0);
+            return sum + (isFinite(v) ? v : 0);
+          }, 0);
           const d = new Date(h.workout.started_at);
           return { date: `${d.getMonth() + 1}/${d.getDate()}`, volume };
         })
@@ -93,7 +98,9 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
           const h = history[i];
           const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
           if (completedSets.length === 0) continue;
-          const best = Math.max(...completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, s.rpe)));
+          const estimates = completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, s.rpe)).filter(v => isFinite(v) && v > 0);
+          if (estimates.length === 0) continue;
+          const best = Math.max(...estimates);
           const rounded = Math.round(best);
           if (rounded >= maxVal) {
             maxVal = rounded;

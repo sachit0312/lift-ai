@@ -66,7 +66,7 @@ export function syncStateToWidget(state: WidgetState): void {
   try {
     setItem(WORKOUT_STATE_KEY, JSON.stringify(state));
   } catch (e: unknown) {
-    console.error('Failed to sync state to widget', e);
+    if (__DEV__) console.error('Failed to sync state to widget', e);
     Sentry.captureException(e);
   }
 }
@@ -80,7 +80,7 @@ export function pollForActions(): WidgetAction[] {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (e: unknown) {
-    console.error('Failed to poll for widget actions', e);
+    if (__DEV__) console.error('Failed to poll for widget actions', e);
     Sentry.captureException(e);
     return [];
   }
@@ -110,7 +110,7 @@ export function clearWidgetState(): void {
     removeItem(WORKOUT_STATE_KEY);
     removeItem(ACTION_QUEUE_KEY);
   } catch (e: unknown) {
-    console.error('Failed to clear widget state', e);
+    if (__DEV__) console.error('Failed to clear widget state', e);
     Sentry.captureException(e);
   }
 }

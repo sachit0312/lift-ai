@@ -16,6 +16,7 @@ import {
 } from '../services/database';
 import { deleteTemplateExerciseFromSupabase, syncToSupabase } from '../services/sync';
 import type { TemplateExercise } from '../types/database';
+import * as Sentry from '@sentry/react-native';
 
 const formatRestTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
@@ -45,7 +46,7 @@ export default function TemplateDetailScreen() {
   const loadExercises = useCallback(() => {
     if (!hasLoadedOnce.current) setLoading(true);
     getTemplateExercises(templateId).then(setExercises)
-      .catch((e: unknown) => console.error('Failed to load exercises', e))
+      .catch((e: unknown) => { if (__DEV__) console.error('Failed to load exercises', e); Sentry.captureException(e); })
       .finally(() => { setLoading(false); hasLoadedOnce.current = true; });
   }, [templateId]);
 
@@ -63,7 +64,8 @@ export default function TemplateDetailScreen() {
             setTemplateName(name.trim());
             navigation.setOptions({ title: name.trim() });
           }).catch((e) => {
-            console.error('Failed to rename template', e);
+            if (__DEV__) console.error('Failed to rename template', e);
+            Sentry.captureException(e);
             Alert.alert('Error', 'Failed to rename template. Please try again.');
           });
         }
@@ -82,7 +84,8 @@ export default function TemplateDetailScreen() {
         setTemplateName(name);
         navigation.setOptions({ title: name });
       }).catch((e) => {
-        console.error('Failed to rename template', e);
+        if (__DEV__) console.error('Failed to rename template', e);
+        Sentry.captureException(e);
         Alert.alert('Error', 'Failed to rename template. Please try again.');
       });
     }
@@ -91,48 +94,48 @@ export default function TemplateDetailScreen() {
   const handleIncreaseSets = useCallback((item: TemplateExercise) => {
     const newSets = item.default_sets + 1;
     updateTemplateExerciseDefaults(item.id, { sets: newSets })
-      .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
-      .catch((e) => console.error('Failed to update sets', e));
+      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
+      .catch((e) => { if (__DEV__) console.error('Failed to update sets', e); Sentry.captureException(e); });
   }, [loadExercises]);
 
   const handleDecreaseSets = useCallback((item: TemplateExercise) => {
     const newSets = Math.max(1, item.default_sets - 1);
     if (newSets !== item.default_sets) {
       updateTemplateExerciseDefaults(item.id, { sets: newSets })
-        .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
-        .catch((e) => console.error('Failed to update sets', e));
+        .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
+        .catch((e) => { if (__DEV__) console.error('Failed to update sets', e); Sentry.captureException(e); });
     }
   }, [loadExercises]);
 
   const handleIncreaseWarmupSets = useCallback((item: TemplateExercise) => {
     const newWarmup = item.warmup_sets + 1;
     updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
-      .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
-      .catch((e) => console.error('Failed to update warmup sets', e));
+      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
+      .catch((e) => { if (__DEV__) console.error('Failed to update warmup sets', e); Sentry.captureException(e); });
   }, [loadExercises]);
 
   const handleDecreaseWarmupSets = useCallback((item: TemplateExercise) => {
     const newWarmup = Math.max(0, item.warmup_sets - 1);
     if (newWarmup !== item.warmup_sets) {
       updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
-        .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
-        .catch((e) => console.error('Failed to update warmup sets', e));
+        .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
+        .catch((e) => { if (__DEV__) console.error('Failed to update warmup sets', e); Sentry.captureException(e); });
     }
   }, [loadExercises]);
 
   const handleIncreaseRest = useCallback((item: TemplateExercise) => {
     const newRest = item.rest_seconds + 15;
     updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
-      .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
-      .catch((e) => console.error('Failed to update rest', e));
+      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
+      .catch((e) => { if (__DEV__) console.error('Failed to update rest', e); Sentry.captureException(e); });
   }, [loadExercises]);
 
   const handleDecreaseRest = useCallback((item: TemplateExercise) => {
     const newRest = Math.max(15, item.rest_seconds - 15);
     if (newRest !== item.rest_seconds) {
       updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
-        .then(() => { syncToSupabase().catch(() => {}); return loadExercises(); })
-        .catch((e) => console.error('Failed to update rest', e));
+        .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
+        .catch((e) => { if (__DEV__) console.error('Failed to update rest', e); Sentry.captureException(e); });
     }
   }, [loadExercises]);
 
@@ -149,7 +152,8 @@ export default function TemplateDetailScreen() {
               return loadExercises();
             })
             .catch((e) => {
-              console.error('Failed to remove exercise', e);
+              if (__DEV__) console.error('Failed to remove exercise', e);
+              Sentry.captureException(e);
               Alert.alert('Error', 'Failed to remove exercise. Please try again.');
             });
         },

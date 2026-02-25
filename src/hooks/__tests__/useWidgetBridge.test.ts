@@ -1,0 +1,373 @@
+import { renderHook, act } from '@testing-library/react-native';
+import { useWidgetBridge, type ExerciseBlock, type UseWidgetBridgeOptions } from '../useWidgetBridge';
+import { createMockExercise } from '../../__tests__/helpers/factories';
+import type { Exercise, Workout, SetTag } from '../../types/database';
+
+// ─── Mocks ───
+
+jest.mock('../../services/workoutBridge', () => ({
+  syncStateToWidget: jest.fn(),
+  startPolling: jest.fn(),
+  stopPolling: jest.fn(),
+  clearWidgetState: jest.fn(),
+}));
+
+jest.mock('../../services/liveActivity', () => ({
+  updateWorkoutActivityForSet: jest.fn(),
+  updateWorkoutActivityForRest: jest.fn(),
+}));
+
+jest.mock('../../services/database', () => ({
+  updateWorkoutSet: jest.fn().mockResolvedValue(undefined),
+}));
+
+import { syncStateToWidget, startPolling } from '../../services/workoutBridge';
+import { updateWorkoutActivityForSet, updateWorkoutActivityForRest } from '../../services/liveActivity';
+import { updateWorkoutSet } from '../../services/database';
+
+// ─── Helpers ───
+
+function createBlock(overrides: Partial<ExerciseBlock> = {}): ExerciseBlock {
+  const exercise = createMockExercise({ id: 'ex1', name: 'Bench Press' });
+  return {
+    exercise,
+    sets: [
+      {
+        id: 'set1',
+        exercise_id: exercise.id,
+        set_number: 1,
+        weight: '135',
+        reps: '10',
+        rpe: '',
+        tag: 'working' as SetTag,
+        is_completed: false,
+        previous: null,
+      },
+      {
+        id: 'set2',
+        exercise_id: exercise.id,
+        set_number: 2,
+        weight: '',
+        reps: '',
+        rpe: '',
+        tag: 'working' as SetTag,
+        is_completed: false,
+        previous: { weight: 130, reps: 8 },
+      },
+    ],
+    lastTime: null,
+    notesExpanded: false,
+    notes: '',
+    restSeconds: 150,
+    restEnabled: true,
+    ...overrides,
+  };
+}
+
+function makeOptions(overrides: Partial<UseWidgetBridgeOptions> = {}): UseWidgetBridgeOptions {
+  const blocks: ExerciseBlock[] = [createBlock()];
+  return {
+    blocksRef: { current: blocks },
+    workoutRef: { current: { id: 'w1', user_id: 'u1', template_id: null, upcoming_workout_id: null, started_at: new Date().toISOString(), finished_at: null, ai_summary: null, notes: null } as Workout },
+    upcomingTargets: null,
+    isResting: false,
+    restEndTime: 0,
+    onCompleteSet: jest.fn(),
+    onDismissRest: jest.fn(),
+    onAdjustRest: jest.fn(),
+    onStartRest: jest.fn(),
+    setExerciseBlocks: jest.fn(),
+    ...overrides,
+  };
+}
+
+// ─── Tests ───
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+describe('useWidgetBridge', () => {
+  describe('buildWidgetState', () => {
+    it('returns correct structure with exercise blocks', () => {
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      const state = result.current.buildWidgetState(
+        options.blocksRef.current,
+        false,
+        0,
+      );
+
+      expect(state.workoutActive).toBe(true);
+      expect(state.isResting).toBe(false);
+      expect(state.restEndTime).toBe(0);
+      expect(state.current.exerciseName).toBe('Bench Press');
+      expect(state.current.exerciseBlockIndex).toBe(0);
+      expect(state.current.setNumber).toBe(1);
+      expect(state.current.totalSets).toBe(2);
+      expect(state.current.weight).toBe(135);
+      expect(state.current.reps).toBe(10);
+      expect(state.current.restSeconds).toBe(150);
+      expect(state.current.restEnabled).toBe(true);
+      // Next set should use previous data since weight/reps are empty
+      expect(state.next).not.toBeNull();
+      expect(state.next?.weight).toBe(130);
+      expect(state.next?.reps).toBe(8);
+      // No next exercise (only 1 block)
+      expect(state.nextExercise).toBeNull();
+    });
+
+    it('handles empty blocks gracefully', () => {
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      const state = result.current.buildWidgetState([], false, 0);
+
+      expect(state.workoutActive).toBe(true);
+      expect(state.current.exerciseName).toBe('Workout');
+      expect(state.current.exerciseBlockIndex).toBe(0);
+      expect(state.current.setNumber).toBe(1);
+      expect(state.current.totalSets).toBe(1);
+      expect(state.current.weight).toBe(0);
+      expect(state.current.reps).toBe(0);
+      expect(state.next).toBeNull();
+      expect(state.nextExercise).toBeNull();
+    });
+
+    it('finds first incomplete set starting from preferBlockIdx', () => {
+      const block0 = createBlock({
+        exercise: createMockExercise({ id: 'ex-a', name: 'Squat' }),
+        sets: [
+          { id: 's0', exercise_id: 'ex-a', set_number: 1, weight: '225', reps: '5', rpe: '', tag: 'working', is_completed: true, previous: null },
+          { id: 's1', exercise_id: 'ex-a', set_number: 2, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+      const block1 = createBlock({
+        exercise: createMockExercise({ id: 'ex-b', name: 'Deadlift' }),
+        sets: [
+          { id: 's2', exercise_id: 'ex-b', set_number: 1, weight: '315', reps: '3', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+
+      const options = makeOptions({ blocksRef: { current: [block0, block1] } });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      // Starting from block 1, should find Deadlift's incomplete set
+      const state = result.current.buildWidgetState([block0, block1], false, 0, 1);
+      expect(state.current.exerciseName).toBe('Deadlift');
+      expect(state.current.setNumber).toBe(1);
+    });
+
+    it('falls back to last block when all sets complete', () => {
+      const block = createBlock({
+        sets: [
+          { id: 's0', exercise_id: 'ex1', set_number: 1, weight: '135', reps: '10', rpe: '', tag: 'working', is_completed: true, previous: null },
+          { id: 's1', exercise_id: 'ex1', set_number: 2, weight: '135', reps: '10', rpe: '', tag: 'working', is_completed: true, previous: null },
+        ],
+      });
+      const options = makeOptions({ blocksRef: { current: [block] } });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      const state = result.current.buildWidgetState([block], false, 0);
+      expect(state.current.exerciseBlockIndex).toBe(0);
+      expect(state.current.setNumber).toBe(2); // Last completed set
+    });
+
+    it('includes rest state when resting', () => {
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      const restEnd = Date.now() + 60000;
+      const state = result.current.buildWidgetState(
+        options.blocksRef.current,
+        true,
+        restEnd,
+      );
+
+      expect(state.isResting).toBe(true);
+      expect(state.restEndTime).toBe(restEnd);
+    });
+
+    it('populates nextExercise when multiple blocks exist', () => {
+      const block0 = createBlock({
+        exercise: createMockExercise({ id: 'ex-a', name: 'Squat' }),
+      });
+      const block1 = createBlock({
+        exercise: createMockExercise({ id: 'ex-b', name: 'Leg Press' }),
+        sets: [
+          { id: 's3', exercise_id: 'ex-b', set_number: 1, weight: '200', reps: '12', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+
+      const options = makeOptions({ blocksRef: { current: [block0, block1] } });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      const state = result.current.buildWidgetState([block0, block1], false, 0);
+      expect(state.nextExercise).not.toBeNull();
+      expect(state.nextExercise?.exerciseName).toBe('Leg Press');
+      expect(state.nextExercise?.weight).toBe(200);
+      expect(state.nextExercise?.reps).toBe(12);
+    });
+  });
+
+  describe('syncWidgetState', () => {
+    it('calls syncStateToWidget with correct state', () => {
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.syncWidgetState(options.blocksRef.current, false, 0);
+      });
+
+      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
+      const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
+      expect(writtenState.workoutActive).toBe(true);
+      expect(writtenState.current.exerciseName).toBe('Bench Press');
+      expect(writtenState.isResting).toBe(false);
+    });
+
+    it('calls updateWorkoutActivityForSet when not resting', () => {
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.syncWidgetState(options.blocksRef.current, false, 0);
+      });
+
+      expect(updateWorkoutActivityForSet).toHaveBeenCalledWith(
+        'Bench Press',
+        1,
+        2,
+      );
+      expect(updateWorkoutActivityForRest).not.toHaveBeenCalled();
+    });
+
+    it('calls updateWorkoutActivityForRest when resting', () => {
+      const restEnd = Date.now() + 60000;
+      const options = makeOptions({ isResting: true, restEndTime: restEnd });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.syncWidgetState(undefined, true, restEnd);
+      });
+
+      expect(updateWorkoutActivityForRest).toHaveBeenCalledTimes(1);
+      expect(updateWorkoutActivityForSet).not.toHaveBeenCalled();
+    });
+
+    it('uses blocksRef defaults when no blocks passed', () => {
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.syncWidgetState();
+      });
+
+      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
+      const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
+      expect(writtenState.current.exerciseName).toBe('Bench Press');
+    });
+  });
+
+  describe('handleWidgetActions', () => {
+    it('dispatches completeSet correctly', async () => {
+      const setExerciseBlocks = jest.fn();
+      const onStartRest = jest.fn();
+      const options = makeOptions({ setExerciseBlocks, onStartRest });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      await act(async () => {
+        result.current.handleWidgetActions([
+          { type: 'completeSet', blockIndex: 0, setIndex: 0, weight: 140, reps: 8, ts: Date.now() },
+        ]);
+      });
+
+      // Should update exercise blocks via setExerciseBlocks
+      expect(setExerciseBlocks).toHaveBeenCalledTimes(1);
+      // Should persist to SQLite
+      expect(updateWorkoutSet).toHaveBeenCalledWith('set1', {
+        weight: 140,
+        reps: 8,
+        is_completed: true,
+      });
+      // Block has restEnabled=true, so should start rest timer
+      expect(onStartRest).toHaveBeenCalledWith(150, 'Bench Press');
+    });
+
+    it('dispatches skipRest correctly', () => {
+      const onDismissRest = jest.fn();
+      const options = makeOptions({ onDismissRest });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.handleWidgetActions([
+          { type: 'skipRest', ts: Date.now() },
+        ]);
+      });
+
+      expect(onDismissRest).toHaveBeenCalledTimes(1);
+      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
+    });
+
+    it('dispatches adjustRest correctly', () => {
+      const onAdjustRest = jest.fn();
+      const options = makeOptions({ onAdjustRest });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.handleWidgetActions([
+          { type: 'adjustRest', delta: 15, ts: Date.now() },
+        ]);
+      });
+
+      expect(onAdjustRest).toHaveBeenCalledWith(15);
+    });
+
+    it('ignores actions when no active workout', () => {
+      const setExerciseBlocks = jest.fn();
+      const options = makeOptions({
+        workoutRef: { current: null },
+        setExerciseBlocks,
+      });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.handleWidgetActions([
+          { type: 'completeSet', blockIndex: 0, setIndex: 0, weight: 100, reps: 5, ts: Date.now() },
+        ]);
+      });
+
+      expect(setExerciseBlocks).not.toHaveBeenCalled();
+      expect(updateWorkoutSet).not.toHaveBeenCalled();
+    });
+
+    it('ignores out-of-bounds block/set indices', () => {
+      const setExerciseBlocks = jest.fn();
+      const options = makeOptions({ setExerciseBlocks });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.handleWidgetActions([
+          { type: 'completeSet', blockIndex: 5, setIndex: 0, weight: 100, reps: 5, ts: Date.now() },
+        ]);
+      });
+
+      expect(setExerciseBlocks).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('startWidgetPolling', () => {
+    it('calls startPolling with handleWidgetActions', () => {
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.startWidgetPolling();
+      });
+
+      expect(startPolling).toHaveBeenCalledTimes(1);
+      expect(typeof (startPolling as jest.Mock).mock.calls[0][0]).toBe('function');
+    });
+  });
+});

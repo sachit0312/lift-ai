@@ -14,6 +14,7 @@ import { filterExercises } from '../utils/exerciseSearch';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import { getAllExercises, createExercise, addExerciseToTemplate } from '../services/database';
 import type { Exercise, ExerciseType } from '../types/database';
+import * as Sentry from '@sentry/react-native';
 
 type RouteProp = NativeStackScreenProps<TemplatesStackParamList, 'ExercisePicker'>['route'];
 type Nav = NativeStackNavigationProp<TemplatesStackParamList, 'ExercisePicker'>;
@@ -41,7 +42,7 @@ export default function ExercisePickerScreen() {
   const loadExercises = useCallback(() => {
     if (!hasLoadedOnce.current) setLoading(true);
     getAllExercises().then(setExercises)
-      .catch((e: unknown) => console.error('Failed to load exercises', e))
+      .catch((e: unknown) => { if (__DEV__) console.error('Failed to load exercises', e); Sentry.captureException(e); })
       .finally(() => { setLoading(false); hasLoadedOnce.current = true; });
   }, []);
 
@@ -58,7 +59,8 @@ export default function ExercisePickerScreen() {
       await addExerciseToTemplate(templateId, exercise.id);
       navigation.goBack();
     } catch (e: unknown) {
-      console.error('Failed to add exercise to template', e);
+      if (__DEV__) console.error('Failed to add exercise to template', e);
+      Sentry.captureException(e);
       Alert.alert('Error', 'Failed to add exercise. Please try again.');
     }
   }, [templateId, navigation]);
@@ -90,7 +92,8 @@ export default function ExercisePickerScreen() {
       setShowCreateModal(false);
       navigation.goBack();
     } catch (e: unknown) {
-      console.error('Failed to create exercise', e);
+      if (__DEV__) console.error('Failed to create exercise', e);
+      Sentry.captureException(e);
       Alert.alert('Error', 'Failed to create exercise. Please try again.');
     }
   };

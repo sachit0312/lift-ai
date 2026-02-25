@@ -17,34 +17,29 @@ import {
   Platform,
   AppState,
 } from 'react-native';
+import { useRestTimer } from '../hooks/useRestTimer';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedStyle, SharedValue, interpolate, Extrapolation } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Sentry from '@sentry/react-native';
+import { useNotesDebounce } from '../hooks/useNotesDebounce';
+import { useWidgetBridge } from '../hooks/useWidgetBridge';
+import type { PreviousSetData, LocalSet, ExerciseBlock } from '../types/workout';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
 import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 import {
-  adjustRestTimerActivity,
-  stopRestTimerActivity,
   requestNotificationPermissions,
-  getRestTimerRemainingSeconds,
   startWorkoutActivity,
-  updateWorkoutActivityForSet,
-  updateWorkoutActivityForRest,
   stopWorkoutActivity,
 } from '../services/liveActivity';
 import {
-  syncStateToWidget,
-  startPolling,
   stopPolling,
   clearWidgetState,
-  type WidgetState,
-  type WidgetAction,
 } from '../services/workoutBridge';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
@@ -64,7 +59,6 @@ import {
   getExerciseById,
   getAllExercises,
   createExercise,
-  updateExerciseNotes,
   getBulkExercises,
   addWorkoutSetsBatch,
 } from '../services/database';
@@ -88,33 +82,6 @@ const BACKGROUND_PULL_TIMEOUT_MS = 15000;
 
 // ─── Types for local state ───
 
-interface PreviousSetData {
-  weight: number;
-  reps: number;
-}
-
-interface LocalSet {
-  id: string;
-  exercise_id: string;
-  set_number: number;
-  weight: string;
-  reps: string;
-  rpe: string;
-  tag: SetTag;
-  is_completed: boolean;
-  previous?: PreviousSetData | null;
-}
-
-interface ExerciseBlock {
-  exercise: Exercise;
-  sets: LocalSet[];
-  lastTime: string | null;
-  notesExpanded: boolean;
-  notes: string;
-  restSeconds: number;
-  restEnabled: boolean;
-}
-
 // ─── Main Component ───
 
 export default function WorkoutScreen() {
@@ -127,9 +94,6 @@ export default function WorkoutScreen() {
   // Active workout state
   const [exerciseBlocks, setExerciseBlocks] = useState<ExerciseBlock[]>([]);
   const [elapsed, setElapsed] = useState('00:00');
-  const [restSeconds, setRestSeconds] = useState(0);
-  const [restTotal, setRestTotal] = useState(0);
-  const [restExerciseName, setRestExerciseName] = useState('');
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryStats, setSummaryStats] = useState({ exercises: 0, sets: 0, duration: '' });
@@ -152,156 +116,54 @@ export default function WorkoutScreen() {
 
   const hasLoadedOnce = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const workoutRef = useRef<Workout | null>(null);
   const blocksRef = useRef<ExerciseBlock[]>([]);
 
   // Promise ref for background history pull (so workout start can await it)
   const historyPulledRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Track which exercise block was last interacted with (for widget state scanning)
-  const lastActiveBlockRef = useRef(0);
+  // Notes debouncing (extracted to hook)
+  const { debouncedSaveNotes, flushPendingNotes, clearPendingNotes } = useNotesDebounce();
 
-  // Notes debouncing
-  const pendingNotesRef = useRef<Map<string, { notes: string; setId: string | null }>>(new Map());
-  const notesTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Rest timer (extracted to hook)
+  // Callbacks use syncWidgetStateRef below so they always read the latest version
+  const syncWidgetStateRef = useRef<(blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void>(() => {});
+  const onRestEnd = useCallback(() => {
+    syncWidgetStateRef.current(undefined, false, 0);
+  }, []);
+  const onRestUpdate = useCallback((resting: boolean, endTime: number) => {
+    syncWidgetStateRef.current(undefined, resting, endTime);
+  }, []);
+  const {
+    restSeconds, restTotal, restExerciseName,
+    isResting, currentEndTime,
+    startRestTimer, adjustRestTimer, dismissRest,
+  } = useRestTimer({ onRestEnd, onRestUpdate });
 
   // Keep blocksRef in sync for stable callbacks
   blocksRef.current = exerciseBlocks;
 
-  // ─── Widget state sync helper ───
+  // Widget bridge hook (extracted from inline functions)
+  const {
+    lastActiveBlockRef,
+    syncWidgetState,
+    handleWidgetActions,
+    startWidgetPolling,
+  } = useWidgetBridge({
+    blocksRef,
+    workoutRef,
+    upcomingTargets,
+    isResting,
+    restEndTime: currentEndTime,
+    onCompleteSet: () => {},  // Not used directly — handleWidgetCompleteSet handles internally
+    onDismissRest: dismissRest,
+    onAdjustRest: adjustRestTimer,
+    onStartRest: startRestTimer,
+    setExerciseBlocks,
+  });
 
-  function buildWidgetState(blocks: ExerciseBlock[], isResting: boolean, restEnd: number, preferBlockIdx?: number): WidgetState {
-    // Find first incomplete set, starting from the last-active block (wrap around)
-    let currentBlockIdx = -1;
-    let currentSetIdx = -1;
-
-    const startIdx = (preferBlockIdx != null && preferBlockIdx >= 0 && preferBlockIdx < blocks.length)
-      ? preferBlockIdx : 0;
-
-    for (let i = 0; i < blocks.length; i++) {
-      const bi = (startIdx + i) % blocks.length;
-      for (let si = 0; si < blocks[bi].sets.length; si++) {
-        if (!blocks[bi].sets[si].is_completed) {
-          currentBlockIdx = bi;
-          currentSetIdx = si;
-          break;
-        }
-      }
-      if (currentBlockIdx >= 0) break;
-    }
-
-    // If all sets complete, use last block/set
-    if (currentBlockIdx < 0 && blocks.length > 0) {
-      currentBlockIdx = blocks.length - 1;
-      currentSetIdx = blocks[currentBlockIdx].sets.length - 1;
-    }
-
-    if (currentBlockIdx < 0) {
-      return {
-        current: { exerciseName: 'Workout', exerciseBlockIndex: 0, setNumber: 1, totalSets: 1, weight: 0, reps: 0, restSeconds: 0, restEnabled: false },
-        next: null,
-        nextExercise: null,
-        isResting,
-        restEndTime: restEnd,
-        workoutActive: true,
-      };
-    }
-
-    const block = blocks[currentBlockIdx];
-    const set = block.sets[currentSetIdx];
-    const target = upcomingTargets
-      ?.find(e => e.exercise_id === block.exercise.id)
-      ?.sets?.find(s => s.set_number === set.set_number);
-
-    const weight = set.weight ? Number(set.weight) : (target?.target_weight ?? set.previous?.weight ?? 0);
-    const reps = set.reps ? Number(set.reps) : (target?.target_reps ?? set.previous?.reps ?? 0);
-
-    const current = {
-      exerciseName: block.exercise.name,
-      exerciseBlockIndex: currentBlockIdx,
-      setNumber: set.set_number,
-      totalSets: block.sets.length,
-      weight,
-      reps,
-      restSeconds: block.restSeconds,
-      restEnabled: block.restEnabled,
-    };
-
-    // Next set in same exercise
-    let next = null;
-    const nextSetIdx = currentSetIdx + 1;
-    if (nextSetIdx < block.sets.length) {
-      const ns = block.sets[nextSetIdx];
-      const nt = upcomingTargets
-        ?.find(e => e.exercise_id === block.exercise.id)
-        ?.sets?.find(s => s.set_number === ns.set_number);
-      next = {
-        exerciseName: block.exercise.name,
-        setNumber: ns.set_number,
-        weight: ns.weight ? Number(ns.weight) : (nt?.target_weight ?? ns.previous?.weight ?? weight),
-        reps: ns.reps ? Number(ns.reps) : (nt?.target_reps ?? ns.previous?.reps ?? reps),
-      };
-    }
-
-    // Next exercise
-    let nextExercise = null;
-    if (currentBlockIdx + 1 < blocks.length) {
-      const nb = blocks[currentBlockIdx + 1];
-      const ns = nb.sets[0];
-      if (ns) {
-        const nt = upcomingTargets
-          ?.find(e => e.exercise_id === nb.exercise.id)
-          ?.sets?.find(s => s.set_number === ns.set_number);
-        nextExercise = {
-          exerciseName: nb.exercise.name,
-          setNumber: ns.set_number,
-          totalSets: nb.sets.length,
-          weight: ns.weight ? Number(ns.weight) : (nt?.target_weight ?? ns.previous?.weight ?? 0),
-          reps: ns.reps ? Number(ns.reps) : (nt?.target_reps ?? ns.previous?.reps ?? 0),
-        };
-      }
-    }
-
-    return {
-      current,
-      next,
-      nextExercise,
-      isResting,
-      restEndTime: restEnd,
-      workoutActive: true,
-    };
-  }
-
-  function syncWidgetState(blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) {
-    const b = blocks ?? blocksRef.current;
-    const resting = isResting ?? (restRef.current !== null);
-    const end = restEnd ?? (resting ? currentEndTimeRef.current : 0);
-    const state = buildWidgetState(b, resting, end, lastActiveBlockRef.current);
-
-    // Write to UserDefaults (for intent logic + action queue)
-    syncStateToWidget(state);
-
-    // Always push ContentState from main app process (widget extension updates are unreliable)
-    // Update ContentState (triggers widget view re-render)
-    if (resting && end > 0) {
-      updateWorkoutActivityForRest(
-        state.current.exerciseName,
-        Math.round((end - Date.now()) / 1000),
-        state.current.setNumber,
-        state.current.totalSets
-      );
-    } else {
-      updateWorkoutActivityForSet(
-        state.current.exerciseName,
-        state.current.setNumber,
-        state.current.totalSets
-      );
-    }
-  }
-
-  // Track rest end time for widget sync
-  const currentEndTimeRef = useRef(0);
+  // Keep ref in sync so rest timer callbacks always get latest syncWidgetState
+  syncWidgetStateRef.current = syncWidgetState;
 
   // ─── Check for active workout on focus ───
 
@@ -337,7 +199,7 @@ export default function WorkoutScreen() {
         loadUpcomingWorkoutInBackground();
       }
     } catch (e: unknown) {
-      console.error('Failed to load workout state', e);
+      if (__DEV__) console.error('Failed to load workout state', e);
       Sentry.captureException(e);
       if (active) {
         // Set active workout even though blocks failed to load, so user can cancel
@@ -359,7 +221,8 @@ export default function WorkoutScreen() {
       pullWorkoutHistory(),
       new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
     ]).catch((e) => {
-      console.error('pullWorkoutHistory failed or timed out', e);
+      if (__DEV__) console.error('pullWorkoutHistory failed or timed out', e);
+      Sentry.captureException(e);
     });
 
     // Pull exercises & templates from Supabase (MCP changes)
@@ -372,7 +235,8 @@ export default function WorkoutScreen() {
       const t = await getAllTemplates();
       setTemplates(t);
     } catch (e: unknown) {
-      console.error('pullExercisesAndTemplates failed or timed out', e);
+      if (__DEV__) console.error('pullExercisesAndTemplates failed or timed out', e);
+      Sentry.captureException(e);
     }
 
     // Pull upcoming workout from Supabase
@@ -382,7 +246,8 @@ export default function WorkoutScreen() {
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
       ]);
     } catch (e: unknown) {
-      console.error('pullUpcomingWorkout failed or timed out', e);
+      if (__DEV__) console.error('pullUpcomingWorkout failed or timed out', e);
+      Sentry.captureException(e);
     }
 
     const upcoming = await getUpcomingWorkoutForToday();
@@ -449,7 +314,7 @@ export default function WorkoutScreen() {
       startWorkoutActivity(firstIncomplete.exercise.name, `Set ${setNum}/${firstIncomplete.sets.length}`);
     }
     syncWidgetState(blocks, false, 0);
-    startPolling(handleWidgetActions);
+    startWidgetPolling();
   }
 
   // ─── Helpers ───
@@ -490,117 +355,6 @@ export default function WorkoutScreen() {
     timerRef.current = setInterval(update, 1000);
   }
 
-  function startRestTimer(seconds: number, exerciseName: string) {
-    if (restRef.current) clearInterval(restRef.current);
-    const total = seconds;
-    setRestTotal(total);
-    setRestSeconds(total);
-    setRestExerciseName(exerciseName);
-
-    // Track end time for widget sync
-    const endTime = Date.now() + total * 1000;
-    currentEndTimeRef.current = endTime;
-
-    // Sync widget state to rest mode (also updates Live Activity ContentState + schedules notification)
-    syncWidgetState(undefined, true, endTime);
-
-    restRef.current = setInterval(() => {
-      setRestSeconds((prev) => {
-        if (prev <= 1) {
-          if (restRef.current) clearInterval(restRef.current);
-          restRef.current = null;
-          currentEndTimeRef.current = 0;
-          // Stop rest timer view (returns to set entry)
-          stopRestTimerActivity();
-          // Sync widget back to set entry
-          syncWidgetState(undefined, false, 0);
-          // Vibrate when timer ends
-          try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }
-
-  function adjustRestTimer(delta: number) {
-    setRestSeconds((prev) => {
-      const next = Math.max(0, prev + delta);
-      if (next === 0 && restRef.current) {
-        clearInterval(restRef.current);
-        restRef.current = null;
-      }
-      return next;
-    });
-    setRestTotal((prev) => Math.max(prev + delta, 1));
-
-    // Update end time ref so background→foreground resume calculates correctly
-    currentEndTimeRef.current += delta * 1000;
-
-    // Update Live Activity countdown
-    adjustRestTimerActivity(delta);
-
-    // Sync widget so lock screen shows updated rest end time
-    syncWidgetState(undefined, true, currentEndTimeRef.current);
-  }
-
-  function dismissRest() {
-    if (restRef.current) clearInterval(restRef.current);
-    restRef.current = null;
-    setRestSeconds(0);
-    currentEndTimeRef.current = 0;
-
-    // Stop rest timer view (returns to set entry)
-    stopRestTimerActivity();
-  }
-
-  // ─── Notes debouncing helpers ───
-
-  function flushPendingNotes() {
-    for (const timerId of notesTimerRef.current.values()) {
-      clearTimeout(timerId);
-    }
-    notesTimerRef.current.clear();
-
-    for (const [exerciseId, { notes, setId }] of pendingNotesRef.current.entries()) {
-      updateExerciseNotes(exerciseId, notes || null);
-      if (setId) {
-        updateWorkoutSet(setId, { notes });
-      }
-    }
-    pendingNotesRef.current.clear();
-  }
-
-  function clearPendingNotes() {
-    for (const timerId of notesTimerRef.current.values()) {
-      clearTimeout(timerId);
-    }
-    notesTimerRef.current.clear();
-    pendingNotesRef.current.clear();
-  }
-
-  function debouncedSaveNotes(exerciseId: string, notes: string, setId: string | null) {
-    pendingNotesRef.current.set(exerciseId, { notes, setId });
-
-    const existing = notesTimerRef.current.get(exerciseId);
-    if (existing) clearTimeout(existing);
-
-    const timerId = setTimeout(() => {
-      const pending = pendingNotesRef.current.get(exerciseId);
-      if (pending) {
-        updateExerciseNotes(exerciseId, pending.notes || null);
-        if (pending.setId) {
-          updateWorkoutSet(pending.setId, { notes: pending.notes });
-        }
-        pendingNotesRef.current.delete(exerciseId);
-        syncToSupabase().catch(() => {});
-      }
-      notesTimerRef.current.delete(exerciseId);
-    }, 500);
-
-    notesTimerRef.current.set(exerciseId, timerId);
-  }
-
   // ─── Build exercise blocks helper ───
 
   async function buildExerciseBlock(
@@ -638,61 +392,6 @@ export default function WorkoutScreen() {
     return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal], restEnabled: true };
   }
 
-  // ─── Widget action handler ───
-
-  function handleWidgetActions(actions: WidgetAction[]) {
-    if (!workoutRef.current) return;
-    for (const action of actions) {
-      if (action.type === 'completeSet' && action.blockIndex != null && action.setIndex != null
-        && action.blockIndex < blocksRef.current.length
-        && action.setIndex < (blocksRef.current[action.blockIndex]?.sets.length ?? 0)) {
-        handleWidgetCompleteSet(action.blockIndex, action.setIndex, action.weight ?? 0, action.reps ?? 0);
-      } else if (action.type === 'skipRest') {
-        dismissRest();
-        syncWidgetState(undefined, false, 0);
-      } else if (action.type === 'adjustRest' && action.delta != null) {
-        adjustRestTimer(action.delta);
-      }
-    }
-  }
-
-  async function handleWidgetCompleteSet(blockIdx: number, setIdx: number, weight: number, reps: number) {
-    const block = blocksRef.current[blockIdx];
-    const set = block?.sets[setIdx];
-    if (!set || !block) return;
-    lastActiveBlockRef.current = blockIdx;
-
-    // Build updated blocks BEFORE syncing widget to avoid stale state
-    const updatedBlocks = [...blocksRef.current];
-    updatedBlocks[blockIdx] = { ...updatedBlocks[blockIdx], sets: [...updatedBlocks[blockIdx].sets] };
-    updatedBlocks[blockIdx].sets[setIdx] = {
-      ...updatedBlocks[blockIdx].sets[setIdx],
-      weight: String(weight),
-      reps: String(reps),
-      is_completed: true,
-    };
-
-    // Update React state
-    setExerciseBlocks(updatedBlocks);
-
-    // Persist to SQLite
-    await updateWorkoutSet(set.id, {
-      weight,
-      reps,
-      is_completed: true,
-    });
-
-    // Haptic feedback
-    try { Vibration.vibrate(50); } catch {}
-
-    // Start rest timer if enabled, otherwise sync widget with updated blocks
-    if (block.restEnabled) {
-      startRestTimer(block.restSeconds, block.exercise.name);
-    } else {
-      syncWidgetState(updatedBlocks);
-    }
-  }
-
   function activateWorkout(workout: Workout, blocks: ExerciseBlock[], name: string | null = null) {
     setTemplateName(name);
     setActiveWorkout(workout);
@@ -706,7 +405,7 @@ export default function WorkoutScreen() {
       startWorkoutActivity(firstBlock.exercise.name, `Set 1/${firstBlock.sets.length}`);
       syncWidgetState(blocks, false, 0);
     }
-    startPolling(handleWidgetActions);
+    startWidgetPolling();
   }
 
   // ─── Start workout handlers ───
@@ -731,7 +430,8 @@ export default function WorkoutScreen() {
 
       activateWorkout(workout, blocks, template.name);
     } catch (e: unknown) {
-      console.error('Failed to start workout', e);
+      if (__DEV__) console.error('Failed to start workout', e);
+      Sentry.captureException(e);
       Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
       setStartingTemplateId(null);
@@ -745,7 +445,8 @@ export default function WorkoutScreen() {
       const exercises = await getTemplateExercises(template.id);
       setPreviewExercises(exercises);
     } catch (e: unknown) {
-      console.error('Failed to load template exercises:', e);
+      if (__DEV__) console.error('Failed to load template exercises:', e);
+      Sentry.captureException(e);
       setPreviewExercises([]);
     } finally {
       setLoadingPreview(false);
@@ -758,7 +459,8 @@ export default function WorkoutScreen() {
       const workout = await startWorkout(null);
       activateWorkout(workout, []);
     } catch (e: unknown) {
-      console.error('Failed to start empty workout', e);
+      if (__DEV__) console.error('Failed to start empty workout', e);
+      Sentry.captureException(e);
       Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
       setLoading(false);
@@ -804,7 +506,8 @@ export default function WorkoutScreen() {
       setUpcomingTargets(upcomingWorkout.exercises);
       activateWorkout(workout, blocks);
     } catch (e: unknown) {
-      console.error('Failed to start upcoming workout', e);
+      if (__DEV__) console.error('Failed to start upcoming workout', e);
+      Sentry.captureException(e);
       Alert.alert('Error', 'Failed to start workout. Please try again.');
     } finally {
       setLoading(false);
@@ -1206,13 +909,13 @@ export default function WorkoutScreen() {
       }
     }
 
-    const diff = Math.floor((Date.now() - new Date(workout.started_at).getTime()) / 1000);
+    const diff = Math.max(0, Math.floor((Date.now() - new Date(workout.started_at).getTime()) / 1000));
     const m = Math.floor(diff / 60);
     const s = diff % 60;
     const durationStr = `${m}m ${s}s`;
 
     await finishWorkout(workout.id);
-    syncToSupabase().catch(() => {});
+    syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } }));
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();
@@ -1251,30 +954,12 @@ export default function WorkoutScreen() {
     requestNotificationPermissions();
   }, []);
 
-  // ─── Resync rest timer on foreground return ───
+  // ─── Sync widget state on foreground return ───
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        // Resync rest timer on foreground return
-        if (restRef.current !== null) {
-          const remaining = getRestTimerRemainingSeconds();
-          if (remaining === null || remaining <= 0) {
-            if (restRef.current) clearInterval(restRef.current);
-            restRef.current = null;
-            currentEndTimeRef.current = 0;
-            setRestSeconds(0);
-            stopRestTimerActivity();
-            syncWidgetState(undefined, false, 0);
-            try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
-          } else {
-            setRestSeconds(remaining);
-          }
-        }
-        // Sync widget state on foreground return (picks up any changes)
-        if (workoutRef.current) {
-          syncWidgetState();
-        }
+      if (nextState === 'active' && workoutRef.current) {
+        syncWidgetState();
       }
     });
     return () => subscription.remove();
@@ -1285,9 +970,8 @@ export default function WorkoutScreen() {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (restRef.current) clearInterval(restRef.current);
-      flushPendingNotes();
       stopPolling();
+      flushPendingNotes();
     };
   }, []);
 

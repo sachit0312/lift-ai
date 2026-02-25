@@ -1182,16 +1182,24 @@ describe('WorkoutScreen', () => {
   // ─── AppState rest timer resync ───
 
   describe('AppState rest timer resync', () => {
-    let appStateCallback: (state: string) => void;
+    let appStateCallbacks: Array<(state: string) => void>;
     const mockRemove = jest.fn();
 
+    // Helper to fire all captured AppState callbacks
+    const fireAppState = (state: string) => {
+      for (const cb of appStateCallbacks) {
+        cb(state);
+      }
+    };
+
     beforeEach(() => {
-      // Capture the AppState listener callback
+      appStateCallbacks = [];
+      // Capture ALL AppState listener callbacks (hook + component may each register one)
       const { AppState } = require('react-native');
       jest.spyOn(AppState, 'addEventListener').mockImplementation((...args: unknown[]) => {
         const [event, callback] = args as [string, (state: string) => void];
         if (event === 'change') {
-          appStateCallback = callback;
+          appStateCallbacks.push(callback);
         }
         return { remove: mockRemove };
       });
@@ -1217,7 +1225,7 @@ describe('WorkoutScreen', () => {
       (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(45);
 
       await act(async () => {
-        appStateCallback('active');
+        fireAppState('active');
       });
 
       // Timer should show the resynced value (0:45)
@@ -1235,7 +1243,7 @@ describe('WorkoutScreen', () => {
 
       // Simulate returning from background
       await act(async () => {
-        appStateCallback('active');
+        fireAppState('active');
       });
 
       // Should NOT query Live Activity state since no JS timer is running
@@ -1264,7 +1272,7 @@ describe('WorkoutScreen', () => {
       (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(null);
 
       await act(async () => {
-        appStateCallback('active');
+        fireAppState('active');
       });
 
       // Rest timer bar should be dismissed
@@ -1299,7 +1307,7 @@ describe('WorkoutScreen', () => {
       (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(0);
 
       await act(async () => {
-        appStateCallback('active');
+        fireAppState('active');
       });
 
       // Rest timer bar should be dismissed
