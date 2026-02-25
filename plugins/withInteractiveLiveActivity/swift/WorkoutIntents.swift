@@ -85,8 +85,10 @@ struct DecreaseRestIntent: LiveActivityIntent {
 
         state.restEndTime -= 15000
         let now = Date().timeIntervalSince1970 * 1000
-        if state.restEndTime < now {
-            state.restEndTime = now
+        if state.restEndTime <= now {
+            // Timer expired — transition out of rest
+            state.restEndTime = 0
+            state.isResting = false
         }
 
         helper.writeWorkoutState(state)
@@ -194,7 +196,7 @@ private func refreshLiveActivity(state: WorkoutState) async {
     if state.isResting {
         contentState = LiveActivityAttributes.ContentState(
             title: state.current.exerciseName,
-            subtitle: "Rest Timer",
+            subtitle: "Set \(state.current.setNumber)/\(state.current.totalSets)",
             timerEndDateInMilliseconds: state.restEndTime,
             progress: nil,
             imageName: nil,

@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as LiveActivity from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
+import * as Sentry from '@sentry/react-native';
 import { colors } from '../theme';
 
 // ─── Module-level state (singleton) ───
@@ -10,16 +11,18 @@ let currentActivityId: string | null = null;
 let currentNotificationId: string | null = null;
 let currentEndTime: number = 0;
 let currentExerciseName: string = '';
+let currentSetNumber: number = 1;
+let currentTotalSets: number = 1;
 
 // ─── Configure notification handler ───
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowAlert: false,
     shouldPlaySound: true,
     shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowBanner: false,
+    shouldShowList: false,
   }),
 });
 
@@ -37,7 +40,8 @@ export async function requestNotificationPermissions(): Promise<void> {
   try {
     await Notifications.requestPermissionsAsync();
   } catch (e: unknown) {
-    console.error('Failed to request notification permissions', e);
+    if (__DEV__) console.error('Failed to request notification permissions', e);
+    Sentry.captureException(e);
   }
 }
 
@@ -47,7 +51,7 @@ export async function requestNotificationPermissions(): Promise<void> {
  * Start a persistent Live Activity for the entire workout.
  * The activity stays active and switches between set entry and rest timer views.
  */
-export function startWorkoutActivity(exerciseName: string, subtitle: string): void {
+export async function startWorkoutActivity(exerciseName: string, subtitle: string): Promise<void> {
   if (Platform.OS !== 'ios') return;
   try {
     // Stop any existing activity first
@@ -60,7 +64,7 @@ export function startWorkoutActivity(exerciseName: string, subtitle: string): vo
     }
     currentEndTime = 0;
     currentExerciseName = exerciseName;
-    cancelTimerEndNotification();
+    await cancelTimerEndNotification();
 
     const activityId = LiveActivity.startActivity(
       {
@@ -78,7 +82,8 @@ export function startWorkoutActivity(exerciseName: string, subtitle: string): vo
 
     currentActivityId = activityId ?? null;
   } catch (e: unknown) {
-    console.error('Failed to start workout Live Activity', e);
+    if (__DEV__) console.error('Failed to start workout Live Activity', e);
+    Sentry.captureException(e);
   }
 }
 
@@ -87,12 +92,14 @@ export function startWorkoutActivity(exerciseName: string, subtitle: string): vo
  * The interactive widget reads full state from UserDefaults;
  * this update triggers the SwiftUI re-render.
  */
-export function updateWorkoutActivityForSet(
+export async function updateWorkoutActivityForSet(
   exerciseName: string, setNumber: number, totalSets: number
-): void {
+): Promise<void> {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
     currentExerciseName = exerciseName;
+    currentSetNumber = setNumber;
+    currentTotalSets = totalSets;
     currentEndTime = 0;
 
     LiveActivity.updateActivity(currentActivityId, {
@@ -100,9 +107,10 @@ export function updateWorkoutActivityForSet(
       subtitle: `Set ${setNumber}/${totalSets}`,
     });
 
-    cancelTimerEndNotification();
+    await cancelTimerEndNotification();
   } catch (e: unknown) {
-    console.error('Failed to update workout activity for set', e);
+    if (__DEV__) console.error('Failed to update workout activity for set', e);
+    Sentry.captureException(e);
   }
 }
 
@@ -110,31 +118,37 @@ export function updateWorkoutActivityForSet(
  * Update the persistent workout activity for rest timer view.
  * Transitions the lock screen to show the rest timer countdown.
  */
-export function updateWorkoutActivityForRest(exerciseName: string, totalSeconds: number): void {
+export async function updateWorkoutActivityForRest(
+  exerciseName: string, totalSeconds: number, setNumber: number, totalSets: number
+): Promise<void> {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
     const endTime = Date.now() + totalSeconds * 1000;
     currentEndTime = endTime;
     currentExerciseName = exerciseName;
+    currentSetNumber = setNumber;
+    currentTotalSets = totalSets;
 
     LiveActivity.updateActivity(currentActivityId, {
       title: exerciseName,
-      subtitle: 'Rest Timer',
+      subtitle: `Set ${setNumber}/${totalSets}`,
       progressBar: { date: endTime },
     });
 
-    // Cancel any existing notification before scheduling new one
-    cancelTimerEndNotification();
-    scheduleTimerEndNotification(totalSeconds, exerciseName);
+    // Belt-and-suspenders: cancel ALL scheduled notifications to prevent orphans
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    await cancelTimerEndNotification();
+    await scheduleTimerEndNotification(totalSeconds);
   } catch (e: unknown) {
-    console.error('Failed to update workout activity for rest', e);
+    if (__DEV__) console.error('Failed to update workout activity for rest', e);
+    Sentry.captureException(e);
   }
 }
 
 /**
  * Stop the persistent workout activity.
  */
-export function stopWorkoutActivity(): void {
+export async function stopWorkoutActivity(): Promise<void> {
   if (Platform.OS !== 'ios') return;
   try {
     if (currentActivityId) {
@@ -150,15 +164,18 @@ export function stopWorkoutActivity(): void {
     }
     currentEndTime = 0;
     currentExerciseName = '';
-    cancelTimerEndNotification();
+    currentSetNumber = 1;
+    currentTotalSets = 1;
+    await cancelTimerEndNotification();
   } catch (e: unknown) {
-    console.error('Failed to stop workout Live Activity', e);
+    if (__DEV__) console.error('Failed to stop workout Live Activity', e);
+    Sentry.captureException(e);
   }
 }
 
 // ─── Rest Timer Functions (now operate within persistent activity) ───
 
-export function startRestTimerActivity(totalSeconds: number, exerciseName: string): void {
+export async function startRestTimerActivity(totalSeconds: number, exerciseName: string): Promise<void> {
   if (Platform.OS !== 'ios') return;
   try {
     currentExerciseName = exerciseName;
@@ -192,14 +209,16 @@ export function startRestTimerActivity(totalSeconds: number, exerciseName: strin
       currentActivityId = activityId ?? null;
     }
 
-    // Schedule notification for when timer ends
-    scheduleTimerEndNotification(totalSeconds, exerciseName);
+    // Cancel any existing then schedule notification for when timer ends
+    await cancelTimerEndNotification();
+    await scheduleTimerEndNotification(totalSeconds);
   } catch (e: unknown) {
-    console.error('Failed to start rest timer', e);
+    if (__DEV__) console.error('Failed to start rest timer', e);
+    Sentry.captureException(e);
   }
 }
 
-export function adjustRestTimerActivity(deltaSeconds: number): void {
+export async function adjustRestTimerActivity(deltaSeconds: number): Promise<void> {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
     const newEndTime = currentEndTime + deltaSeconds * 1000;
@@ -212,41 +231,41 @@ export function adjustRestTimerActivity(deltaSeconds: number): void {
       progressBar: { date: newEndTime },
     });
 
-    // Reschedule notification
-    cancelTimerEndNotification();
+    // Reschedule notification — await cancel to prevent stacking
+    await cancelTimerEndNotification();
     if (remainingSeconds > 0) {
-      scheduleTimerEndNotification(remainingSeconds);
+      await scheduleTimerEndNotification(remainingSeconds);
     }
   } catch (e: unknown) {
-    console.error('Failed to adjust rest timer', e);
+    if (__DEV__) console.error('Failed to adjust rest timer', e);
+    Sentry.captureException(e);
   }
 }
 
-export function stopRestTimerActivity(): void {
+export async function stopRestTimerActivity(): Promise<void> {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
     currentEndTime = 0;
 
-    // Update activity back to set entry view (don't stop it)
+    // Update activity back to set entry view with parseable "Set X/Y" subtitle
     LiveActivity.updateActivity(currentActivityId, {
       title: currentExerciseName,
-      subtitle: 'Next Set',
+      subtitle: `Set ${currentSetNumber}/${currentTotalSets}`,
     });
 
-    cancelTimerEndNotification();
+    await cancelTimerEndNotification();
   } catch (e: unknown) {
-    console.error('Failed to stop rest timer', e);
+    if (__DEV__) console.error('Failed to stop rest timer', e);
+    Sentry.captureException(e);
   }
 }
 
 // ─── Internal helpers ───
 
-async function scheduleTimerEndNotification(seconds: number, exerciseName?: string): Promise<void> {
+async function scheduleTimerEndNotification(seconds: number): Promise<void> {
   try {
     currentNotificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Rest Timer Done',
-        body: exerciseName ? `Time for your next set of ${exerciseName}` : 'Time for your next set',
         sound: 'default',
         interruptionLevel: 'timeSensitive',
       },
@@ -256,13 +275,17 @@ async function scheduleTimerEndNotification(seconds: number, exerciseName?: stri
       },
     });
   } catch (e: unknown) {
-    console.error('Failed to schedule timer notification', e);
+    if (__DEV__) console.error('Failed to schedule timer notification', e);
+    Sentry.captureException(e);
   }
 }
 
-function cancelTimerEndNotification(): void {
+async function cancelTimerEndNotification(): Promise<void> {
   if (currentNotificationId) {
-    Notifications.cancelScheduledNotificationAsync(currentNotificationId).catch(() => {});
+    const idToCancel = currentNotificationId;
     currentNotificationId = null;
+    try {
+      await Notifications.cancelScheduledNotificationAsync(idToCancel);
+    } catch {}
   }
 }

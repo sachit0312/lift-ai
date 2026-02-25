@@ -41,41 +41,122 @@ struct InteractiveLiveActivityView: View {
   let attributes: LiveActivityAttributes
 
   var body: some View {
-    if let timerEnd = contentState.timerEndDateInMilliseconds, timerEnd > 0 {
-      RestTimerView(exerciseName: contentState.title, restEndTime: timerEnd, attributes: attributes)
-    } else if let parsed = ParsedSetState.from(contentState) {
-      SetEntryView(parsed: parsed, attributes: attributes)
+    if ParsedSetState.from(contentState) != nil ||
+       (contentState.timerEndDateInMilliseconds ?? 0) > 0 {
+      UnifiedWorkoutView(contentState: contentState, attributes: attributes)
     } else {
       FallbackLiveActivityView(contentState: contentState, attributes: attributes)
     }
   }
 }
 
-// MARK: - Set Entry View
+// MARK: - Unified Workout View
 
 @available(iOS 17.0, *)
-struct SetEntryView: View {
-  let parsed: ParsedSetState
+struct UnifiedWorkoutView: View {
+  let contentState: LiveActivityAttributes.ContentState
   let attributes: LiveActivityAttributes
+
+  private var isResting: Bool {
+    guard let end = contentState.timerEndDateInMilliseconds, end > 0 else { return false }
+    return Date(timeIntervalSince1970: end / 1000) > Date()
+  }
+
+  private var parsed: ParsedSetState? {
+    ParsedSetState.from(contentState)
+  }
+
+  private var restEndTime: Double {
+    contentState.timerEndDateInMilliseconds ?? 0
+  }
 
   var body: some View {
     VStack(spacing: 6) {
-      // Row 1: Exercise name + set counter
+      // Header row: exercise name + set counter
       HStack {
-        Text(parsed.exerciseName)
-          .font(.subheadline)
-          .fontWeight(.semibold)
-          .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-          .lineLimit(1)
+        if isResting {
+          Text("Rest")
+            .font(.subheadline)
+            .fontWeight(.semibold)
+            .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
+          Text("· \(contentState.title)")
+            .font(.caption)
+            .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
+            .lineLimit(1)
+        } else {
+          Text(contentState.title)
+            .font(.subheadline)
+            .fontWeight(.semibold)
+            .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
+            .lineLimit(1)
+        }
         Spacer()
-        Text("Set \(parsed.setNumber)/\(parsed.totalSets)")
-          .font(.caption)
-          .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
-          .invalidatableContent()
+        if let p = parsed {
+          Text("Set \(p.setNumber)/\(p.totalSets)")
+            .font(.caption)
+            .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
+            .invalidatableContent()
+        }
       }
 
-      // Row 2: Complete set button
-      Button(intent: CompleteSetIntent()) {
+      // Rest timer section (only when resting)
+      if isResting {
+        // Countdown timer
+        Text(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
+          .id(restEndTime)  // Force recreation on timer adjustment
+          .font(.system(size: 28, weight: .bold, design: .rounded))
+          .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
+          .multilineTextAlignment(.center)
+          .invalidatableContent()
+
+        // Progress bar
+        ProgressView(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
+          .id(restEndTime)  // Force recreation on timer adjustment
+          .tint(attributes.progressViewTint.map { Color(hex: $0) })
+
+        // Timer controls + skip
+        HStack(spacing: 8) {
+          Button(intent: DecreaseRestIntent()) {
+            Text("-15s")
+              .font(.caption)
+              .fontWeight(.semibold)
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 8)
+              .background(Color.white.opacity(0.15))
+              .clipShape(Capsule())
+          }
+          .buttonStyle(.plain)
+
+          Button(intent: IncreaseRestIntent()) {
+            Text("+15s")
+              .font(.caption)
+              .fontWeight(.semibold)
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 8)
+              .background(Color.white.opacity(0.15))
+              .clipShape(Capsule())
+          }
+          .buttonStyle(.plain)
+
+          Button(intent: SkipRestIntent()) {
+            Text("Skip")
+              .font(.caption)
+              .fontWeight(.semibold)
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 8)
+              .background(
+                Capsule()
+                  .fill(Color(hex: attributes.progressViewTint ?? "#7C5CFC").opacity(0.3))
+              )
+              .foregroundStyle(Color(hex: attributes.progressViewTint ?? "#7C5CFC"))
+          }
+          .buttonStyle(.plain)
+        }
+      }
+
+      // Complete Set button — dimmed during rest, active otherwise
+      if isResting {
+        // Disabled appearance during rest (not a real Button with intent)
         HStack {
           Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 14))
@@ -87,85 +168,24 @@ struct SetEntryView: View {
         .padding(.vertical, 8)
         .background(
           RoundedRectangle(cornerRadius: 10)
-            .fill(Color(hex: attributes.progressViewTint ?? "#7C5CFC"))
+            .fill(Color.gray.opacity(0.4))
         )
-      }
-      .buttonStyle(.plain)
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
-  }
-}
-
-// MARK: - Rest Timer View
-
-@available(iOS 17.0, *)
-struct RestTimerView: View {
-  let exerciseName: String
-  let restEndTime: Double
-  let attributes: LiveActivityAttributes
-
-  var body: some View {
-    VStack(spacing: 6) {
-      // Header
-      HStack {
-        Text("Rest")
-          .font(.subheadline)
-          .fontWeight(.semibold)
-          .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-        Text("· \(exerciseName)")
-          .font(.caption)
-          .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
-          .lineLimit(1)
-        Spacer()
-      }
-
-      // Countdown timer
-      Text(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
-        .font(.system(size: 28, weight: .bold, design: .rounded))
-        .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-        .multilineTextAlignment(.center)
-        .invalidatableContent()
-
-      // Progress bar
-      ProgressView(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
-        .tint(attributes.progressViewTint.map { Color(hex: $0) })
-
-      // Timer controls + skip
-      HStack(spacing: 8) {
-        Button(intent: DecreaseRestIntent()) {
-          Text("-15s")
-            .font(.caption)
-            .fontWeight(.semibold)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.15))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-
-        Button(intent: IncreaseRestIntent()) {
-          Text("+15s")
-            .font(.caption)
-            .fontWeight(.semibold)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.15))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-
-        Button(intent: SkipRestIntent()) {
-          Text("Skip")
-            .font(.caption)
-            .fontWeight(.semibold)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(
-              Capsule()
-                .fill(Color(hex: attributes.progressViewTint ?? "#7C5CFC").opacity(0.3))
-            )
-            .foregroundStyle(Color(hex: attributes.progressViewTint ?? "#7C5CFC"))
+        .foregroundStyle(Color.white.opacity(0.5))
+      } else {
+        Button(intent: CompleteSetIntent()) {
+          HStack {
+            Image(systemName: "checkmark.circle.fill")
+              .font(.system(size: 14))
+            Text("Complete Set")
+              .font(.subheadline)
+              .fontWeight(.semibold)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 8)
+          .background(
+            RoundedRectangle(cornerRadius: 10)
+              .fill(Color(hex: attributes.progressViewTint ?? "#7C5CFC"))
+          )
         }
         .buttonStyle(.plain)
       }

@@ -285,7 +285,12 @@ export default function WorkoutScreen() {
     // Always push ContentState from main app process (widget extension updates are unreliable)
     // Update ContentState (triggers widget view re-render)
     if (resting && end > 0) {
-      updateWorkoutActivityForRest(state.current.exerciseName, Math.round((end - Date.now()) / 1000));
+      updateWorkoutActivityForRest(
+        state.current.exerciseName,
+        Math.round((end - Date.now()) / 1000),
+        state.current.setNumber,
+        state.current.totalSets
+      );
     } else {
       updateWorkoutActivityForSet(
         state.current.exerciseName,

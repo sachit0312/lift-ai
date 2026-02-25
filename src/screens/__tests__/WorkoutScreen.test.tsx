@@ -474,6 +474,8 @@ describe('WorkoutScreen', () => {
       expect(updateWorkoutActivityForRest).toHaveBeenCalledWith(
         'Bench Press',
         expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
       );
     });
 
