@@ -36,6 +36,7 @@ export function createMockWorkout(overrides: Partial<Workout> = {}): Workout {
     id: 'w-' + Math.random().toString(36).slice(2),
     user_id: 'local',
     template_id: null,
+    upcoming_workout_id: null,
     started_at: new Date().toISOString(),
     finished_at: new Date(Date.now() + 3600000).toISOString(),
     ai_summary: null,

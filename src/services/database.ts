@@ -28,6 +28,7 @@ interface WorkoutRow {
   id: string;
   user_id: string;
   template_id: string | null;
+  upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string | null;
   ai_summary: string | null;
@@ -47,6 +48,9 @@ interface WorkoutSetRow {
   rpe: number | null;
   is_completed: number;
   notes: string | null;
+  target_weight: number | null;
+  target_reps: number | null;
+  target_rpe: number | null;
 }
 
 /** Row from template_exercises joined with exercises table */
@@ -87,6 +91,7 @@ interface ExerciseHistoryJoinRow {
   w_id: string;
   w_user_id: string;
   w_template_id: string | null;
+  w_upcoming_workout_id: string | null;
   w_started_at: string;
   w_finished_at: string | null;
   w_ai_summary: string | null;
@@ -299,6 +304,12 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // Migration: add warmup_sets to template_exercises and tag to upcoming_workout_sets
   await database.runAsync('ALTER TABLE template_exercises ADD COLUMN warmup_sets INTEGER NOT NULL DEFAULT 0').catch(() => {});
   await database.runAsync("ALTER TABLE upcoming_workout_sets ADD COLUMN tag TEXT DEFAULT 'working'").catch(() => {});
+
+  // Migration: planned vs actual comparison — persist upcoming targets alongside workout results
+  await database.runAsync('ALTER TABLE workouts ADD COLUMN upcoming_workout_id TEXT').catch(() => {});
+  await database.runAsync('ALTER TABLE workout_sets ADD COLUMN target_weight REAL').catch(() => {});
+  await database.runAsync('ALTER TABLE workout_sets ADD COLUMN target_reps INTEGER').catch(() => {});
+  await database.runAsync('ALTER TABLE workout_sets ADD COLUMN target_rpe REAL').catch(() => {});
 }
 
 // ─── Exercises ───
@@ -568,13 +579,16 @@ export async function updateTemplateExerciseDefaults(id: string, defaults: { set
 
 // ─── Workouts ───
 
-export async function startWorkout(templateId: string | null): Promise<Workout> {
+export async function startWorkout(templateId: string | null, upcomingWorkoutId?: string | null): Promise<Workout> {
   try {
     const database = await getDb();
     const id = uuid();
     const now = new Date().toISOString();
-    await database.runAsync('INSERT INTO workouts (id, template_id, started_at) VALUES (?, ?, ?)', id, templateId, now);
-    return { id, user_id: 'local', template_id: templateId, started_at: now, finished_at: null, ai_summary: null, notes: null };
+    await database.runAsync(
+      'INSERT INTO workouts (id, template_id, upcoming_workout_id, started_at) VALUES (?, ?, ?, ?)',
+      id, templateId, upcomingWorkoutId ?? null, now,
+    );
+    return { id, user_id: 'local', template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, ai_summary: null, notes: null };
   } catch (error) {
     console.error('startWorkout error:', error);
     Sentry.captureException(error);
@@ -655,8 +669,9 @@ export async function addWorkoutSet(set: Omit<WorkoutSet, 'id'>): Promise<Workou
     const database = await getDb();
     const id = uuid();
     await database.runAsync(
-      'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       id, set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
+      set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null,
     );
     return { id, ...set };
   } catch (error) {
@@ -671,15 +686,16 @@ export async function addWorkoutSetsBatch(sets: Omit<WorkoutSet, 'id'>[]): Promi
   try {
     const database = await getDb();
     const ids = sets.map(() => uuid());
-    const placeholderGroup = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    const placeholderGroup = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
     const placeholders = sets.map(() => placeholderGroup).join(', ');
     const values: (string | number | null)[] = [];
     for (let i = 0; i < sets.length; i++) {
       const set = sets[i];
-      values.push(ids[i], set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes);
+      values.push(ids[i], set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
+        set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null);
     }
     await database.runAsync(
-      `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes) VALUES ${placeholders}`,
+      `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe) VALUES ${placeholders}`,
       ...values,
     );
     return sets.map((set, i) => ({ id: ids[i], ...set }));
@@ -701,6 +717,9 @@ export async function updateWorkoutSet(id: string, updates: Partial<WorkoutSet>)
     if (updates.rpe !== undefined) { parts.push('rpe = ?'); values.push(updates.rpe); }
     if (updates.is_completed !== undefined) { parts.push('is_completed = ?'); values.push(updates.is_completed ? 1 : 0); }
     if (updates.notes !== undefined) { parts.push('notes = ?'); values.push(updates.notes); }
+    if (updates.target_weight !== undefined) { parts.push('target_weight = ?'); values.push(updates.target_weight ?? null); }
+    if (updates.target_reps !== undefined) { parts.push('target_reps = ?'); values.push(updates.target_reps ?? null); }
+    if (updates.target_rpe !== undefined) { parts.push('target_rpe = ?'); values.push(updates.target_rpe ?? null); }
     if (parts.length === 0) return;
     values.push(id);
     await database.runAsync(`UPDATE workout_sets SET ${parts.join(', ')} WHERE id = ?`, ...values);
@@ -745,6 +764,7 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
     const rows = await database.getAllAsync<ExerciseHistoryJoinRow>(
       `SELECT
          w.id as w_id, w.user_id as w_user_id, w.template_id as w_template_id,
+         w.upcoming_workout_id as w_upcoming_workout_id,
          w.started_at as w_started_at, w.finished_at as w_finished_at,
          w.ai_summary as w_ai_summary, w.notes as w_notes,
          ws.id as s_id, ws.workout_id as s_workout_id, ws.exercise_id as s_exercise_id,
@@ -767,6 +787,7 @@ export async function getExerciseHistory(exerciseId: string, limit = 5): Promise
             id: r.w_id,
             user_id: r.w_user_id,
             template_id: r.w_template_id,
+            upcoming_workout_id: r.w_upcoming_workout_id,
             started_at: r.w_started_at,
             finished_at: r.w_finished_at,
             ai_summary: r.w_ai_summary,

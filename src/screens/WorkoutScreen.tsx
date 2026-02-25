@@ -764,7 +764,7 @@ export default function WorkoutScreen() {
     try {
       setLoading(true);
       await historyPulledRef.current;  // Wait for PREV data to be available
-      const workout = await startWorkout(upcomingWorkout.workout.template_id);
+      const workout = await startWorkout(upcomingWorkout.workout.template_id, upcomingWorkout.workout.id);
       const blocks: ExerciseBlock[] = [];
 
       for (const upEx of upcomingWorkout.exercises) {
@@ -773,6 +773,26 @@ export default function WorkoutScreen() {
         const setCount = Math.max(sets.length, 1);
         const tagOverrides: SetTag[] = sets.map(s => s.tag ?? 'working');
         blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount, upEx.rest_seconds, tagOverrides));
+      }
+
+      // Persist target values from upcoming plan to workout sets (best-effort)
+      try {
+        for (const block of blocks) {
+          const upEx = upcomingWorkout.exercises.find(e => e.exercise_id === block.exercise.id);
+          if (!upEx?.sets) continue;
+          for (const set of block.sets) {
+            const target = upEx.sets.find(s => s.set_number === set.set_number);
+            if (target) {
+              await updateWorkoutSet(set.id, {
+                target_weight: target.target_weight,
+                target_reps: target.target_reps,
+                target_rpe: target.target_rpe ?? null,
+              });
+            }
+          }
+        }
+      } catch (targetErr) {
+        if (__DEV__) console.warn('Failed to persist target values:', targetErr);
       }
 
       setUpcomingTargets(upcomingWorkout.exercises);

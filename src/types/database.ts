@@ -37,6 +37,7 @@ export interface Workout {
   id: string;
   user_id: string;
   template_id: string | null;
+  upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string | null;
   ai_summary: string | null;
@@ -55,6 +56,9 @@ export interface WorkoutSet {
   rpe: number | null;
   is_completed: boolean;
   notes: string | null;
+  target_weight?: number | null;
+  target_reps?: number | null;
+  target_rpe?: number | null;
 }
 
 export interface UpcomingWorkout {

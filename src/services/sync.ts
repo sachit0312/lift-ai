@@ -35,6 +35,7 @@ interface SyncTemplateExerciseRow {
 interface SyncWorkoutRow {
   id: string;
   template_id: string | null;
+  upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string | null;
   ai_summary: string | null;
@@ -53,6 +54,9 @@ interface SyncWorkoutSetRow {
   rpe: number | null;
   is_completed: number;
   notes: string | null;
+  target_weight: number | null;
+  target_reps: number | null;
+  target_rpe: number | null;
 }
 
 export async function syncToSupabase(): Promise<void> {
@@ -94,7 +98,7 @@ export async function syncToSupabase(): Promise<void> {
     }
 
     // Workouts (only finished) — select specific columns
-    const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, started_at, finished_at, ai_summary, notes FROM workouts WHERE finished_at IS NOT NULL');
+    const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, ai_summary, notes FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({ ...w, user_id: session.user.id }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
@@ -103,7 +107,7 @@ export async function syncToSupabase(): Promise<void> {
 
     // Workout sets — only for finished workouts, convert is_completed to boolean
     const workoutSets = await db.getAllAsync<SyncWorkoutSetRow>(
-      `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed
+      `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed, ws.target_weight, ws.target_reps, ws.target_rpe
        FROM workout_sets ws
        JOIN workouts w ON ws.workout_id = w.id
        WHERE w.finished_at IS NOT NULL`
@@ -331,6 +335,7 @@ interface PullWorkoutRow {
   id: string;
   user_id: string;
   template_id: string | null;
+  upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string;
   ai_summary: string | null;
@@ -349,6 +354,9 @@ interface PullWorkoutSetRow {
   rpe: number | null;
   is_completed: boolean;
   notes: string | null;
+  target_weight: number | null;
+  target_reps: number | null;
+  target_rpe: number | null;
 }
 
 export async function pullWorkoutHistory(): Promise<void> {
@@ -377,13 +385,14 @@ export async function pullWorkoutHistory(): Promise<void> {
     // Upsert workouts into local SQLite
     for (const w of workouts as PullWorkoutRow[]) {
       await db.runAsync(
-        `INSERT INTO workouts (id, user_id, template_id, started_at, finished_at, ai_summary, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, ai_summary, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            user_id=excluded.user_id, template_id=excluded.template_id,
+           upcoming_workout_id=excluded.upcoming_workout_id,
            started_at=excluded.started_at, finished_at=excluded.finished_at,
            ai_summary=excluded.ai_summary, notes=excluded.notes`,
-        w.id, w.user_id, w.template_id, w.started_at, w.finished_at, w.ai_summary, w.notes,
+        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.ai_summary, w.notes,
       );
     }
 
@@ -402,13 +411,15 @@ export async function pullWorkoutHistory(): Promise<void> {
 
     for (const s of (sets ?? []) as PullWorkoutSetRow[]) {
       await db.runAsync(
-        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
            set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
-           tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes`,
+           tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes,
+           target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe`,
         s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
+        s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null,
       );
     }
 

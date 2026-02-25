@@ -1365,8 +1365,8 @@ describe('pullWorkoutHistory', () => {
     expect(insertCalls[0][1]).toBe('w-1');
     expect(insertCalls[0][2]).toBe('user-123');
     expect(insertCalls[0][3]).toBe('tpl-1');
-    expect(insertCalls[0][6]).toBe('Good session');
-    expect(insertCalls[0][7]).toBe('Felt strong');
+    expect(insertCalls[0][7]).toBe('Good session');
+    expect(insertCalls[0][8]).toBe('Felt strong');
     expect(insertCalls[1][1]).toBe('w-2');
     expect(insertCalls[1][3]).toBeNull(); // template_id null
   });
