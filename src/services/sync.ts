@@ -12,6 +12,7 @@ interface SyncExerciseRow {
   muscle_groups: string;
   training_goal: string;
   description: string;
+  notes: string | null;
 }
 
 /** Template row for sync — subset of columns selected */
@@ -67,7 +68,7 @@ export async function syncToSupabase(): Promise<void> {
     const db = await getDb();
 
     // Exercises — select specific columns, parse muscle_groups
-    const exercises = await db.getAllAsync<SyncExerciseRow>('SELECT id, name, type, muscle_groups, training_goal, description FROM exercises');
+    const exercises = await db.getAllAsync<SyncExerciseRow>('SELECT id, name, type, muscle_groups, training_goal, description, notes FROM exercises');
     if (exercises.length > 0) {
       const parsed = exercises.map((e: SyncExerciseRow) => ({
         id: e.id,
@@ -77,6 +78,7 @@ export async function syncToSupabase(): Promise<void> {
         muscle_groups: JSON.parse(e.muscle_groups || '[]'),
         training_goal: e.training_goal,
         description: e.description,
+        notes: e.notes,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
       if (error) { if (__DEV__) console.error('Sync exercises error:', error); Sentry.captureException(error); return; }
@@ -181,6 +183,7 @@ interface PullExerciseRow {
   training_goal: string;
   description: string;
   created_at: string;
+  notes: string | null;
 }
 
 /** Template row from Supabase */
@@ -226,14 +229,15 @@ async function pullExercises(): Promise<void> {
   for (const ex of exercises as PullExerciseRow[]) {
     await db.runAsync(
       `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT notes FROM exercises WHERE id = ?))
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          user_id=excluded.user_id, name=excluded.name, type=excluded.type,
          muscle_groups=excluded.muscle_groups, training_goal=excluded.training_goal,
-         description=excluded.description, created_at=excluded.created_at`,
+         description=excluded.description, created_at=excluded.created_at,
+         notes=excluded.notes`,
       ex.id, ex.user_id, ex.name, ex.type,
       JSON.stringify(ex.muscle_groups ?? []),
-      ex.training_goal, ex.description, ex.created_at, ex.id,
+      ex.training_goal, ex.description, ex.created_at, ex.notes ?? null,
     );
   }
 

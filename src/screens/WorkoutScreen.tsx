@@ -588,6 +588,7 @@ export default function WorkoutScreen() {
           updateWorkoutSet(pending.setId, { notes: pending.notes });
         }
         pendingNotesRef.current.delete(exerciseId);
+        syncToSupabase().catch(() => {});
       }
       notesTimerRef.current.delete(exerciseId);
     }, 500);
@@ -1206,7 +1207,7 @@ export default function WorkoutScreen() {
     const durationStr = `${m}m ${s}s`;
 
     await finishWorkout(workout.id);
-    syncToSupabase().catch(console.error);
+    syncToSupabase().catch(() => {});
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();
@@ -1843,6 +1844,9 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   onNotesChange,
   onExercisePress,
 }: ExerciseBlockItemProps) {
+  const coachTip = upcomingTargets?.find(e => e.exercise_id === block.exercise.id)?.notes;
+  const [coachTipExpanded, setCoachTipExpanded] = React.useState(false);
+
   return (
     <View style={styles.exerciseCard}>
       {/* Exercise header with name */}
@@ -1851,6 +1855,28 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
           <Text style={styles.exerciseName}>{block.exercise.name}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Coach tip from upcoming workout */}
+      {coachTip ? (
+        <TouchableOpacity
+          style={styles.coachTipRow}
+          onPress={() => setCoachTipExpanded(prev => !prev)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="sparkles" size={14} color={colors.primary} />
+          <Text style={styles.coachTipLabel}>Coach tip</Text>
+          <Ionicons
+            name={coachTipExpanded ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.primary}
+          />
+        </TouchableOpacity>
+      ) : null}
+      {coachTip && coachTipExpanded ? (
+        <View style={styles.coachTipContent}>
+          <Text style={styles.coachTipText}>{coachTip}</Text>
+        </View>
+      ) : null}
 
       {/* Set header row */}
       <View style={styles.setHeaderRow}>
@@ -2130,6 +2156,33 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
+  },
+  coachTipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.xs,
+    minHeight: layout.touchMin,
+  },
+  coachTipLabel: {
+    color: colors.primary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  coachTipContent: {
+    backgroundColor: 'rgba(124, 92, 252, 0.15)',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginHorizontal: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  coachTipText: {
+    color: colors.text,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
   },
   restTimerRow: {
     flexDirection: 'row',

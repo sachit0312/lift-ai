@@ -40,6 +40,7 @@ export default function ExercisesScreen() {
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState<ExerciseType>('weighted');
   const [editMuscles, setEditMuscles] = useState<string[]>([]);
+  const [editNotes, setEditNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
   useFocusEffect(
@@ -74,6 +75,7 @@ export default function ExercisesScreen() {
     setEditName(exercise.name);
     setEditType(exercise.type);
     setEditMuscles([...exercise.muscle_groups]);
+    setEditNotes(exercise.notes ?? '');
   }, []);
 
   const closeEditModal = useCallback(() => {
@@ -88,6 +90,7 @@ export default function ExercisesScreen() {
         name: editName.trim(),
         type: editType,
         muscle_groups: editMuscles,
+        notes: editNotes.trim() || null,
       });
       syncToSupabase().catch(() => {});
       await loadExercises();
@@ -97,7 +100,7 @@ export default function ExercisesScreen() {
     } finally {
       setSaving(false);
     }
-  }, [editExercise, editName, editType, editMuscles, closeEditModal]);
+  }, [editExercise, editName, editType, editMuscles, editNotes, closeEditModal]);
 
   const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
@@ -232,6 +235,17 @@ export default function ExercisesScreen() {
                   );
                 })}
               </View>
+
+              <Text style={styles.editLabel}>Notes</Text>
+              <TextInput
+                style={[modalStyles.input, styles.notesInput]}
+                value={editNotes}
+                onChangeText={setEditNotes}
+                placeholder="Machine settings, form cues, goals..."
+                placeholderTextColor={colors.textMuted}
+                multiline
+                testID="edit-exercise-notes"
+              />
             </ScrollView>
 
             <View style={modalStyles.actions}>
@@ -388,5 +402,9 @@ const styles = StyleSheet.create({
   muscleChipSelected: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+  },
+  notesInput: {
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
 });

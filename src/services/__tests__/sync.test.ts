@@ -1001,11 +1001,11 @@ describe('pullExercisesAndTemplates', () => {
     expect(insertCall![5]).toBe('["Chest","Triceps"]'); // JSON.stringify
   });
 
-  it('preserves local exercise notes during upsert (via subquery)', async () => {
+  it('uses Supabase notes during upsert (last-write-wins)', async () => {
     setSessionAuthenticated();
 
     const mockExercises = [
-      { id: 'ex-1', user_id: 'user-123', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', created_at: '2026-01-01T00:00:00Z' },
+      { id: 'ex-1', user_id: 'user-123', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', created_at: '2026-01-01T00:00:00Z', notes: 'Use seat 3' },
     ];
 
     const exerciseBuilder = mockQueryBuilder(mockExercises, null);
@@ -1016,15 +1016,15 @@ describe('pullExercisesAndTemplates', () => {
 
     await pullExercisesAndTemplates();
 
-    // The SQL should use a subquery to preserve notes: (SELECT notes FROM exercises WHERE id = ?)
     const insertCall = __mockDb.runAsync.mock.calls.find(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
     );
-    expect(insertCall![0]).toContain('SELECT notes FROM exercises WHERE id');
-    // The ON CONFLICT should NOT update notes
-    expect(insertCall![0]).not.toMatch(/ON CONFLICT.*notes/s);
-    // Last param is the exercise id for the subquery
-    expect(insertCall![9]).toBe('ex-1');
+    // Should NOT use subquery — uses Supabase value directly
+    expect(insertCall![0]).not.toContain('SELECT notes FROM exercises WHERE id');
+    // ON CONFLICT should update notes
+    expect(insertCall![0]).toMatch(/ON CONFLICT.*notes=excluded\.notes/s);
+    // Notes param should be the Supabase value
+    expect(insertCall![9]).toBe('Use seat 3');
   });
 
   it('converts muscle_groups JSONB array to JSON string', async () => {
