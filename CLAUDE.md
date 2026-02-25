@@ -99,6 +99,7 @@ MCP server at `/Users/sachitgoyal/code/lift-ai-mcp/`. Phone app -> Supabase <- M
 - metro.config.js adds COOP/COEP headers for expo-sqlite OPFS VFS on web.
 - `withInteractiveLiveActivity` plugin must run AFTER `expo-live-activity` in plugins array.
 - Exercise notes are permanent and synced: `flushPendingNotes()` on finish, `clearPendingNotes()` on cancel (discard doesn't overwrite stored notes). 500ms debounce via `debouncedSaveNotes`. Fire-and-forget `syncToSupabase()` after each debounced save.
+- **Do NOT build to device from git worktrees.** Worktrees lack `.env.*` files (gitignored), and Expo CLI has Metro URL/device discovery issues with non-standard paths. Always merge to main and build from `/Users/sachitgoyal/code/lift-ai/`.
 
 ## Working Style
 - Be proactive: run commands, check results, and take action without waiting for the user to tell you each step.
