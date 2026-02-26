@@ -59,6 +59,7 @@ export interface WorkoutSet {
   target_weight?: number | null;
   target_reps?: number | null;
   target_rpe?: number | null;
+  exercise_order?: number;  // 0 = unknown (historical), 1+ = sequence position
 }
 
 export interface UpcomingWorkout {

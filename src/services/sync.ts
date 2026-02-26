@@ -58,6 +58,7 @@ interface SyncWorkoutSetRow {
   target_weight: number | null;
   target_reps: number | null;
   target_rpe: number | null;
+  exercise_order: number;
 }
 
 export async function syncToSupabase(): Promise<void> {
@@ -109,7 +110,7 @@ export async function syncToSupabase(): Promise<void> {
 
     // Workout sets — only for finished workouts, convert is_completed to boolean
     const workoutSets = await db.getAllAsync<SyncWorkoutSetRow>(
-      `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed, ws.target_weight, ws.target_reps, ws.target_rpe
+      `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed, ws.target_weight, ws.target_reps, ws.target_rpe, ws.exercise_order
        FROM workout_sets ws
        JOIN workouts w ON ws.workout_id = w.id
        WHERE w.finished_at IS NOT NULL`
@@ -361,6 +362,7 @@ interface PullWorkoutSetRow {
   target_weight: number | null;
   target_reps: number | null;
   target_rpe: number | null;
+  exercise_order: number;
 }
 
 export async function pullWorkoutHistory(): Promise<void> {
@@ -415,15 +417,16 @@ export async function pullWorkoutHistory(): Promise<void> {
 
     for (const s of (sets ?? []) as PullWorkoutSetRow[]) {
       await db.runAsync(
-        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
            set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
            tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes,
-           target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe`,
+           target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe,
+           exercise_order=excluded.exercise_order`,
         s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
-        s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null,
+        s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null, s.exercise_order ?? 0,
       );
     }
 

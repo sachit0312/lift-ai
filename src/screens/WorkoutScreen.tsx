@@ -65,6 +65,7 @@ import {
   addWorkoutSetsBatch,
   getLastPerformedByTemplate,
   getBestE1RM,
+  stampExerciseOrder,
 } from '../services/database';
 import type {
   Template,
@@ -1007,6 +1008,15 @@ export default function WorkoutScreen() {
 
     // Flush any pending debounced notes before finishing
     flushPendingNotes();
+
+    // Stamp exercise order based on block positions for history sequence tracking
+    const setOrderEntries: Array<{ id: string; order: number }> = [];
+    exerciseBlocks.forEach((block, blockIdx) => {
+      for (const set of block.sets) {
+        setOrderEntries.push({ id: set.id, order: blockIdx + 1 });
+      }
+    });
+    await stampExerciseOrder(workout.id, setOrderEntries);
 
     let totalSets = 0;
     let exerciseCount = exerciseBlocks.length;

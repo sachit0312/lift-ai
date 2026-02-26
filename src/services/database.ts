@@ -51,6 +51,7 @@ interface WorkoutSetRow {
   target_weight: number | null;
   target_reps: number | null;
   target_rpe: number | null;
+  exercise_order: number;
 }
 
 /** Row from template_exercises joined with exercises table */
@@ -321,6 +322,9 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   await database.runAsync('ALTER TABLE workout_sets ADD COLUMN target_weight REAL').catch(() => {});
   await database.runAsync('ALTER TABLE workout_sets ADD COLUMN target_reps INTEGER').catch(() => {});
   await database.runAsync('ALTER TABLE workout_sets ADD COLUMN target_rpe REAL').catch(() => {});
+
+  // Migration: exercise_order for workout history sequence tracking
+  await database.runAsync('ALTER TABLE workout_sets ADD COLUMN exercise_order INTEGER NOT NULL DEFAULT 0').catch(() => {});
 }
 
 // ─── Exercises ───
@@ -572,10 +576,10 @@ export function deleteWorkout(id: string): Promise<void> {
 export function getWorkoutSets(workoutId: string): Promise<WorkoutSet[]> {
   return withDb('getWorkoutSets', async (database) => {
     const rows = await database.getAllAsync<WorkoutSetRow>(
-      'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_id, set_number',
+      'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_order, rowid, set_number',
       workoutId,
     );
-    return rows.map((r: WorkoutSetRow) => ({ ...r, is_completed: !!r.is_completed, tag: r.tag as SetTag }));
+    return rows.map((r: WorkoutSetRow) => ({ ...r, is_completed: !!r.is_completed, tag: r.tag as SetTag, exercise_order: r.exercise_order ?? 0 }));
   });
 }
 
@@ -583,9 +587,9 @@ export function addWorkoutSet(set: Omit<WorkoutSet, 'id'>): Promise<WorkoutSet> 
   return withDb('addWorkoutSet', async (database) => {
     const id = uuid();
     await database.runAsync(
-      'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       id, set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
-      set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null,
+      set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null, set.exercise_order ?? 0,
     );
     return { id, ...set };
   });
@@ -595,16 +599,16 @@ export function addWorkoutSetsBatch(sets: Omit<WorkoutSet, 'id'>[]): Promise<Wor
   if (sets.length === 0) return Promise.resolve([]);
   return withDb('addWorkoutSetsBatch', async (database) => {
     const ids = sets.map(() => uuid());
-    const placeholderGroup = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    const placeholderGroup = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
     const placeholders = sets.map(() => placeholderGroup).join(', ');
     const values: (string | number | null)[] = [];
     for (let i = 0; i < sets.length; i++) {
       const set = sets[i];
       values.push(ids[i], set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
-        set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null);
+        set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null, set.exercise_order ?? 0);
     }
     await database.runAsync(
-      `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe) VALUES ${placeholders}`,
+      `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order) VALUES ${placeholders}`,
       ...values,
     );
     return sets.map((set, i) => ({ id: ids[i], ...set }));
@@ -624,6 +628,7 @@ export function updateWorkoutSet(id: string, updates: Partial<WorkoutSet>): Prom
     if (updates.target_weight !== undefined) { parts.push('target_weight = ?'); values.push(updates.target_weight ?? null); }
     if (updates.target_reps !== undefined) { parts.push('target_reps = ?'); values.push(updates.target_reps ?? null); }
     if (updates.target_rpe !== undefined) { parts.push('target_rpe = ?'); values.push(updates.target_rpe ?? null); }
+    if (updates.exercise_order !== undefined) { parts.push('exercise_order = ?'); values.push(updates.exercise_order); }
     if (parts.length === 0) return;
     values.push(id);
     await database.runAsync(`UPDATE workout_sets SET ${parts.join(', ')} WHERE id = ?`, ...values);
@@ -633,6 +638,20 @@ export function updateWorkoutSet(id: string, updates: Partial<WorkoutSet>): Prom
 export function deleteWorkoutSet(id: string): Promise<void> {
   return withDb('deleteWorkoutSet', async (database) => {
     await database.runAsync('DELETE FROM workout_sets WHERE id = ?', id);
+  });
+}
+
+/** Stamp exercise_order on all sets for a finished workout based on block positions */
+export function stampExerciseOrder(workoutId: string, entries: Array<{ id: string; order: number }>): Promise<void> {
+  return withDb('stampExerciseOrder', async (database) => {
+    await database.withTransactionAsync(async () => {
+      for (const { id, order } of entries) {
+        await database.runAsync(
+          'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
+          order, id,
+        );
+      }
+    });
   });
 }
 
