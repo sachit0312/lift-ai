@@ -315,6 +315,23 @@ export default function WorkoutScreen() {
       });
     }
 
+    // Restore original template set counts for F3 diff tracking
+    if (workout.template_id) {
+      try {
+        const templateExercises = await getTemplateExercises(workout.template_id);
+        const teLookup = new Map(templateExercises.map(te => [te.exercise_id, te]));
+        for (const block of blocks) {
+          const te = teLookup.get(block.exercise.id);
+          if (te) {
+            block.originalWarmupSets = te.warmup_sets;
+            block.originalWorkingSets = te.default_sets;
+          }
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('Failed to restore template set counts:', e);
+      }
+    }
+
     setExerciseBlocks(blocks);
     startElapsedTimer(workout.started_at);
 
@@ -438,7 +455,10 @@ export default function WorkoutScreen() {
           ...Array(te.warmup_sets).fill('warmup' as SetTag),
           ...Array(te.default_sets).fill('working' as SetTag),
         ];
-        blocks.push(await buildExerciseBlock(workout.id, te.exercise, totalSets, te.rest_seconds, tags));
+        const block = await buildExerciseBlock(workout.id, te.exercise, totalSets, te.rest_seconds, tags);
+        block.originalWarmupSets = te.warmup_sets;
+        block.originalWorkingSets = te.default_sets;
+        blocks.push(block);
       }
 
       activateWorkout(workout, blocks, template.name);
@@ -494,6 +514,23 @@ export default function WorkoutScreen() {
         const setCount = Math.max(sets.length, 1);
         const tagOverrides: SetTag[] = sets.map(s => s.tag ?? 'working');
         blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount, upEx.rest_seconds, tagOverrides));
+      }
+
+      // Stamp original template set counts for F3 diff tracking
+      if (upcomingWorkout.workout.template_id) {
+        try {
+          const templateExercises = await getTemplateExercises(upcomingWorkout.workout.template_id);
+          const teLookup = new Map(templateExercises.map(te => [te.exercise_id, te]));
+          for (const block of blocks) {
+            const te = teLookup.get(block.exercise.id);
+            if (te) {
+              block.originalWarmupSets = te.warmup_sets;
+              block.originalWorkingSets = te.default_sets;
+            }
+          }
+        } catch (e) {
+          if (__DEV__) console.warn('Failed to load template set counts:', e);
+        }
       }
 
       // Persist target values from upcoming plan to workout sets (best-effort)

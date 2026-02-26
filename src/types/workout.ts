@@ -26,4 +26,6 @@ export interface ExerciseBlock {
   restSeconds: number;
   restEnabled: boolean;
   bestE1RM?: number;
+  originalWarmupSets?: number;
+  originalWorkingSets?: number;
 }
