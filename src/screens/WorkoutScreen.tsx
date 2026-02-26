@@ -693,18 +693,57 @@ export default function WorkoutScreen() {
     });
 
     if (newCompleted) {
+      // Default: track this block as active
       lastActiveBlockRef.current = blockIdx;
+
+      // Auto-reorder: move exercise to top of incomplete on first set completion
+      const prevCompletedCount = block.sets.filter(s => s.is_completed).length;
+      if (prevCompletedCount === 0) {
+        // Pre-check using blocksRef (safe: hasn't re-rendered yet)
+        const blocks = blocksRef.current;
+        let preCheckCompleted = 0;
+        for (const b of blocks) {
+          if (b.sets.every(s => s.is_completed)) preCheckCompleted++;
+          else break;
+        }
+        const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
+        if (preCheckIdx > preCheckCompleted) {
+          // Configure animation BEFORE state update (matching existing pattern)
+          LayoutAnimation.configureNext({
+            duration: 250,
+            update: { type: LayoutAnimation.Types.easeInEaseOut },
+          });
+          setExerciseBlocks((prev) => {
+            let completedBlockCount = 0;
+            for (const b of prev) {
+              if (b.sets.every(s => s.is_completed)) completedBlockCount++;
+              else break;
+            }
+            const currentIdx = prev.findIndex(b => b.exercise.id === block.exercise.id);
+            if (currentIdx > completedBlockCount) {
+              const next = [...prev];
+              const [moved] = next.splice(currentIdx, 1);
+              next.splice(completedBlockCount, 0, moved);
+              return next;
+            }
+            return prev;
+          });
+          lastActiveBlockRef.current = preCheckCompleted;
+        }
+      }
+
       // PR check — compare estimated 1RM against cached best
       const w = Number(set.weight), r = Number(set.reps);
       const rpe = set.rpe ? Number(set.rpe) : null;
       if (w > 0 && r > 0) {
         const e1rm = calculateEstimated1RM(w, r, rpe);
-        const bestE1RM = blocksRef.current[blockIdx].bestE1RM;
+        const bestE1RM = block.bestE1RM;
         if (bestE1RM != null && e1rm > bestE1RM) {
           setPrSetIds(prev => new Set(prev).add(set.id));
           setExerciseBlocks(prev => {
             const next = [...prev];
-            next[blockIdx] = { ...next[blockIdx], bestE1RM: e1rm };
+            const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
+            if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: e1rm };
             return next;
           });
           try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
@@ -1151,7 +1190,7 @@ export default function WorkoutScreen() {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="always">
         {exerciseBlocks.map((block, blockIdx) => (
           <ExerciseBlockItem
-            key={`${block.exercise.id}-${blockIdx}`}
+            key={block.exercise.id}
             block={block}
             blockIdx={blockIdx}
             upcomingTargets={upcomingTargets}
