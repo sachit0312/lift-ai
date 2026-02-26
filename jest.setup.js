@@ -51,6 +51,26 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
+// Shared mock for react-native-draggable-flatlist
+jest.mock('react-native-draggable-flatlist', () => {
+  const React = require('react');
+  const { FlatList, View } = require('react-native');
+  const DraggableFlatList = React.forwardRef(({ renderItem, ...props }, ref) => {
+    // Wrap renderItem to provide DraggableFlatList-specific params
+    const wrappedRenderItem = renderItem
+      ? ({ item, index }) =>
+          renderItem({ item, getIndex: () => index, drag: () => {}, isActive: false })
+      : undefined;
+    return React.createElement(FlatList, { ...props, renderItem: wrappedRenderItem, ref });
+  });
+  DraggableFlatList.displayName = 'DraggableFlatList';
+  return {
+    __esModule: true,
+    default: DraggableFlatList,
+    ScaleDecorator: ({ children }) => React.createElement(View, null, children),
+  };
+});
+
 // Shared mock for react-native-chart-kit
 jest.mock('react-native-chart-kit', () => ({
   LineChart: () => null,

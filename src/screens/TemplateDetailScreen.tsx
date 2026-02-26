@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, Alert, StyleSheet, Platform,
+  View, Text, TouchableOpacity, Alert, StyleSheet, Platform,
   Modal, TextInput, KeyboardAvoidingView, ActivityIndicator,
 } from 'react-native';
+import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -12,6 +13,7 @@ import {
   getTemplateExercises,
   removeExerciseFromTemplate,
   updateTemplateExerciseDefaults,
+  updateTemplateExerciseOrder,
   updateTemplate,
 } from '../services/database';
 import { deleteTemplateExerciseFromSupabase, syncToSupabase } from '../services/sync';
@@ -161,100 +163,126 @@ export default function TemplateDetailScreen() {
     ]);
   }, [loadExercises]);
 
-  const renderItem = useCallback(({ item, index }: { item: TemplateExercise; index: number }) => (
-    <View style={styles.card}>
-      {/* Top row: name + delete */}
-      <View style={styles.cardTopRow}>
-        <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
-        <TouchableOpacity testID={`remove-btn-${index}`} style={styles.removeBtn} onPress={() => handleRemove(item)}>
-          <Ionicons name="close" size={20} color={colors.textMuted} />
-        </TouchableOpacity>
-      </View>
+  const handleDragEnd = useCallback(({ data }: { data: TemplateExercise[] }) => {
+    const previous = exercises;
+    setExercises(data);
+    const orderedIds = data.map((e) => e.id);
+    updateTemplateExerciseOrder(templateId, orderedIds)
+      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); })
+      .catch((e) => {
+        if (__DEV__) console.error('Failed to update exercise order', e);
+        Sentry.captureException(e);
+        setExercises(previous);
+      });
+  }, [templateId, exercises]);
 
-      {/* Muscle groups */}
-      {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
-        <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
-      )}
-
-      {/* Controls row */}
-      <View style={styles.controlsRow}>
-        {/* Warmup stepper */}
-        <View style={styles.stepperGroup}>
-          <Text testID={`warmup-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{item.warmup_sets} warmup</Text>
-          <View style={styles.stepperBtnRow}>
+  const renderItem = useCallback(({ item, getIndex, drag, isActive }: RenderItemParams<TemplateExercise>) => {
+    const index = getIndex() ?? 0;
+    return (
+      <ScaleDecorator>
+        <View style={[styles.card, isActive && styles.cardDragging]}>
+          {/* Top row: drag handle + name + delete */}
+          <View style={styles.cardTopRow}>
             <TouchableOpacity
-              testID={`warmup-decrease-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleDecreaseWarmupSets(item)}
-              activeOpacity={0.7}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              onLongPress={drag}
+              delayLongPress={150}
+              style={styles.dragHandle}
+              testID={`drag-handle-${index}`}
             >
-              <Ionicons name="remove" size={22} color={colors.text} />
+              <Ionicons name="reorder-three" size={22} color={colors.textMuted} />
             </TouchableOpacity>
-            <TouchableOpacity
-              testID={`warmup-increase-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleIncreaseWarmupSets(item)}
-              activeOpacity={0.7}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Ionicons name="add" size={22} color={colors.text} />
+            <Text style={styles.exerciseName}>{item.exercise?.name ?? 'Unknown'}</Text>
+            <TouchableOpacity testID={`remove-btn-${index}`} style={styles.removeBtn} onPress={() => handleRemove(item)}>
+              <Ionicons name="close" size={20} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Working sets stepper */}
-        <View style={styles.stepperGroup}>
-          <Text testID={`sets-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{item.default_sets} working</Text>
-          <View style={styles.stepperBtnRow}>
-            <TouchableOpacity
-              testID={`sets-decrease-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleDecreaseSets(item)}
-              activeOpacity={0.7}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Ionicons name="remove" size={22} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              testID={`sets-increase-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleIncreaseSets(item)}
-              activeOpacity={0.7}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Ionicons name="add" size={22} color={colors.text} />
-            </TouchableOpacity>
+          {/* Muscle groups */}
+          {item.exercise?.muscle_groups && item.exercise.muscle_groups.length > 0 && (
+            <Text style={styles.muscles}>{item.exercise.muscle_groups.join(', ')}</Text>
+          )}
+
+          {/* Controls row */}
+          <View style={styles.controlsRow}>
+            {/* Warmup stepper */}
+            <View style={styles.stepperGroup}>
+              <Text testID={`warmup-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{item.warmup_sets} warmup</Text>
+              <View style={styles.stepperBtnRow}>
+                <TouchableOpacity
+                  testID={`warmup-decrease-${index}`}
+                  style={styles.stepperBtn}
+                  onPress={() => handleDecreaseWarmupSets(item)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="remove" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID={`warmup-increase-${index}`}
+                  style={styles.stepperBtn}
+                  onPress={() => handleIncreaseWarmupSets(item)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="add" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Working sets stepper */}
+            <View style={styles.stepperGroup}>
+              <Text testID={`sets-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{item.default_sets} working</Text>
+              <View style={styles.stepperBtnRow}>
+                <TouchableOpacity
+                  testID={`sets-decrease-${index}`}
+                  style={styles.stepperBtn}
+                  onPress={() => handleDecreaseSets(item)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="remove" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID={`sets-increase-${index}`}
+                  style={styles.stepperBtn}
+                  onPress={() => handleIncreaseSets(item)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="add" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Rest stepper */}
+            <View style={styles.stepperGroup}>
+              <Text testID={`rest-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{formatRestTime(item.rest_seconds)} rest</Text>
+              <View style={styles.stepperBtnRow}>
+                <TouchableOpacity
+                  testID={`rest-decrease-${index}`}
+                  style={styles.stepperBtn}
+                  onPress={() => handleDecreaseRest(item)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="remove" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID={`rest-increase-${index}`}
+                  style={styles.stepperBtn}
+                  onPress={() => handleIncreaseRest(item)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="add" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </View>
-
-        {/* Rest stepper */}
-        <View style={styles.stepperGroup}>
-          <Text testID={`rest-value-${index}`} style={styles.stepperLabel} numberOfLines={1}>{formatRestTime(item.rest_seconds)} rest</Text>
-          <View style={styles.stepperBtnRow}>
-            <TouchableOpacity
-              testID={`rest-decrease-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleDecreaseRest(item)}
-              activeOpacity={0.7}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Ionicons name="remove" size={22} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              testID={`rest-increase-${index}`}
-              style={styles.stepperBtn}
-              onPress={() => handleIncreaseRest(item)}
-              activeOpacity={0.7}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Ionicons name="add" size={22} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </View>
-  ), [handleDecreaseWarmupSets, handleIncreaseWarmupSets, handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
+      </ScaleDecorator>
+    );
+  }, [handleDecreaseWarmupSets, handleIncreaseWarmupSets, handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
 
   if (loading) {
     return (
@@ -273,10 +301,12 @@ export default function TemplateDetailScreen() {
         </View>
       </TouchableOpacity>
 
-      <FlatList
+      <DraggableFlatList
         data={exercises}
         keyExtractor={(e) => e.id}
         renderItem={renderItem}
+        onDragEnd={handleDragEnd}
+        containerStyle={{ flex: 1 }}
         contentContainerStyle={exercises.length === 0 ? styles.emptyContainer : styles.list}
         ListEmptyComponent={
           <View style={styles.emptyState}>
@@ -384,10 +414,26 @@ const styles = StyleSheet.create({
     marginBottom: layout.cardGap,
     padding: spacing.lg,
   },
+  cardDragging: {
+    opacity: 0.9,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
   cardTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  dragHandle: {
+    minWidth: layout.touchMin,
+    minHeight: layout.touchMin,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -spacing.sm,
+    marginRight: spacing.xs,
   },
   exerciseName: {
     color: colors.text,

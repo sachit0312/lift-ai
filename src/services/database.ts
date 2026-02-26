@@ -496,6 +496,20 @@ export function removeExerciseFromTemplate(id: string): Promise<void> {
   });
 }
 
+/** Batch-update sort_order for template exercises. Takes junction-table row IDs (template_exercises.id), not exercise IDs. */
+export function updateTemplateExerciseOrder(templateId: string, orderedIds: string[]): Promise<void> {
+  return withDb('updateTemplateExerciseOrder', async (database) => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        await database.runAsync(
+          'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
+          i, orderedIds[i], templateId,
+        );
+      }
+    });
+  });
+}
+
 export function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; warmup_sets?: number; rest_seconds?: number }): Promise<void> {
   return withDb('updateTemplateExerciseDefaults', async (database) => {
     const parts: string[] = [];

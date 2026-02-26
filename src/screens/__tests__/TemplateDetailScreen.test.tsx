@@ -5,6 +5,7 @@ jest.mock('../../services/database', () => ({
   getTemplateExercises: jest.fn().mockResolvedValue([]),
   removeExerciseFromTemplate: jest.fn().mockResolvedValue(undefined),
   updateTemplateExerciseDefaults: jest.fn().mockResolvedValue(undefined),
+  updateTemplateExerciseOrder: jest.fn().mockResolvedValue(undefined),
   updateTemplate: jest.fn().mockResolvedValue(undefined),
 }));
 
