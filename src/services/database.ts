@@ -836,6 +836,56 @@ export function getUpcomingWorkoutForToday(): Promise<{
   });
 }
 
+// ─── Last Performed By Template ───
+
+/** Row for last-performed query */
+interface LastPerformedRow {
+  template_id: string;
+  last_performed: string;
+}
+
+export function getLastPerformedByTemplate(templateIds: string[]): Promise<Record<string, string>> {
+  if (templateIds.length === 0) return Promise.resolve({});
+  return withDb('getLastPerformedByTemplate', async (database) => {
+    const placeholders = templateIds.map(() => '?').join(',');
+    const rows = await database.getAllAsync<LastPerformedRow>(
+      `SELECT template_id, MAX(started_at) as last_performed
+       FROM workouts
+       WHERE finished_at IS NOT NULL AND template_id IN (${placeholders})
+       GROUP BY template_id`,
+      ...templateIds,
+    );
+    const result: Record<string, string> = {};
+    for (const r of rows) result[r.template_id] = r.last_performed;
+    return result;
+  });
+}
+
+// ─── Best Estimated 1RM ───
+
+export function getBestE1RM(exerciseId: string): Promise<number | null> {
+  return withDb('getBestE1RM', async (database) => {
+    const rows = await database.getAllAsync<PRSetRow>(
+      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND ws.exercise_id = ?
+         AND ws.is_completed = 1
+         AND ws.weight IS NOT NULL AND ws.weight > 0
+         AND ws.reps IS NOT NULL AND ws.reps > 0`,
+      exerciseId,
+    );
+    if (rows.length === 0) return null;
+    let best = 0;
+    for (const r of rows) {
+      const e1rm = calculateEstimated1RM(r.weight, r.reps, r.rpe);
+      if (e1rm > best) best = e1rm;
+    }
+    return best > 0 ? best : null;
+  });
+}
+
 // ─── Clear All ───
 
 export function clearAllLocalData(): Promise<void> {

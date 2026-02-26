@@ -19,6 +19,7 @@ export const colors = {
   primaryPlaceholder: 'rgba(124, 92, 252, 0.45)',
   successBg: 'rgba(82, 199, 124, 0.08)',
   errorBg: 'rgba(240, 82, 82, 0.08)',
+  warningBg: 'rgba(255, 183, 77, 0.08)',
   borderSubtle: '#1F1F25',
   primaryMuted: 'rgba(124, 92, 252, 0.12)',
   primaryBorderSubtle: 'rgba(124, 92, 252, 0.2)',

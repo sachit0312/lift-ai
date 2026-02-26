@@ -43,6 +43,8 @@ import {
 } from '../services/workoutBridge';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
+import { calculateEstimated1RM } from '../utils/oneRepMax';
+import { formatLastPerformed } from '../utils/formatLastPerformed';
 import {
   getUpcomingWorkoutForToday,
   getAllTemplates,
@@ -61,6 +63,8 @@ import {
   createExercise,
   getBulkExercises,
   addWorkoutSetsBatch,
+  getLastPerformedByTemplate,
+  getBestE1RM,
 } from '../services/database';
 import type {
   Template,
@@ -113,6 +117,8 @@ export default function WorkoutScreen() {
   const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
   const [previewExercises, setPreviewExercises] = useState<TemplateExercise[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [lastPerformed, setLastPerformed] = useState<Record<string, string>>({});
+  const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
 
   const hasLoadedOnce = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -190,6 +196,12 @@ export default function WorkoutScreen() {
         // Load templates immediately (fast, local only)
         const t = await getAllTemplates();
         setTemplates(t);
+
+        // Fetch last-performed dates for templates
+        if (t.length > 0) {
+          const lp = await getLastPerformedByTemplate(t.map(tmpl => tmpl.id));
+          setLastPerformed(lp);
+        }
 
         // Show UI right away
         hasLoadedOnce.current = true;
@@ -389,7 +401,8 @@ export default function WorkoutScreen() {
       previous: previousSets[i] ?? null,
     }));
     const stickyNotes = exercise.notes ?? '';
-    return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal], restEnabled: true };
+    const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
+    return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal], restEnabled: true, bestE1RM };
   }
 
   function activateWorkout(workout: Workout, blocks: ExerciseBlock[], name: string | null = null) {
@@ -541,6 +554,7 @@ export default function WorkoutScreen() {
       notes: null,
     });
     const stickyNotes = exercise.notes ?? '';
+    const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
     const newBlock: ExerciseBlock = {
       exercise,
       sets: [{
@@ -559,6 +573,7 @@ export default function WorkoutScreen() {
       notes: stickyNotes,
       restSeconds: REST_SECONDS[exercise.training_goal],
       restEnabled: true,
+      bestE1RM,
     };
 
     setExerciseBlocks((prev) => {
@@ -679,8 +694,26 @@ export default function WorkoutScreen() {
 
     if (newCompleted) {
       lastActiveBlockRef.current = blockIdx;
-      // Haptic feedback
-      try { Vibration.vibrate(50); } catch {}
+      // PR check — compare estimated 1RM against cached best
+      const w = Number(set.weight), r = Number(set.reps);
+      const rpe = set.rpe ? Number(set.rpe) : null;
+      if (w > 0 && r > 0) {
+        const e1rm = calculateEstimated1RM(w, r, rpe);
+        const bestE1RM = blocksRef.current[blockIdx].bestE1RM;
+        if (bestE1RM != null && e1rm > bestE1RM) {
+          setPrSetIds(prev => new Set(prev).add(set.id));
+          setExerciseBlocks(prev => {
+            const next = [...prev];
+            next[blockIdx] = { ...next[blockIdx], bestE1RM: e1rm };
+            return next;
+          });
+          try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
+        } else {
+          try { Vibration.vibrate(50); } catch {}
+        }
+      } else {
+        try { Vibration.vibrate(50); } catch {}
+      }
       // Use captured values, not stale state
       if (restEnabled) {
         startRestTimer(blockRestSeconds, exerciseName);
@@ -1014,7 +1047,7 @@ export default function WorkoutScreen() {
   if (!activeWorkout) {
     return (
       <>
-        <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleTemplatePress} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} startingTemplateId={startingTemplateId} />
+        <NoActiveWorkout templates={templates} upcomingWorkout={upcomingWorkout} onStartTemplate={handleTemplatePress} onStartEmpty={handleStartEmpty} onStartUpcoming={handleStartFromUpcoming} startingTemplateId={startingTemplateId} lastPerformed={lastPerformed} />
         <Modal
           visible={!!previewTemplate}
           transparent
@@ -1123,6 +1156,7 @@ export default function WorkoutScreen() {
             blockIdx={blockIdx}
             upcomingTargets={upcomingTargets}
             validationErrors={validationErrors}
+            prSetIds={prSetIds}
             onToggleRestTimer={handleToggleRestTimer}
             onAdjustRest={handleAdjustExerciseRest}
             onCycleTag={handleCycleTag}
@@ -1325,6 +1359,7 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
   onStartEmpty,
   onStartUpcoming,
   startingTemplateId,
+  lastPerformed,
 }: {
   templates: Template[];
   upcomingWorkout: Awaited<ReturnType<typeof getUpcomingWorkoutForToday>>;
@@ -1332,6 +1367,7 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
   onStartEmpty: () => void;
   onStartUpcoming: () => void;
   startingTemplateId: string | null;
+  lastPerformed: Record<string, string>;
 }) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -1378,6 +1414,9 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
                 >
                   <View style={styles.templateCardBody}>
                     <Text style={styles.templateName}>{t.name}</Text>
+                    {lastPerformed[t.id] && (
+                      <Text style={styles.templateLastPerformed}>{formatLastPerformed(lastPerformed[t.id])}</Text>
+                    )}
                   </View>
                   {isLoading ? (
                     <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.md }} />
@@ -1503,6 +1542,7 @@ interface ExerciseBlockItemProps {
   blockIdx: number;
   upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null;
   validationErrors: Record<string, boolean>;
+  prSetIds: Set<string>;
   onToggleRestTimer: (blockIdx: number) => void;
   onAdjustRest: (blockIdx: number, delta: number) => void;
   onCycleTag: (blockIdx: number, setIdx: number) => void;
@@ -1521,6 +1561,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   blockIdx,
   upcomingTargets,
   validationErrors,
+  prSetIds,
   onToggleRestTimer,
   onAdjustRest,
   onCycleTag,
@@ -1604,6 +1645,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
               style={[
                 styles.setRow,
                 set.is_completed && styles.setRowCompleted,
+                !set.is_completed && set.tag === 'warmup' && styles.setRowWarmup,
               ]}
             >
               <TouchableOpacity
@@ -1653,17 +1695,24 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                 placeholderTextColor={target?.target_rpe ? colors.primaryPlaceholder : colors.textMuted}
                 testID={`rpe-${blockIdx}-${setIdx}`}
               />
-              <TouchableOpacity
-                style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
-                onPress={() => onToggleComplete(blockIdx, setIdx)}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: set.is_completed }}
-                testID={`check-${blockIdx}-${setIdx}`}
-              >
-                {set.is_completed && (
-                  <Ionicons name="checkmark" size={18} color={colors.white} />
+              <View style={{ position: 'relative' }}>
+                <TouchableOpacity
+                  style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
+                  onPress={() => onToggleComplete(blockIdx, setIdx)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: set.is_completed }}
+                  testID={`check-${blockIdx}-${setIdx}`}
+                >
+                  {set.is_completed && (
+                    <Ionicons name="checkmark" size={18} color={colors.white} />
+                  )}
+                </TouchableOpacity>
+                {prSetIds.has(set.id) && (
+                  <View style={styles.prBadge}>
+                    <Text style={styles.prBadgeText}>PR</Text>
+                  </View>
                 )}
-              </TouchableOpacity>
+              </View>
             </View>
           </SwipeableSetRow>
         );
@@ -1938,6 +1987,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: colors.success,
   },
+  setRowWarmup: {
+    backgroundColor: colors.warningBg,
+  },
   setNum: {
     color: colors.textSecondary,
     fontSize: fontSize.sm,
@@ -1973,6 +2025,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  prBadge: {
+    position: 'absolute' as const,
+    right: -4,
+    top: -4,
+    backgroundColor: colors.warning,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  prBadgeText: {
+    color: colors.black,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
   },
   setInputError: {
     borderColor: colors.error,
@@ -2209,6 +2275,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
+  },
+  templateLastPerformed: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    marginTop: 2,
   },
   noTemplates: {
     color: colors.textMuted,

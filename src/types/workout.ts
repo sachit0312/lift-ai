@@ -25,4 +25,5 @@ export interface ExerciseBlock {
   notes: string;
   restSeconds: number;
   restEnabled: boolean;
+  bestE1RM?: number;
 }

@@ -16,6 +16,8 @@ import {
   updateExerciseNotes,
   getExerciseById,
   getExerciseHistory,
+  getLastPerformedByTemplate,
+  getBestE1RM,
 } from '../database';
 
 beforeEach(() => {
@@ -198,5 +200,68 @@ describe('getExerciseHistory', () => {
     expect(result[0].sets).toHaveLength(1);
     expect(result[0].sets[0].weight).toBe(2);
     expect(result[0].sets[0].reps).toBe(3);
+  });
+});
+
+describe('getLastPerformedByTemplate', () => {
+  it('returns empty object for empty input', async () => {
+    const result = await getLastPerformedByTemplate([]);
+    expect(result).toEqual({});
+  });
+
+  it('returns map of template_id to last performed date', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { template_id: 't1', last_performed: '2026-02-20T10:00:00Z' },
+      { template_id: 't2', last_performed: '2026-02-18T10:00:00Z' },
+    ]);
+
+    const result = await getLastPerformedByTemplate(['t1', 't2', 't3']);
+    expect(result).toEqual({
+      t1: '2026-02-20T10:00:00Z',
+      t2: '2026-02-18T10:00:00Z',
+    });
+    // t3 has no history, so it's not in the result
+    expect(result['t3']).toBeUndefined();
+  });
+
+  it('queries with correct SQL pattern', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+    await getLastPerformedByTemplate(['t1']);
+
+    const query = __mockDb.getAllAsync.mock.calls[0][0] as string;
+    expect(query).toContain('MAX(started_at)');
+    expect(query).toContain('finished_at IS NOT NULL');
+    expect(query).toContain('GROUP BY template_id');
+  });
+});
+
+describe('getBestE1RM', () => {
+  it('returns null when no completed sets exist', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    const result = await getBestE1RM('ex-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns the best estimated 1RM across all sets', async () => {
+    // 100 * (1 + 10/30) = 133.33, 120 * (1 + 5/30) = 140
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 100, reps: 10, rpe: null },
+      { exercise_id: 'ex-1', weight: 120, reps: 5, rpe: null },
+    ]);
+
+    const result = await getBestE1RM('ex-1');
+    expect(result).toBeCloseTo(140, 1);
+  });
+
+  it('accounts for RPE in e1RM calculation', async () => {
+    // RPE 8 means RIR=2, effective_reps = 5 + 2 = 7
+    // 120 * (1 + 7/30) = 148
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 120, reps: 5, rpe: 8 },
+    ]);
+
+    const result = await getBestE1RM('ex-1');
+    expect(result).toBeCloseTo(148, 1);
   });
 });

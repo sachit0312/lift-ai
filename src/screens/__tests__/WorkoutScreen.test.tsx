@@ -34,6 +34,8 @@ jest.mock('../../services/database', () => ({
   getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
   createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '', notes: null }),
   updateExerciseNotes: jest.fn().mockResolvedValue(undefined),
+  getLastPerformedByTemplate: jest.fn().mockResolvedValue({}),
+  getBestE1RM: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('../../services/sync', () => ({
