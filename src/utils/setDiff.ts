@@ -85,14 +85,29 @@ export function buildTemplateUpdatePlan(
   blocks: ExerciseBlock[],
   templateExercises: TemplateExercise[],
 ): TemplateUpdatePlan | null {
-  const teLookup = new Map(templateExercises.map(te => [te.exercise_id, te]));
   const templateExerciseIds = templateExercises.map(te => te.exercise_id);
+
+  // Group by exercise_id to handle duplicates (same exercise twice in template)
+  const teByExerciseId = new Map<string, TemplateExercise[]>();
+  for (const te of templateExercises) {
+    const arr = teByExerciseId.get(te.exercise_id) ?? [];
+    arr.push(te);
+    teByExerciseId.set(te.exercise_id, arr);
+  }
+  const consumed = new Set<string>();
+  function matchTE(exerciseId: string): TemplateExercise | undefined {
+    const candidates = teByExerciseId.get(exerciseId) ?? [];
+    for (const te of candidates) {
+      if (!consumed.has(te.id)) { consumed.add(te.id); return te; }
+    }
+    return undefined;
+  }
 
   // Set count changes
   const setDiffs = computeSetDiffs(blocks);
   const setChanges = setDiffs
     .map(diff => {
-      const te = teLookup.get(diff.exerciseId);
+      const te = matchTE(diff.exerciseId);
       if (!te) return null;
       return {
         templateExerciseId: te.id,
@@ -106,8 +121,16 @@ export function buildTemplateUpdatePlan(
   const orderDiff = computeOrderDiff(blocks, templateExerciseIds);
   let reorderedTemplateExerciseIds: string[] | null = null;
   if (orderDiff) {
+    // Reset consumed set for order matching — order diffs are independent of set diffs
+    const orderConsumed = new Set<string>();
     reorderedTemplateExerciseIds = orderDiff.currentOrder
-      .map(exId => teLookup.get(exId)?.id)
+      .map(exId => {
+        const candidates = teByExerciseId.get(exId) ?? [];
+        for (const te of candidates) {
+          if (!orderConsumed.has(te.id)) { orderConsumed.add(te.id); return te.id; }
+        }
+        return undefined;
+      })
       .filter((id): id is string => id !== undefined);
   }
 

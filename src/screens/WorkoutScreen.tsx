@@ -751,11 +751,6 @@ export default function WorkoutScreen() {
         }
         const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
         if (preCheckIdx > preCheckCompleted) {
-          // Configure animation BEFORE state update (matching existing pattern)
-          LayoutAnimation.configureNext({
-            duration: 250,
-            update: { type: LayoutAnimation.Types.easeInEaseOut },
-          });
           setExerciseBlocks((prev) => {
             let completedBlockCount = 0;
             for (const b of prev) {
@@ -764,6 +759,10 @@ export default function WorkoutScreen() {
             }
             const currentIdx = prev.findIndex(b => b.exercise.id === block.exercise.id);
             if (currentIdx > completedBlockCount) {
+              LayoutAnimation.configureNext({
+                duration: 250,
+                update: { type: LayoutAnimation.Types.easeInEaseOut },
+              });
               const next = [...prev];
               const [moved] = next.splice(currentIdx, 1);
               next.splice(completedBlockCount, 0, moved);

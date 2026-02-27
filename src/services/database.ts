@@ -625,6 +625,7 @@ export function updateWorkoutSet(id: string, updates: Partial<WorkoutSet>): Prom
     if (updates.rpe !== undefined) { parts.push('rpe = ?'); values.push(updates.rpe); }
     if (updates.is_completed !== undefined) { parts.push('is_completed = ?'); values.push(updates.is_completed ? 1 : 0); }
     if (updates.notes !== undefined) { parts.push('notes = ?'); values.push(updates.notes); }
+    if (updates.set_number !== undefined) { parts.push('set_number = ?'); values.push(updates.set_number); }
     if (updates.target_weight !== undefined) { parts.push('target_weight = ?'); values.push(updates.target_weight ?? null); }
     if (updates.target_reps !== undefined) { parts.push('target_reps = ?'); values.push(updates.target_reps ?? null); }
     if (updates.target_rpe !== undefined) { parts.push('target_rpe = ?'); values.push(updates.target_rpe ?? null); }
@@ -676,6 +677,9 @@ export function applyWorkoutChangesToTemplate(plan: import('../utils/setDiff').T
           plan.templateId,
         );
         const updatedSet = new Set(plan.reorderedTemplateExerciseIds);
+        // Exercises removed mid-workout are not deleted from template — they get
+        // appended to end of new order since they weren't in workoutExerciseIds.
+        // This is intentional: the user skipped them this session, not permanently.
         const remainder = allRows.map(r => r.id).filter(id => !updatedSet.has(id));
         const finalOrder = [...plan.reorderedTemplateExerciseIds, ...remainder];
         for (let i = 0; i < finalOrder.length; i++) {
