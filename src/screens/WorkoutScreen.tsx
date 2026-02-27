@@ -45,6 +45,8 @@ import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
 import { calculateEstimated1RM } from '../utils/oneRepMax';
 import { formatLastPerformed } from '../utils/formatLastPerformed';
+import { computeSetDiffs, buildTemplateUpdatePlan } from '../utils/setDiff';
+import type { TemplateUpdatePlan } from '../utils/setDiff';
 import {
   getUpcomingWorkoutForToday,
   getAllTemplates,
@@ -66,6 +68,7 @@ import {
   getLastPerformedByTemplate,
   getBestE1RM,
   stampExerciseOrder,
+  applyWorkoutChangesToTemplate,
 } from '../services/database';
 import type {
   Template,
@@ -102,6 +105,8 @@ export default function WorkoutScreen() {
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryStats, setSummaryStats] = useState({ exercises: 0, sets: 0, duration: '' });
+  const [templateUpdatePlan, setTemplateUpdatePlan] = useState<TemplateUpdatePlan | null>(null);
+  const [templateChangeDescriptions, setTemplateChangeDescriptions] = useState<string[]>([]);
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
   const [exerciseSearch, setExerciseSearch] = useState('');
@@ -1045,12 +1050,52 @@ export default function WorkoutScreen() {
     // Celebration vibration
     try { Vibration.vibrate([0, 100, 50, 100, 50, 200]); } catch {}
 
+    // Compute template update plan (F5) — must happen before exerciseBlocks is cleared
+    let updatePlan: TemplateUpdatePlan | null = null;
+    if (workout.template_id) {
+      try {
+        const templateExercises = await getTemplateExercises(workout.template_id);
+        updatePlan = buildTemplateUpdatePlan(workout.template_id, exerciseBlocks, templateExercises);
+        if (updatePlan) {
+          const descriptions: string[] = [];
+          const setDiffs = computeSetDiffs(exerciseBlocks);
+          for (const diff of setDiffs) {
+            const parts: string[] = [];
+            if (diff.warmupAfter !== diff.warmupBefore) parts.push(`warmup: ${diff.warmupBefore} → ${diff.warmupAfter}`);
+            if (diff.workingAfter !== diff.workingBefore) parts.push(`working: ${diff.workingBefore} → ${diff.workingAfter}`);
+            if (parts.length > 0) descriptions.push(`${diff.exerciseName}: ${parts.join(', ')}`);
+          }
+          if (updatePlan.reorderedTemplateExerciseIds) descriptions.push('Exercise order updated');
+          setTemplateChangeDescriptions(descriptions);
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('Failed to compute template update plan:', e);
+        Sentry.captureException(e);
+        setTemplateChangeDescriptions([]);
+      }
+    }
+    setTemplateUpdatePlan(updatePlan);
+
     setSummaryStats({
       exercises: exerciseCount,
       sets: totalSets,
       duration: durationStr,
     });
     setShowSummary(true);
+  }
+
+  async function handleUpdateTemplate() {
+    if (!templateUpdatePlan) return;
+    try {
+      await applyWorkoutChangesToTemplate(templateUpdatePlan);
+      syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'sync after template update failed', level: 'warning', data: { error: String(e) } }));
+      setTemplateUpdatePlan(null);
+      setTemplateChangeDescriptions([]);
+    } catch (e) {
+      if (__DEV__) console.error('Failed to update template:', e);
+      Sentry.captureException(e);
+      Alert.alert('Error', 'Failed to update template.');
+    }
   }
 
   function handleDismissSummary() {
@@ -1060,6 +1105,8 @@ export default function WorkoutScreen() {
     setTemplateName(null);
     setExerciseBlocks([]);
     setUpcomingTargets(null);
+    setTemplateUpdatePlan(null);
+    setTemplateChangeDescriptions([]);
     loadState();
   }
 
@@ -1122,6 +1169,28 @@ export default function WorkoutScreen() {
             <SummaryStat label="Exercises" value={String(summaryStats.exercises)} icon="barbell-outline" />
             <SummaryStat label="Sets" value={String(summaryStats.sets)} icon="layers-outline" />
           </View>
+          {templateUpdatePlan && (
+            <View style={styles.templateUpdateSection}>
+              <Text style={styles.templateUpdateTitle}>Template Changes Detected</Text>
+              <View style={styles.templateUpdateCard}>
+                {templateChangeDescriptions.map((desc) => (
+                  <View key={desc} style={styles.templateChangeRow}>
+                    <Ionicons
+                      name={desc.includes('order') ? 'swap-vertical' : 'fitness'}
+                      size={16}
+                      color={colors.primary}
+                      style={{ marginRight: spacing.sm }}
+                    />
+                    <Text style={styles.templateChangeText}>{desc}</Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity style={styles.updateTemplateBtn} onPress={handleUpdateTemplate}>
+                <Ionicons name="sync" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
+                <Text style={styles.updateTemplateBtnText}>Update Template</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <TouchableOpacity style={styles.primaryBtn} onPress={handleDismissSummary}>
             <Text style={styles.primaryBtnText}>Done</Text>
           </TouchableOpacity>
@@ -2420,6 +2489,49 @@ const styles = StyleSheet.create({
   },
   summaryStatValue: {
     color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+  },
+  // Template update (F5)
+  templateUpdateSection: {
+    marginBottom: spacing.md,
+  },
+  templateUpdateTitle: {
+    color: colors.text,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.sm,
+  },
+  templateUpdateCard: {
+    backgroundColor: colors.primaryMuted,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.primaryBorderSubtle,
+    marginBottom: spacing.md,
+  },
+  templateChangeRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    paddingVertical: spacing.xs,
+  },
+  templateChangeText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    flex: 1,
+  },
+  updateTemplateBtn: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    minHeight: layout.buttonHeightSm,
+  },
+  updateTemplateBtnText: {
+    color: colors.white,
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
   },

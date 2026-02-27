@@ -1,7 +1,7 @@
-import { computeSetDiffs, hasSetChanges } from '../setDiff';
+import { computeSetDiffs, hasSetChanges, computeOrderDiff, buildTemplateUpdatePlan } from '../setDiff';
 import type { ExerciseBlock } from '../../types/workout';
 import { createMockExercise } from '../../__tests__/helpers/factories';
-import type { Exercise } from '../../types/database';
+import type { Exercise, TemplateExercise } from '../../types/database';
 
 function makeExercise(id: string, name: string): Exercise {
   return createMockExercise({ id, name });
@@ -186,5 +186,181 @@ describe('hasSetChanges', () => {
       }),
     ];
     expect(hasSetChanges(blocks)).toBe(false);
+  });
+});
+
+// ─── Helper for template exercises ───
+
+function makeTemplateExercise(id: string, exerciseId: string, order: number, defaults?: Partial<TemplateExercise>): TemplateExercise {
+  return {
+    id,
+    template_id: 'tpl-1',
+    exercise_id: exerciseId,
+    order,
+    default_sets: 3,
+    warmup_sets: 0,
+    rest_seconds: 150,
+    ...defaults,
+  };
+}
+
+describe('computeOrderDiff', () => {
+  it('returns null when order is unchanged', () => {
+    const blocks = [
+      makeBlock({ exercise: makeExercise('A', 'Squat'), sets: [makeSet()] }),
+      makeBlock({ exercise: makeExercise('B', 'Bench'), sets: [makeSet()] }),
+      makeBlock({ exercise: makeExercise('C', 'Row'), sets: [makeSet()] }),
+    ];
+    expect(computeOrderDiff(blocks, ['A', 'B', 'C'])).toBeNull();
+  });
+
+  it('detects reorder (swapped exercises)', () => {
+    const blocks = [
+      makeBlock({ exercise: makeExercise('B', 'Bench'), sets: [makeSet()] }),
+      makeBlock({ exercise: makeExercise('A', 'Squat'), sets: [makeSet()] }),
+      makeBlock({ exercise: makeExercise('C', 'Row'), sets: [makeSet()] }),
+    ];
+    const diff = computeOrderDiff(blocks, ['A', 'B', 'C']);
+    expect(diff).not.toBeNull();
+    expect(diff!.currentOrder).toEqual(['B', 'A', 'C']);
+    expect(diff!.templateOrder).toEqual(['A', 'B', 'C']);
+  });
+
+  it('ignores exercises added mid-workout (not in template)', () => {
+    const blocks = [
+      makeBlock({ exercise: makeExercise('A', 'Squat'), sets: [makeSet()] }),
+      makeBlock({ exercise: makeExercise('X', 'Curl'), sets: [makeSet()] }),  // added mid-workout
+      makeBlock({ exercise: makeExercise('B', 'Bench'), sets: [makeSet()] }),
+    ];
+    // Template only has A, B — order is preserved
+    expect(computeOrderDiff(blocks, ['A', 'B'])).toBeNull();
+  });
+
+  it('handles exercises removed mid-workout', () => {
+    // Template has A, B, C but user removed B during workout
+    const blocks = [
+      makeBlock({ exercise: makeExercise('A', 'Squat'), sets: [makeSet()] }),
+      makeBlock({ exercise: makeExercise('C', 'Row'), sets: [makeSet()] }),
+    ];
+    // A, C in workout matches A, C in template (B filtered from both)
+    expect(computeOrderDiff(blocks, ['A', 'B', 'C'])).toBeNull();
+  });
+
+  it('detects reorder when some exercises were removed', () => {
+    // Template has A, B, C — user removed B and swapped A, C
+    const blocks = [
+      makeBlock({ exercise: makeExercise('C', 'Row'), sets: [makeSet()] }),
+      makeBlock({ exercise: makeExercise('A', 'Squat'), sets: [makeSet()] }),
+    ];
+    const diff = computeOrderDiff(blocks, ['A', 'B', 'C']);
+    expect(diff).not.toBeNull();
+    expect(diff!.currentOrder).toEqual(['C', 'A']);
+    expect(diff!.templateOrder).toEqual(['A', 'C']);
+  });
+});
+
+describe('buildTemplateUpdatePlan', () => {
+  it('returns null when no changes', () => {
+    const blocks = [
+      makeBlock({
+        exercise: makeExercise('A', 'Squat'),
+        sets: [makeSet('warmup'), makeSet('working'), makeSet('working'), makeSet('working')],
+        originalWarmupSets: 1,
+        originalWorkingSets: 3,
+      }),
+    ];
+    const tes = [makeTemplateExercise('te-1', 'A', 0, { warmup_sets: 1, default_sets: 3 })];
+    expect(buildTemplateUpdatePlan('tpl-1', blocks, tes)).toBeNull();
+  });
+
+  it('returns plan with set changes only', () => {
+    const blocks = [
+      makeBlock({
+        exercise: makeExercise('A', 'Squat'),
+        sets: [makeSet('warmup'), makeSet('warmup'), makeSet('working'), makeSet('working'), makeSet('working'), makeSet('working')],
+        originalWarmupSets: 1,
+        originalWorkingSets: 3,
+      }),
+    ];
+    const tes = [makeTemplateExercise('te-1', 'A', 0, { warmup_sets: 1, default_sets: 3 })];
+    const plan = buildTemplateUpdatePlan('tpl-1', blocks, tes);
+    expect(plan).not.toBeNull();
+    expect(plan!.setChanges).toHaveLength(1);
+    expect(plan!.setChanges[0]).toEqual({
+      templateExerciseId: 'te-1',
+      sets: 4,
+      warmup_sets: 2,
+    });
+    expect(plan!.reorderedTemplateExerciseIds).toBeNull();
+  });
+
+  it('returns plan with reorder only', () => {
+    const blocks = [
+      makeBlock({
+        exercise: makeExercise('B', 'Bench'),
+        sets: [makeSet('working'), makeSet('working'), makeSet('working')],
+        originalWarmupSets: 0,
+        originalWorkingSets: 3,
+      }),
+      makeBlock({
+        exercise: makeExercise('A', 'Squat'),
+        sets: [makeSet('working'), makeSet('working'), makeSet('working')],
+        originalWarmupSets: 0,
+        originalWorkingSets: 3,
+      }),
+    ];
+    const tes = [
+      makeTemplateExercise('te-1', 'A', 0),
+      makeTemplateExercise('te-2', 'B', 1),
+    ];
+    const plan = buildTemplateUpdatePlan('tpl-1', blocks, tes);
+    expect(plan).not.toBeNull();
+    expect(plan!.setChanges).toHaveLength(0);
+    expect(plan!.reorderedTemplateExerciseIds).toEqual(['te-2', 'te-1']);
+  });
+
+  it('returns plan with both set changes and reorder', () => {
+    const blocks = [
+      makeBlock({
+        exercise: makeExercise('B', 'Bench'),
+        sets: [makeSet('working'), makeSet('working'), makeSet('working'), makeSet('working')],
+        originalWarmupSets: 0,
+        originalWorkingSets: 3,
+      }),
+      makeBlock({
+        exercise: makeExercise('A', 'Squat'),
+        sets: [makeSet('working'), makeSet('working'), makeSet('working')],
+        originalWarmupSets: 0,
+        originalWorkingSets: 3,
+      }),
+    ];
+    const tes = [
+      makeTemplateExercise('te-1', 'A', 0),
+      makeTemplateExercise('te-2', 'B', 1),
+    ];
+    const plan = buildTemplateUpdatePlan('tpl-1', blocks, tes);
+    expect(plan).not.toBeNull();
+    expect(plan!.setChanges).toHaveLength(1);
+    expect(plan!.setChanges[0].templateExerciseId).toBe('te-2');
+    expect(plan!.setChanges[0].sets).toBe(4);
+    expect(plan!.reorderedTemplateExerciseIds).toEqual(['te-2', 'te-1']);
+  });
+
+  it('skips exercises not in template (mid-workout additions)', () => {
+    const blocks = [
+      makeBlock({
+        exercise: makeExercise('A', 'Squat'),
+        sets: [makeSet('working'), makeSet('working'), makeSet('working')],
+        originalWarmupSets: 0,
+        originalWorkingSets: 3,
+      }),
+      makeBlock({
+        exercise: makeExercise('X', 'Curl'),
+        sets: [makeSet('working'), makeSet('working')],
+        // No originalWarmupSets/originalWorkingSets — ad-hoc addition
+      }),
+    ];
+    const tes = [makeTemplateExercise('te-1', 'A', 0)];
+    expect(buildTemplateUpdatePlan('tpl-1', blocks, tes)).toBeNull();
   });
 });

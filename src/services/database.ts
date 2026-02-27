@@ -655,6 +655,40 @@ export function stampExerciseOrder(workoutId: string, entries: Array<{ id: strin
   });
 }
 
+export function applyWorkoutChangesToTemplate(plan: import('../utils/setDiff').TemplateUpdatePlan): Promise<void> {
+  return withDb('applyWorkoutChangesToTemplate', async (database) => {
+    await database.withTransactionAsync(async () => {
+      for (const change of plan.setChanges) {
+        const parts: string[] = [];
+        const values: (string | number)[] = [];
+        if (change.sets !== undefined) { parts.push('default_sets = ?'); values.push(change.sets); }
+        if (change.warmup_sets !== undefined) { parts.push('warmup_sets = ?'); values.push(change.warmup_sets); }
+        if (parts.length > 0) {
+          values.push(change.templateExerciseId);
+          await database.runAsync(`UPDATE template_exercises SET ${parts.join(', ')} WHERE id = ?`, ...values);
+        }
+      }
+      if (plan.reorderedTemplateExerciseIds) {
+        // Fetch all template exercise IDs to avoid sort_order collisions
+        // with exercises that were removed mid-workout
+        const allRows = await database.getAllAsync<{ id: string }>(
+          'SELECT id FROM template_exercises WHERE template_id = ? ORDER BY sort_order',
+          plan.templateId,
+        );
+        const updatedSet = new Set(plan.reorderedTemplateExerciseIds);
+        const remainder = allRows.map(r => r.id).filter(id => !updatedSet.has(id));
+        const finalOrder = [...plan.reorderedTemplateExerciseIds, ...remainder];
+        for (let i = 0; i < finalOrder.length; i++) {
+          await database.runAsync(
+            'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
+            i, finalOrder[i], plan.templateId,
+          );
+        }
+      }
+    });
+  });
+}
+
 export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ workout: Workout; sets: WorkoutSet[] }[]> {
   return withDb('getExerciseHistory', async (database) => {
     // Get workout IDs first (needed for LIMIT on workouts, not sets)
