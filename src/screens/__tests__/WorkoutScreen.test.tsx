@@ -37,6 +37,7 @@ jest.mock('../../services/database', () => ({
   getLastPerformedByTemplate: jest.fn().mockResolvedValue({}),
   getBestE1RM: jest.fn().mockResolvedValue(null),
   stampExerciseOrder: jest.fn().mockResolvedValue(undefined),
+  applyWorkoutChangesToTemplate: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -77,6 +78,7 @@ jest.mock('@react-navigation/native', () => ({
 import {
   startWorkout,
   addWorkoutSet,
+  addWorkoutSetsBatch,
   getAllExercises,
   updateWorkoutSet,
   updateExerciseNotes,
@@ -87,6 +89,9 @@ import {
   getExerciseHistory,
   getUpcomingWorkoutForToday,
   getExerciseById,
+  finishWorkout,
+  stampExerciseOrder,
+  applyWorkoutChangesToTemplate,
 } from '../../services/database';
 
 import {
@@ -401,6 +406,82 @@ describe('WorkoutScreen', () => {
     await waitFor(() => expect(getByText('Bench Press')).toBeTruthy());
     await act(async () => { fireEvent.press(getByText('Bench Press')); });
     await waitFor(() => expect(getByTestId('check-0-0')).toBeTruthy());
+  }
+
+  // ─── Helper: start workout from template ───
+  async function startWorkoutFromTemplate(
+    renderResult: ReturnType<typeof render>,
+    opts: {
+      exercises?: Array<{ id: string; name: string; workingSets: number; warmupSets?: number; restSeconds?: number }>;
+    } = {},
+  ) {
+    const exercises = opts.exercises ?? [
+      { id: 'ex1', name: 'Squat', workingSets: 3, warmupSets: 0, restSeconds: 150 },
+    ];
+
+    const template = { id: 'tpl-1', name: 'Test Template', created_at: new Date().toISOString() };
+
+    const exerciseObjects = exercises.map(e => ({
+      id: e.id, name: e.name, type: 'weighted' as const, muscle_groups: ['Quads'], training_goal: 'hypertrophy', description: '', notes: null,
+    }));
+
+    const templateExercises = exercises.map((e, i) => ({
+      id: `te-${i}`,
+      template_id: 'tpl-1',
+      exercise_id: e.id,
+      order: i,
+      default_sets: e.workingSets,
+      warmup_sets: e.warmupSets ?? 0,
+      rest_seconds: e.restSeconds ?? 150,
+      exercise: exerciseObjects[i],
+    }));
+
+    // Mock getAllTemplates for idle screen (called twice: loadState + loadUpcomingWorkoutInBackground)
+    (getAllTemplates as jest.Mock)
+      .mockResolvedValueOnce([template])   // loadState
+      .mockResolvedValueOnce([template]);  // loadUpcomingWorkoutInBackground
+
+    // Mock getTemplateExercises: called 1st for preview modal, 2nd for handleStartFromTemplate
+    (getTemplateExercises as jest.Mock)
+      .mockResolvedValueOnce(templateExercises)  // preview
+      .mockResolvedValueOnce(templateExercises); // start
+
+    // Mock startWorkout to return workout with template_id
+    (startWorkout as jest.Mock).mockResolvedValueOnce({
+      id: 'w1',
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      template_id: 'tpl-1',
+    });
+
+    // Mock getAllExercises
+    (getAllExercises as jest.Mock).mockResolvedValueOnce(exerciseObjects);
+
+    const { getByTestId, getByText } = renderResult;
+
+    // Wait for template card to appear
+    await waitFor(() => expect(getByText('Test Template')).toBeTruthy());
+
+    // Tap the template card to open preview
+    await act(async () => { fireEvent.press(getByText('Test Template')); });
+
+    // Wait for preview modal's "Start Workout" button
+    await waitFor(() => expect(getByTestId('start-from-template-btn')).toBeTruthy());
+
+    // Start from template
+    await act(async () => { fireEvent.press(getByTestId('start-from-template-btn')); });
+
+    // Wait for active workout state
+    await waitFor(() => expect(getByTestId('finish-workout-btn')).toBeTruthy());
+  }
+
+  // ─── Helper: finish workout flow ───
+  async function finishWorkoutFlow(renderResult: ReturnType<typeof render>) {
+    const { getByTestId, getByText, getAllByText } = renderResult;
+    await act(async () => { fireEvent.press(getByTestId('finish-workout-btn')); });
+    await waitFor(() => expect(getByText('Finish Workout')).toBeTruthy());
+    const finishButtons = getAllByText('Finish');
+    await act(async () => { fireEvent.press(finishButtons[finishButtons.length - 1]); });
   }
 
   // ─── Batch 1: Set Tag Cycling ───
@@ -1414,4 +1495,304 @@ describe('WorkoutScreen', () => {
     });
 
   });
+
+  // ─── Batch 3 Review: stampExerciseOrder on finish ───
+
+  describe('finish workout', () => {
+    it('calls stampExerciseOrder with correct entries on finish', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Complete a set
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Dismiss rest timer if it appears
+      try {
+        await waitFor(() => expect(result.getByText('Skip')).toBeTruthy(), { timeout: 500 });
+        await act(async () => { fireEvent.press(result.getByText('Skip')); });
+      } catch {}
+
+      await finishWorkoutFlow(result);
+
+      // Wait for summary screen to confirm finish completed
+      await waitFor(() => expect(result.getByText('Workout Complete!')).toBeTruthy());
+
+      expect(stampExerciseOrder).toHaveBeenCalledWith('w1', [
+        { id: 'ws-1', order: 1 },
+      ]);
+    });
+  });
+
+  // ─── Batch 3 Review: F2 auto-reorder ───
+
+  describe('F2 auto-reorder', () => {
+    it('reorders out-of-position exercise on first set completion', async () => {
+      const LayoutAnimation = require('react-native').LayoutAnimation;
+      const configureNextSpy = jest.spyOn(LayoutAnimation, 'configureNext');
+
+      const result = render(<WorkoutScreen />);
+      await startWorkoutFromTemplate(result, {
+        exercises: [
+          { id: 'ex-squat', name: 'Squat', workingSets: 1 },
+          { id: 'ex-bench', name: 'Bench Press', workingSets: 1 },
+        ],
+      });
+
+      // Wait for both exercises to be rendered
+      await waitFor(() => expect(result.getByTestId('check-1-0')).toBeTruthy());
+
+      const callCountBefore = configureNextSpy.mock.calls.length;
+
+      // Fill weight+reps for Bench (blockIdx=1), complete it
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-1-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-1-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-1-0')); });
+
+      // LayoutAnimation should have been called for reorder
+      expect(configureNextSpy.mock.calls.length).toBeGreaterThan(callCountBefore);
+
+      configureNextSpy.mockRestore();
+    });
+
+    it('completing subsequent sets does NOT re-trigger reorder', async () => {
+      const LayoutAnimation = require('react-native').LayoutAnimation;
+      const configureNextSpy = jest.spyOn(LayoutAnimation, 'configureNext');
+
+      const result = render(<WorkoutScreen />);
+      await startWorkoutFromTemplate(result, {
+        exercises: [
+          { id: 'ex-squat', name: 'Squat', workingSets: 2 },
+          { id: 'ex-bench', name: 'Bench Press', workingSets: 2 },
+        ],
+      });
+
+      // Wait for both exercises
+      await waitFor(() => expect(result.getByTestId('check-1-0')).toBeTruthy());
+
+      // Complete first set of Bench (out of position -> triggers reorder)
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-1-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-1-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-1-0')); });
+
+      const callCountAfterFirst = configureNextSpy.mock.calls.length;
+
+      // Dismiss rest timer if present
+      try {
+        await waitFor(() => expect(result.getByText('Skip')).toBeTruthy(), { timeout: 500 });
+        await act(async () => { fireEvent.press(result.getByText('Skip')); });
+      } catch {}
+
+      // Now complete second set of Bench (now at position 0 after reorder)
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-1'), '135');
+        fireEvent.changeText(result.getByTestId('reps-0-1'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-1')); });
+
+      // LayoutAnimation should NOT have been called again for reorder
+      expect(configureNextSpy.mock.calls.length).toBe(callCountAfterFirst);
+
+      configureNextSpy.mockRestore();
+    });
+
+    it('no reorder when exercise already in position', async () => {
+      const LayoutAnimation = require('react-native').LayoutAnimation;
+      const configureNextSpy = jest.spyOn(LayoutAnimation, 'configureNext');
+
+      const result = render(<WorkoutScreen />);
+      await startWorkoutFromTemplate(result, {
+        exercises: [
+          { id: 'ex-squat', name: 'Squat', workingSets: 1 },
+          { id: 'ex-bench', name: 'Bench Press', workingSets: 1 },
+        ],
+      });
+
+      // Wait for first exercise
+      await waitFor(() => expect(result.getByTestId('check-0-0')).toBeTruthy());
+
+      // Complete first set of Squat (position 0 — already first)
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+
+      const callCountBefore = configureNextSpy.mock.calls.length;
+
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // LayoutAnimation should NOT have been called for reorder
+      expect(configureNextSpy.mock.calls.length).toBe(callCountBefore);
+
+      configureNextSpy.mockRestore();
+    });
+  });
+
+  // ─── Batch 3 Review: F5 template update prompt ───
+
+  describe('F5 template update prompt', () => {
+    it('shows Template Changes Detected when working sets added', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutFromTemplate(result, {
+        exercises: [{ id: 'ex1', name: 'Squat', workingSets: 3 }],
+      });
+
+      // Mock getTemplateExercises for confirmFinish
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce([{
+        id: 'te-0', template_id: 'tpl-1', exercise_id: 'ex1', order: 0,
+        default_sets: 3, warmup_sets: 0, rest_seconds: 150,
+        exercise: { id: 'ex1', name: 'Squat', type: 'weighted', muscle_groups: ['Quads'], training_goal: 'hypertrophy', description: '', notes: null },
+      }]);
+
+      // Add a set (now 4 working sets vs original 3)
+      await act(async () => { fireEvent.press(result.getByText('Add Set')); });
+      await waitFor(() => expect(result.getByTestId('check-0-3')).toBeTruthy());
+
+      // Complete at least one set
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '100');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Dismiss rest timer if present
+      try {
+        await waitFor(() => expect(result.getByText('Skip')).toBeTruthy(), { timeout: 500 });
+        await act(async () => { fireEvent.press(result.getByText('Skip')); });
+      } catch {}
+
+      // Finish workout
+      await finishWorkoutFlow(result);
+
+      // Summary should show template changes
+      await waitFor(() => {
+        expect(result.getByText('Template Changes Detected')).toBeTruthy();
+        expect(result.getByText('Update Template')).toBeTruthy();
+      });
+    });
+
+    it('Update Template calls applyWorkoutChangesToTemplate after confirmation', async () => {
+      const mockAlert = jest.spyOn(require('react-native').Alert, 'alert');
+
+      const result = render(<WorkoutScreen />);
+      await startWorkoutFromTemplate(result, {
+        exercises: [{ id: 'ex1', name: 'Squat', workingSets: 3 }],
+      });
+
+      // Mock getTemplateExercises for confirmFinish
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce([{
+        id: 'te-0', template_id: 'tpl-1', exercise_id: 'ex1', order: 0,
+        default_sets: 3, warmup_sets: 0, rest_seconds: 150,
+        exercise: { id: 'ex1', name: 'Squat', type: 'weighted', muscle_groups: ['Quads'], training_goal: 'hypertrophy', description: '', notes: null },
+      }]);
+
+      // Add a set
+      await act(async () => { fireEvent.press(result.getByText('Add Set')); });
+      await waitFor(() => expect(result.getByTestId('check-0-3')).toBeTruthy());
+
+      // Complete one set
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '100');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Dismiss rest timer
+      try {
+        await waitFor(() => expect(result.getByText('Skip')).toBeTruthy(), { timeout: 500 });
+        await act(async () => { fireEvent.press(result.getByText('Skip')); });
+      } catch {}
+
+      await finishWorkoutFlow(result);
+
+      // Wait for summary with template changes
+      await waitFor(() => expect(result.getByText('Update Template')).toBeTruthy());
+
+      // Press "Update Template" — triggers Alert.alert confirmation
+      await act(async () => { fireEvent.press(result.getByText('Update Template')); });
+
+      // Find the "Update Template?" alert and invoke the "Update" button
+      const alertCall = mockAlert.mock.calls.find(
+        (c: any[]) => c[0] === 'Update Template?'
+      );
+      expect(alertCall).toBeDefined();
+      const buttons = alertCall![2] as Array<{ text: string; onPress?: () => void }>;
+      const updateButton = buttons.find(b => b.text === 'Update');
+      await act(async () => { await updateButton?.onPress?.(); });
+
+      expect(applyWorkoutChangesToTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ templateId: 'tpl-1' }),
+      );
+
+      mockAlert.mockRestore();
+    });
+
+    it('dismissing summary with pending changes shows discard confirmation', async () => {
+      const mockAlert = jest.spyOn(require('react-native').Alert, 'alert');
+
+      const result = render(<WorkoutScreen />);
+      await startWorkoutFromTemplate(result, {
+        exercises: [{ id: 'ex1', name: 'Squat', workingSets: 3 }],
+      });
+
+      // Mock getTemplateExercises for confirmFinish
+      (getTemplateExercises as jest.Mock).mockResolvedValueOnce([{
+        id: 'te-0', template_id: 'tpl-1', exercise_id: 'ex1', order: 0,
+        default_sets: 3, warmup_sets: 0, rest_seconds: 150,
+        exercise: { id: 'ex1', name: 'Squat', type: 'weighted', muscle_groups: ['Quads'], training_goal: 'hypertrophy', description: '', notes: null },
+      }]);
+
+      // Add a set
+      await act(async () => { fireEvent.press(result.getByText('Add Set')); });
+      await waitFor(() => expect(result.getByTestId('check-0-3')).toBeTruthy());
+
+      // Complete one set
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '100');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Dismiss rest timer
+      try {
+        await waitFor(() => expect(result.getByText('Skip')).toBeTruthy(), { timeout: 500 });
+        await act(async () => { fireEvent.press(result.getByText('Skip')); });
+      } catch {}
+
+      await finishWorkoutFlow(result);
+
+      // Wait for summary with template changes
+      await waitFor(() => expect(result.getByText('Template Changes Detected')).toBeTruthy());
+
+      // Press "Done" — triggers "Discard Template Changes?" alert
+      await act(async () => { fireEvent.press(result.getByText('Done')); });
+
+      // Verify discard confirmation alert was shown
+      const discardCall = mockAlert.mock.calls.find(
+        (c: any[]) => c[0] === 'Discard Template Changes?'
+      );
+      expect(discardCall).toBeDefined();
+
+      // Invoke "Discard" to actually dismiss
+      const buttons = discardCall![2] as Array<{ text: string; onPress?: () => void }>;
+      const discardButton = buttons.find(b => b.text === 'Discard');
+      await act(async () => { discardButton?.onPress?.(); });
+
+      // Should NOT have called applyWorkoutChangesToTemplate
+      expect(applyWorkoutChangesToTemplate).not.toHaveBeenCalled();
+
+      // Should return to idle state
+      await waitFor(() => expect(result.getByTestId('start-empty-workout')).toBeTruthy());
+
+      mockAlert.mockRestore();
+    });
+  });
+
 });

@@ -4,6 +4,7 @@ const { __mockDb } = require('expo-sqlite') as { __mockDb: {
   getFirstAsync: jest.Mock;
   runAsync: jest.Mock;
   execAsync: jest.Mock;
+  withTransactionAsync: jest.Mock;
 }};
 
 import {
@@ -18,13 +19,17 @@ import {
   getExerciseHistory,
   getLastPerformedByTemplate,
   getBestE1RM,
+  stampExerciseOrder,
+  applyWorkoutChangesToTemplate,
 } from '../database';
+import type { TemplateUpdatePlan } from '../../utils/setDiff';
 
 beforeEach(() => {
   __mockDb.getAllAsync.mockClear();
   __mockDb.getFirstAsync.mockClear();
   __mockDb.runAsync.mockClear();
   __mockDb.execAsync.mockClear();
+  __mockDb.withTransactionAsync.mockClear();
 });
 
 describe('createExercise', () => {
@@ -263,5 +268,117 @@ describe('getBestE1RM', () => {
 
     const result = await getBestE1RM('ex-1');
     expect(result).toBeCloseTo(148, 1);
+  });
+});
+
+describe('stampExerciseOrder', () => {
+  it('updates exercise_order for each entry in a transaction', async () => {
+    await stampExerciseOrder('w1', [
+      { id: 'set-1', order: 1 },
+      { id: 'set-2', order: 2 },
+    ]);
+
+    expect(__mockDb.withTransactionAsync).toHaveBeenCalled();
+    expect(__mockDb.runAsync).toHaveBeenCalledTimes(2);
+    expect(__mockDb.runAsync).toHaveBeenNthCalledWith(
+      1,
+      'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
+      1, 'set-1',
+    );
+    expect(__mockDb.runAsync).toHaveBeenNthCalledWith(
+      2,
+      'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
+      2, 'set-2',
+    );
+  });
+});
+
+describe('applyWorkoutChangesToTemplate', () => {
+  it('applies set count changes', async () => {
+    const plan: TemplateUpdatePlan = {
+      templateId: 't1',
+      setChanges: [{ templateExerciseId: 'te-1', sets: 4, warmup_sets: 2 }],
+      reorderedTemplateExerciseIds: null,
+    };
+
+    await applyWorkoutChangesToTemplate(plan);
+
+    const setUpdateCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE template_exercises SET default_sets')
+    );
+    expect(setUpdateCall).toBeDefined();
+    expect(setUpdateCall![0]).toContain('default_sets = ?');
+    expect(setUpdateCall![0]).toContain('warmup_sets = ?');
+    expect(setUpdateCall![0]).toContain('WHERE id = ?');
+    expect(setUpdateCall![1]).toBe(4);
+    expect(setUpdateCall![2]).toBe(2);
+    expect(setUpdateCall![3]).toBe('te-1');
+  });
+
+  it('applies reorder changes', async () => {
+    const plan: TemplateUpdatePlan = {
+      templateId: 't1',
+      setChanges: [],
+      reorderedTemplateExerciseIds: ['te-2', 'te-1'],
+    };
+
+    // Mock the SELECT query for existing template exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { id: 'te-1' },
+      { id: 'te-2' },
+      { id: 'te-3' },
+    ]);
+
+    await applyWorkoutChangesToTemplate(plan);
+
+    // Filter for sort_order UPDATE calls
+    const sortCalls = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('SET sort_order')
+    );
+    expect(sortCalls).toHaveLength(3);
+
+    // Final order: te-2 (0), te-1 (1), te-3 (2) — reordered first, remainder appended
+    expect(sortCalls[0]).toEqual([
+      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
+      0, 'te-2', 't1',
+    ]);
+    expect(sortCalls[1]).toEqual([
+      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
+      1, 'te-1', 't1',
+    ]);
+    expect(sortCalls[2]).toEqual([
+      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
+      2, 'te-3', 't1',
+    ]);
+  });
+
+  it('applies both set changes and reorder atomically', async () => {
+    const plan: TemplateUpdatePlan = {
+      templateId: 't1',
+      setChanges: [{ templateExerciseId: 'te-1', sets: 5 }],
+      reorderedTemplateExerciseIds: ['te-2', 'te-1'],
+    };
+
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { id: 'te-1' },
+      { id: 'te-2' },
+    ]);
+
+    await applyWorkoutChangesToTemplate(plan);
+
+    // Transaction wraps everything
+    expect(__mockDb.withTransactionAsync).toHaveBeenCalledTimes(1);
+
+    // Set change UPDATE
+    const setUpdateCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('default_sets = ?')
+    );
+    expect(setUpdateCall).toBeDefined();
+
+    // Sort order UPDATEs
+    const sortCalls = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('SET sort_order')
+    );
+    expect(sortCalls).toHaveLength(2);
   });
 });
