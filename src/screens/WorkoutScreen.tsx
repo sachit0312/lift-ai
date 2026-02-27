@@ -125,6 +125,8 @@ export default function WorkoutScreen() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [lastPerformed, setLastPerformed] = useState<Record<string, string>>({});
   const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
+  const [reorderToast, setReorderToast] = useState<string | null>(null);
+  const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasLoadedOnce = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -751,6 +753,7 @@ export default function WorkoutScreen() {
         }
         const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
         if (preCheckIdx > preCheckCompleted) {
+          let didReorder = false;
           setExerciseBlocks((prev) => {
             let completedBlockCount = 0;
             for (const b of prev) {
@@ -759,6 +762,7 @@ export default function WorkoutScreen() {
             }
             const currentIdx = prev.findIndex(b => b.exercise.id === block.exercise.id);
             if (currentIdx > completedBlockCount) {
+              didReorder = true;
               LayoutAnimation.configureNext({
                 duration: 250,
                 update: { type: LayoutAnimation.Types.easeInEaseOut },
@@ -770,7 +774,13 @@ export default function WorkoutScreen() {
             }
             return prev;
           });
-          lastActiveBlockRef.current = preCheckCompleted;
+          if (didReorder) {
+            lastActiveBlockRef.current = preCheckCompleted;
+            // Show reorder feedback toast (no extra vibrate — set completion haptic fires below)
+            if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+            setReorderToast(block.exercise.name);
+            reorderToastTimer.current = setTimeout(() => setReorderToast(null), 2000);
+          }
         }
       }
 
@@ -1060,8 +1070,16 @@ export default function WorkoutScreen() {
           const setDiffs = computeSetDiffs(exerciseBlocks);
           for (const diff of setDiffs) {
             const parts: string[] = [];
-            if (diff.warmupAfter !== diff.warmupBefore) parts.push(`warmup: ${diff.warmupBefore} → ${diff.warmupAfter}`);
-            if (diff.workingAfter !== diff.workingBefore) parts.push(`working: ${diff.workingBefore} → ${diff.workingAfter}`);
+            const describeChange = (label: string, before: number, after: number): string | null => {
+              const delta = after - before;
+              if (delta === 0) return null;
+              const noun = `${label} set${Math.abs(delta) !== 1 ? 's' : ''}`;
+              return delta > 0 ? `added ${delta} ${noun}` : `removed ${Math.abs(delta)} ${noun}`;
+            };
+            const warmupChange = describeChange('warmup', diff.warmupBefore, diff.warmupAfter);
+            const workingChange = describeChange('working', diff.workingBefore, diff.workingAfter);
+            if (warmupChange) parts.push(warmupChange);
+            if (workingChange) parts.push(workingChange);
             if (parts.length > 0) descriptions.push(`${diff.exerciseName}: ${parts.join(', ')}`);
           }
           if (updatePlan.reorderedTemplateExerciseIds) descriptions.push('Exercise order updated');
@@ -1083,30 +1101,56 @@ export default function WorkoutScreen() {
     setShowSummary(true);
   }
 
-  async function handleUpdateTemplate() {
+  function handleUpdateTemplate() {
     if (!templateUpdatePlan) return;
-    try {
-      await applyWorkoutChangesToTemplate(templateUpdatePlan);
-      syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'sync after template update failed', level: 'warning', data: { error: String(e) } }));
-      setTemplateUpdatePlan(null);
-      setTemplateChangeDescriptions([]);
-    } catch (e) {
-      if (__DEV__) console.error('Failed to update template:', e);
-      Sentry.captureException(e);
-      Alert.alert('Error', 'Failed to update template.');
-    }
+    Alert.alert(
+      'Update Template?',
+      'This will apply the detected changes to your template.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Update',
+          onPress: async () => {
+            try {
+              await applyWorkoutChangesToTemplate(templateUpdatePlan);
+              syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'sync after template update failed', level: 'warning', data: { error: String(e) } }));
+              setTemplateUpdatePlan(null);
+              setTemplateChangeDescriptions([]);
+            } catch (e) {
+              if (__DEV__) console.error('Failed to update template:', e);
+              Sentry.captureException(e);
+              Alert.alert('Error', 'Failed to update template.');
+            }
+          },
+        },
+      ]
+    );
   }
 
   function handleDismissSummary() {
-    setShowSummary(false);
-    setActiveWorkout(null);
-    workoutRef.current = null;
-    setTemplateName(null);
-    setExerciseBlocks([]);
-    setUpcomingTargets(null);
-    setTemplateUpdatePlan(null);
-    setTemplateChangeDescriptions([]);
-    loadState();
+    const dismiss = () => {
+      setShowSummary(false);
+      setActiveWorkout(null);
+      workoutRef.current = null;
+      setTemplateName(null);
+      setExerciseBlocks([]);
+      setUpcomingTargets(null);
+      setTemplateUpdatePlan(null);
+      setTemplateChangeDescriptions([]);
+      loadState();
+    };
+    if (templateUpdatePlan) {
+      Alert.alert(
+        'Discard Template Changes?',
+        "You have unapplied template changes. They won't be saved.",
+        [
+          { text: 'Go Back', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: dismiss },
+        ]
+      );
+    } else {
+      dismiss();
+    }
   }
 
   const handleCloseHistoryModal = useCallback(() => {
@@ -1135,6 +1179,7 @@ export default function WorkoutScreen() {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
       stopPolling();
       flushPendingNotes();
     };
@@ -1301,6 +1346,13 @@ export default function WorkoutScreen() {
           <Text style={styles.headerProgress} testID="sets-progress">{completedSetsCount}/{totalSetsCount} sets</Text>
         </View>
       </View>
+
+      {reorderToast && (
+        <View style={styles.reorderToast}>
+          <Ionicons name="swap-vertical" size={14} color={colors.primary} style={{ marginRight: spacing.xs }} />
+          <Text style={styles.reorderToastText}>{reorderToast} moved up</Text>
+        </View>
+      )}
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="always">
         {exerciseBlocks.map((block, blockIdx) => (
@@ -2008,6 +2060,24 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
+  },
+
+  // Reorder toast
+  reorderToast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.surfaceLight,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.full,
+    marginVertical: spacing.xs,
+  },
+  reorderToastText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
 
   // ScrollView
