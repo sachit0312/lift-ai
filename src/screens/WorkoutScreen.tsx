@@ -49,6 +49,7 @@ import { computeSetDiffs, buildTemplateUpdatePlan } from '../utils/setDiff';
 import type { TemplateUpdatePlan } from '../utils/setDiff';
 import {
   getUpcomingWorkoutForToday,
+  getUpcomingWorkoutById,
   getAllTemplates,
   getTemplateExercises,
   getActiveWorkout,
@@ -299,6 +300,7 @@ export default function WorkoutScreen() {
       if (!exercise) continue;
 
       const { lastTime, previousSets } = await getExerciseHistoryData(exId);
+      const bestE1RM = await getBestE1RM(exId) ?? undefined;
       const setNotes = wSets[0]?.notes;
       const restoredNotes = setNotes || exercise.notes || '';
 
@@ -320,6 +322,7 @@ export default function WorkoutScreen() {
         notes: restoredNotes,
         restSeconds: REST_SECONDS[exercise.training_goal],
         restEnabled: true,
+        bestE1RM,
       });
     }
 
@@ -337,6 +340,27 @@ export default function WorkoutScreen() {
         }
       } catch (e) {
         if (__DEV__) console.warn('Failed to restore template set counts:', e);
+        Sentry.captureException(e);
+      }
+    }
+
+    // Restore upcoming workout targets + coach tips on resume
+    if (workout.upcoming_workout_id) {
+      try {
+        const upcoming = await getUpcomingWorkoutById(workout.upcoming_workout_id);
+        if (upcoming) {
+          setUpcomingTargets(upcoming.exercises);
+          // Restore MCP-prescribed rest timers from the upcoming plan
+          for (const block of blocks) {
+            const upEx = upcoming.exercises.find(e => e.exercise_id === block.exercise.id);
+            if (upEx?.rest_seconds) {
+              block.restSeconds = upEx.rest_seconds;
+            }
+          }
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('Failed to restore upcoming targets:', e);
+        Sentry.captureException(e);
       }
     }
 

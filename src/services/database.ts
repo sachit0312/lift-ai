@@ -907,6 +907,69 @@ export function getUpcomingWorkoutForToday(): Promise<{
   });
 }
 
+/** Fetch upcoming workout by ID (for restoring targets on resume) */
+export function getUpcomingWorkoutById(id: string): Promise<{
+  workout: UpcomingWorkout;
+  exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[];
+} | null> {
+  return withDb('getUpcomingWorkoutById', async (database) => {
+    const workouts = await database.getAllAsync<UpcomingWorkoutRow>(
+      'SELECT * FROM upcoming_workouts WHERE id = ? LIMIT 1',
+      id,
+    );
+    if (workouts.length === 0) return null;
+
+    const workout: UpcomingWorkout = workouts[0];
+
+    const exerciseRows = await database.getAllAsync<UpcomingExerciseJoinRow>(
+      `SELECT ue.*, e.id as e_id, e.user_id as e_user_id, e.name as e_name, e.type as e_type,
+              e.muscle_groups as e_muscle_groups, e.training_goal as e_training_goal,
+              e.description as e_description, e.created_at as e_created_at, e.notes as e_notes
+       FROM upcoming_workout_exercises ue
+       JOIN exercises e ON ue.exercise_id = e.id
+       WHERE ue.upcoming_workout_id = ?
+       ORDER BY ue.sort_order`,
+      workout.id,
+    );
+
+    const exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] = [];
+
+    for (const r of exerciseRows) {
+      const rawSets = await database.getAllAsync<UpcomingWorkoutSetRow>(
+        'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
+        r.id,
+      );
+      const sets: UpcomingWorkoutSet[] = rawSets.map(s => ({
+        ...s,
+        tag: (s.tag ?? 'working') as SetTag,
+      }));
+
+      exercises.push({
+        id: r.id,
+        upcoming_workout_id: r.upcoming_workout_id,
+        exercise_id: r.exercise_id,
+        order: r.sort_order,
+        rest_seconds: r.rest_seconds,
+        notes: r.notes,
+        exercise: {
+          id: r.e_id,
+          user_id: r.e_user_id,
+          name: r.e_name,
+          type: r.e_type as ExerciseType,
+          muscle_groups: safeJsonParse(r.e_muscle_groups, []),
+          training_goal: r.e_training_goal as TrainingGoal,
+          description: r.e_description,
+          created_at: r.e_created_at,
+          notes: r.e_notes ?? null,
+        },
+        sets,
+      });
+    }
+
+    return { workout, exercises };
+  });
+}
+
 // ─── Last Performed By Template ───
 
 /** Row for last-performed query */
