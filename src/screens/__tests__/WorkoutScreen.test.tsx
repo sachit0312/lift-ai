@@ -487,34 +487,34 @@ describe('WorkoutScreen', () => {
   // ─── Batch 1: Set Tag Cycling ───
 
   describe('set tag cycling', () => {
-    it('cycles set tag to warmup on first tap', async () => {
+    it('cycles set tag to warmup on first tap and clears RPE', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
       await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
 
-      expect(updateWorkoutSet).toHaveBeenCalledWith('ws-1', expect.objectContaining({ tag: 'warmup' }));
+      expect(updateWorkoutSet).toHaveBeenCalledWith('ws-1', expect.objectContaining({ tag: 'warmup', rpe: null }));
     });
 
-    it('cycles through full tag sequence: working → warmup → failure → drop → working', async () => {
+    it('cycles through full tag sequence with correct RPE side effects', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
-      // working → warmup
+      // working → warmup (RPE cleared)
       await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
-      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ tag: 'warmup' }));
+      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ tag: 'warmup', rpe: null }));
 
-      // warmup → failure
+      // warmup → failure (RPE set to 10)
       await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
-      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ tag: 'failure' }));
+      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ tag: 'failure', rpe: 10 }));
 
-      // failure → drop
+      // failure → drop (RPE preserved, no rpe key in update)
       await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
-      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ tag: 'drop' }));
+      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', { tag: 'drop' });
 
-      // drop → working
+      // drop → working (RPE preserved, no rpe key in update)
       await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
-      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ tag: 'working' }));
+      expect(updateWorkoutSet).toHaveBeenLastCalledWith('ws-1', { tag: 'working' });
     });
 
     it('renders badge text for tagged set', async () => {
@@ -527,6 +527,70 @@ describe('WorkoutScreen', () => {
       // Badge should show "W"
       await waitFor(() => {
         expect(result.getByText('W')).toBeTruthy();
+      });
+    });
+
+    it('hides RPE input for warmup sets', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Cycle to warmup
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+
+      // RPE element should exist (spacer) but not be a TextInput
+      await waitFor(() => {
+        const rpeEl = result.getByTestId('rpe-0-0');
+        // Warmup RPE is a View spacer, not a TextInput — no onChangeText prop
+        expect(rpeEl.props.onChangeText).toBeUndefined();
+      });
+    });
+
+    it('shows locked RPE 10 for failure sets', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Cycle to warmup, then failure
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+
+      // RPE element should show "10" text
+      await waitFor(() => {
+        const rpeEl = result.getByTestId('rpe-0-0');
+        expect(rpeEl.props.onChangeText).toBeUndefined();
+      });
+      expect(result.getByText('10')).toBeTruthy();
+    });
+
+    it('restores editable RPE when cycling from failure to drop', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Cycle: working → warmup → failure → drop
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+
+      // RPE should be editable again (TextInput with onChangeText)
+      await waitFor(() => {
+        const rpeEl = result.getByTestId('rpe-0-0');
+        expect(rpeEl.props.onChangeText).toBeDefined();
+      });
+    });
+
+    it('RPE value preserved as 10 when cycling failure to drop (editable with value)', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Cycle: working → warmup → failure (RPE set to 10) → drop (preserved)
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+      await act(async () => { fireEvent.press(result.getByTestId('set-tag-0-0')); });
+
+      // RPE should be editable TextInput with value "10" preserved from failure
+      await waitFor(() => {
+        const rpeEl = result.getByTestId('rpe-0-0');
+        expect(rpeEl.props.onChangeText).toBeDefined();
+        expect(rpeEl.props.value).toBe('10');
       });
     });
   });

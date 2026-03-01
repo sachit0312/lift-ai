@@ -402,29 +402,35 @@ export default function WorkoutScreen() {
     tagOverrides?: SetTag[],
   ): Promise<ExerciseBlock> {
     const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
-    const setsToInsert = Array.from({ length: setCount }, (_, i) => ({
-      workout_id: workoutId,
-      exercise_id: exercise.id,
-      set_number: i + 1,
-      reps: null,
-      weight: null,
-      tag: tagOverrides?.[i] ?? 'working' as SetTag,
-      rpe: null,
-      is_completed: false,
-      notes: null,
-    }));
+    const setsToInsert = Array.from({ length: setCount }, (_, i) => {
+      const tag = tagOverrides?.[i] ?? 'working' as SetTag;
+      return {
+        workout_id: workoutId,
+        exercise_id: exercise.id,
+        set_number: i + 1,
+        reps: null,
+        weight: null,
+        tag,
+        rpe: tag === 'failure' ? 10 : null,
+        is_completed: false,
+        notes: null,
+      };
+    });
     const inserted = await addWorkoutSetsBatch(setsToInsert);
-    const sets: LocalSet[] = inserted.map((ws, i) => ({
-      id: ws.id,
-      exercise_id: exercise.id,
-      set_number: i + 1,
-      weight: '',
-      reps: '',
-      rpe: '',
-      tag: tagOverrides?.[i] ?? 'working' as SetTag,
-      is_completed: false,
-      previous: previousSets[i] ?? null,
-    }));
+    const sets: LocalSet[] = inserted.map((ws, i) => {
+      const tag = tagOverrides?.[i] ?? 'working' as SetTag;
+      return {
+        id: ws.id,
+        exercise_id: exercise.id,
+        set_number: i + 1,
+        weight: '',
+        reps: '',
+        rpe: tag === 'failure' ? '10' : '',
+        tag,
+        is_completed: false,
+        previous: previousSets[i] ?? null,
+      };
+    });
     const stickyNotes = exercise.notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
     return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal], restEnabled: true, bestE1RM };
@@ -666,6 +672,9 @@ export default function WorkoutScreen() {
     const set = block?.sets[setIdx];
     if (!set) return;
 
+    // Guard: RPE is not editable for warmup or failure sets
+    if (field === 'rpe' && (set.tag === 'warmup' || set.tag === 'failure')) return;
+
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
@@ -687,15 +696,26 @@ export default function WorkoutScreen() {
     const idx = tags.indexOf(set.tag);
     const newTag = tags[(idx + 1) % tags.length];
 
+    // Compute RPE side-effect based on new tag
+    const rpeUpdate: Record<string, string | undefined> = {};
+    const dbUpdate: Record<string, unknown> = { tag: newTag };
+    if (newTag === 'warmup') {
+      rpeUpdate.rpe = '';
+      dbUpdate.rpe = null;
+    } else if (newTag === 'failure') {
+      rpeUpdate.rpe = '10';
+      dbUpdate.rpe = 10;
+    }
+
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      updatedBlock.sets[setIdx] = { ...updatedBlock.sets[setIdx], tag: newTag };
+      updatedBlock.sets[setIdx] = { ...updatedBlock.sets[setIdx], tag: newTag, ...rpeUpdate };
       next[blockIdx] = updatedBlock;
       return next;
     });
 
-    await updateWorkoutSet(set.id, { tag: newTag });
+    await updateWorkoutSet(set.id, dbUpdate);
   }, []);
 
   const handleToggleComplete = useCallback(async (blockIdx: number, setIdx: number) => {
@@ -786,7 +806,7 @@ export default function WorkoutScreen() {
 
       // PR check — compare estimated 1RM against cached best
       const w = Number(set.weight), r = Number(set.reps);
-      const rpe = set.rpe ? Number(set.rpe) : null;
+      const rpe = set.tag === 'failure' ? 10 : (set.rpe ? Number(set.rpe) : null);
       if (w > 0 && r > 0) {
         const e1rm = calculateEstimated1RM(w, r, rpe);
         const bestE1RM = block.bestE1RM;
@@ -1892,15 +1912,23 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                 placeholderTextColor={placeholderColor}
                 testID={`reps-${blockIdx}-${setIdx}`}
               />
-              <TextInput
-                style={[styles.setInput, styles.colRpe]}
-                keyboardType="numeric"
-                value={set.rpe}
-                onChangeText={(v) => onSetChange(blockIdx, setIdx, 'rpe', v)}
-                placeholder={target?.target_rpe ? String(target.target_rpe) : '—'}
-                placeholderTextColor={target?.target_rpe ? colors.primaryPlaceholder : colors.textMuted}
-                testID={`rpe-${blockIdx}-${setIdx}`}
-              />
+              {set.tag === 'warmup' ? (
+                <View style={[styles.colRpe]} testID={`rpe-${blockIdx}-${setIdx}`} />
+              ) : set.tag === 'failure' ? (
+                <View style={[styles.rpeDisabled, styles.colRpe]} testID={`rpe-${blockIdx}-${setIdx}`}>
+                  <Text style={styles.rpeDisabledText}>10</Text>
+                </View>
+              ) : (
+                <TextInput
+                  style={[styles.setInput, styles.colRpe]}
+                  keyboardType="numeric"
+                  value={set.rpe}
+                  onChangeText={(v) => onSetChange(blockIdx, setIdx, 'rpe', v)}
+                  placeholder={target?.target_rpe ? String(target.target_rpe) : '—'}
+                  placeholderTextColor={target?.target_rpe ? colors.primaryPlaceholder : colors.textMuted}
+                  testID={`rpe-${blockIdx}-${setIdx}`}
+                />
+              )}
               <View style={{ position: 'relative' }}>
                 <TouchableOpacity
                   style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
@@ -2203,7 +2231,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
     paddingVertical: 10,
-    paddingHorizontal: spacing.xxs,
+    paddingLeft: spacing.xxs,
+    paddingRight: spacing.sm,
     borderRadius: borderRadius.md,
   },
   setRowCompleted: {
@@ -2249,6 +2278,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  rpeDisabled: {
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    opacity: 0.6,
+  },
+  rpeDisabledText: {
+    color: colors.error,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    textAlign: 'center' as const,
   },
   prBadge: {
     position: 'absolute' as const,

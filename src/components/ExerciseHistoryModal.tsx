@@ -51,9 +51,12 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
 
       const points: DataPoint[] = history
         .map((h) => {
-          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
+          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup');
           if (completedSets.length === 0) return null;
-          const estimates = completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, s.rpe)).filter(v => isFinite(v) && v > 0);
+          const estimates = completedSets.map(s => {
+            const rpe = s.tag === 'failure' ? 10 : s.rpe;
+            return calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, rpe);
+          }).filter(v => isFinite(v) && v > 0);
           if (estimates.length === 0) return null;
           const best = Math.max(...estimates);
           const d = new Date(h.workout.started_at);
@@ -67,7 +70,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
       // Volume data: sum weight * reps for all completed sets per session
       const volPoints: VolumePoint[] = history
         .map((h) => {
-          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
+          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup');
           if (completedSets.length === 0) return null;
           const volume = completedSets.reduce((sum, s) => {
             const v = (s.weight ?? 0) * (s.reps ?? 0);
@@ -96,9 +99,12 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         // Find PR from history to get full date for formatting
         for (let i = 0; i < history.length; i++) {
           const h = history[i];
-          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps);
+          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup');
           if (completedSets.length === 0) continue;
-          const estimates = completedSets.map(s => calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, s.rpe)).filter(v => isFinite(v) && v > 0);
+          const estimates = completedSets.map(s => {
+            const rpe = s.tag === 'failure' ? 10 : s.rpe;
+            return calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, rpe);
+          }).filter(v => isFinite(v) && v > 0);
           if (estimates.length === 0) continue;
           const best = Math.max(...estimates);
           const rounded = Math.round(best);
@@ -115,9 +121,9 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         setPrDateFormatted('');
       }
 
-      const recent = history.slice(0, 3).map(h => {
+      const recent = history.slice(0, 5).map(h => {
         const completedSets = h.sets
-          .filter(s => s.is_completed && s.weight && s.reps)
+          .filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup')
           .sort((a, b) => a.set_number - b.set_number)
           .map(s => ({
             weight: s.weight!,
@@ -126,11 +132,12 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
             rpe: s.rpe,
             set_number: s.set_number,
           }));
+        if (completedSets.length === 0) return null;
         return {
           date: new Date(h.workout.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
           sets: completedSets,
         };
-      });
+      }).filter(Boolean).slice(0, 3) as RecentSession[];
       setRecentSessions(recent);
     } finally {
       setLoading(false);

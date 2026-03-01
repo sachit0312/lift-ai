@@ -136,20 +136,41 @@ describe('ExerciseHistoryModal', () => {
     expect(await findByText(/@ RPE 8/)).toBeTruthy();
   });
 
-  it('shows tag badges for non-working sets', async () => {
+  it('shows tag badges for failure/drop sets but filters warmup from recents', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
       createMockSession('2026-01-25T10:00:00Z', [
         { weight: 100, reps: 10, tag: 'warmup', set_number: 1 },
-        { weight: 135, reps: 8, tag: 'failure', set_number: 2 },
+        { weight: 135, reps: 8, tag: 'working', set_number: 2 },
+        { weight: 135, reps: 5, tag: 'failure', set_number: 3 },
       ]),
     ]);
 
-    const { findByText } = render(
+    const { findByText, queryByText } = render(
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
-    expect(await findByText('W')).toBeTruthy();
+    // Failure badge visible, warmup filtered out of recent performances
     expect(await findByText('F')).toBeTruthy();
+    expect(queryByText('W')).toBeNull();
+  });
+
+  it('excludes all-warmup sessions from recent performances', async () => {
+    (getExerciseHistory as jest.Mock).mockResolvedValue([
+      createMockSession('2026-01-25T10:00:00Z', [
+        { weight: 60, reps: 10, tag: 'warmup', set_number: 1 },
+      ]),
+      createMockSession('2026-01-22T10:00:00Z', [
+        { weight: 135, reps: 8, tag: 'working', set_number: 1 },
+      ]),
+    ]);
+
+    const { findByText, queryByText } = render(
+      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+    );
+
+    // Working session shows, warmup-only session does not produce an empty card
+    expect(await findByText(/135lb × 8/)).toBeTruthy();
+    expect(queryByText(/60lb × 10/)).toBeNull();
   });
 
   it('shows volume chart with 3+ sessions', async () => {
