@@ -15,14 +15,20 @@ let currentExerciseName: string = '';
 let currentSetNumber: number = 1;
 let currentTotalSets: number = 1;
 
+// ─── Update deduplication & throttle state ───
+let lastContentStateJSON = '';
+let lastUpdateTimestamp = 0;
+let pendingUpdate: { contentState: LiveActivityState; timeoutId: ReturnType<typeof setTimeout> } | null = null;
+const MIN_UPDATE_INTERVAL_MS = 500;
+
 // ─── Configure notification handler ───
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: false,
+    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
-    shouldShowBanner: false,
+    shouldShowBanner: true,
     shouldShowList: false,
   }),
 });
@@ -82,6 +88,13 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
     );
 
     currentActivityId = activityId ?? null;
+    // Reset dedup/throttle state for fresh activity
+    lastContentStateJSON = '';
+    lastUpdateTimestamp = 0;
+    if (pendingUpdate) {
+      clearTimeout(pendingUpdate.timeoutId);
+      pendingUpdate = null;
+    }
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to start workout Live Activity', e);
     Sentry.captureException(e);
@@ -135,11 +148,10 @@ export async function updateWorkoutActivityForRest(
       subtitle: `Set ${setNumber}/${totalSets}`,
       progressBar: { date: endTime },
     });
-
-    // Belt-and-suspenders: cancel ALL scheduled notifications to prevent orphans
-    await Notifications.cancelAllScheduledNotificationsAsync();
-    await cancelTimerEndNotification();
-    await scheduleTimerEndNotification(totalSeconds);
+    // Notifications are NOT scheduled here — they're managed exclusively by
+    // startRestTimerActivity / adjustRestTimerActivity / stopRestTimerActivity.
+    // Scheduling here caused duplicate notifications because this function is
+    // also called via syncWidgetState, racing with the dedicated timer functions.
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to update workout activity for rest', e);
     Sentry.captureException(e);
@@ -167,6 +179,13 @@ export async function stopWorkoutActivity(): Promise<void> {
     currentExerciseName = '';
     currentSetNumber = 1;
     currentTotalSets = 1;
+    // Reset dedup/throttle state
+    lastContentStateJSON = '';
+    lastUpdateTimestamp = 0;
+    if (pendingUpdate) {
+      clearTimeout(pendingUpdate.timeoutId);
+      pendingUpdate = null;
+    }
     await cancelTimerEndNotification();
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to stop workout Live Activity', e);
@@ -229,6 +248,7 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
 
     safeUpdateActivity({
       title: currentExerciseName,
+      subtitle: `Set ${currentSetNumber}/${currentTotalSets}`,
       progressBar: { date: newEndTime },
     });
 
@@ -264,17 +284,58 @@ export async function stopRestTimerActivity(): Promise<void> {
 // ─── Internal helpers ───
 
 /**
- * Wrapper around LiveActivity.updateActivity that catches ActivityNotFoundException.
- * When the user (or iOS) dismisses the Live Activity, the stale currentActivityId
- * causes cascading errors. This helper nulls it out so future calls short-circuit.
+ * Wrapper around LiveActivity.updateActivity with deduplication, throttling,
+ * and resilient error handling.
+ *
+ * - **Deduplication**: Skips update if content state is identical to the last-sent state.
+ * - **Trailing-edge throttle**: First update goes through immediately; subsequent updates
+ *   within MIN_UPDATE_INTERVAL_MS are coalesced (only the latest fires after cooldown).
+ * - **Selective error handling**: Only nulls `currentActivityId` for "not found" errors
+ *   (activity dismissed). Rate-limit and transient errors preserve the ID.
  */
 function safeUpdateActivity(contentState: LiveActivityState): void {
   if (!currentActivityId) return;
+
+  const json = JSON.stringify(contentState);
+
+  // Dedup: skip if identical to last-sent state
+  if (json === lastContentStateJSON) return;
+
+  const now = Date.now();
+  const elapsed = now - lastUpdateTimestamp;
+
+  if (elapsed >= MIN_UPDATE_INTERVAL_MS) {
+    // Enough time has passed — send immediately
+    doUpdate(contentState, json);
+  } else {
+    // Throttle: coalesce into a pending update (trailing edge)
+    if (pendingUpdate) {
+      clearTimeout(pendingUpdate.timeoutId);
+    }
+    const delay = MIN_UPDATE_INTERVAL_MS - elapsed;
+    const timeoutId = setTimeout(() => {
+      pendingUpdate = null;
+      doUpdate(contentState, json);
+    }, delay);
+    pendingUpdate = { contentState, timeoutId };
+  }
+}
+
+function doUpdate(contentState: LiveActivityState, json: string): void {
+  if (!currentActivityId) return;
+  // Re-check dedup in case an identical state was sent while this was pending
+  if (json === lastContentStateJSON) return;
   try {
     LiveActivity.updateActivity(currentActivityId, contentState);
-  } catch {
-    // Activity was dismissed by user/iOS — null out so future calls short-circuit
-    currentActivityId = null;
+    lastContentStateJSON = json;
+    lastUpdateTimestamp = Date.now();
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : '';
+    if (/not found/i.test(message)) {
+      // Activity was dismissed by user/iOS — null out so future calls short-circuit
+      currentActivityId = null;
+    }
+    // Transient/rate-limit errors: preserve currentActivityId so future updates still work
   }
 }
 
@@ -282,6 +343,8 @@ async function scheduleTimerEndNotification(seconds: number): Promise<void> {
   try {
     currentNotificationId = await Notifications.scheduleNotificationAsync({
       content: {
+        title: 'Rest Complete',
+        body: 'Time for your next set',
         sound: 'default',
         interruptionLevel: 'timeSensitive',
       },

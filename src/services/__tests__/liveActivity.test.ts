@@ -97,38 +97,15 @@ describe('liveActivity service', () => {
       );
     });
 
-    it('cancels all scheduled notifications before scheduling new one', async () => {
+    it('does NOT schedule notifications (managed by dedicated timer functions)', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       jest.clearAllMocks();
 
       await updateWorkoutActivityForRest('Bench Press', 90, 2, 4);
       await flushPromises();
 
-      expect(Notifications.cancelAllScheduledNotificationsAsync).toHaveBeenCalled();
-    });
-
-    it('schedules silent notification (no title/body)', async () => {
-      await startWorkoutActivity('Bench Press', 'Set 1/4');
-      jest.clearAllMocks();
-
-      await updateWorkoutActivityForRest('Bench Press', 90, 2, 4);
-      await flushPromises();
-
-      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
-        expect.objectContaining({
-          content: expect.objectContaining({
-            sound: 'default',
-            interruptionLevel: 'timeSensitive',
-          }),
-          trigger: expect.objectContaining({
-            seconds: 90,
-          }),
-        }),
-      );
-      // Verify no title or body in the notification content
-      const callArg = (Notifications.scheduleNotificationAsync as jest.Mock).mock.calls[0][0];
-      expect(callArg.content.title).toBeUndefined();
-      expect(callArg.content.body).toBeUndefined();
+      expect(Notifications.cancelAllScheduledNotificationsAsync).not.toHaveBeenCalled();
+      expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
     });
   });
 
@@ -190,7 +167,7 @@ describe('liveActivity service', () => {
       );
     });
 
-    it('schedules a silent notification with matching seconds', async () => {
+    it('schedules banner notification with title, body, and matching seconds', async () => {
       await startRestTimerActivity(90, 'Squats');
 
       await flushPromises();
@@ -206,18 +183,22 @@ describe('liveActivity service', () => {
           }),
         }),
       );
-      // No title/body
+      // Verify title and body for visible banner notification
       const callArg = (Notifications.scheduleNotificationAsync as jest.Mock).mock.calls[0][0];
-      expect(callArg.content.title).toBeUndefined();
-      expect(callArg.content.body).toBeUndefined();
+      expect(callArg.content.title).toBe('Rest Complete');
+      expect(callArg.content.body).toBe('Time for your next set');
     });
   });
 
   describe('adjustRestTimerActivity', () => {
     it('updates Live Activity with new countdown and preserves exercise name', async () => {
+      jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       await startRestTimerActivity(120, 'Bench Press');
       jest.clearAllMocks();
+
+      // Advance past throttle window so adjust update fires immediately
+      jest.advanceTimersByTime(600);
 
       await adjustRestTimerActivity(15);
 
@@ -225,11 +206,13 @@ describe('liveActivity service', () => {
         'mock-activity-id',
         expect.objectContaining({
           title: 'Bench Press',
+          subtitle: 'Set 1/1',
           progressBar: expect.objectContaining({
             date: expect.any(Number),
           }),
         }),
       );
+      jest.useRealTimers();
     });
 
     it('awaits cancel before scheduling new notification', async () => {
@@ -256,11 +239,17 @@ describe('liveActivity service', () => {
 
   describe('stopRestTimerActivity', () => {
     it('transitions activity back to set entry view with parseable Set subtitle', async () => {
+      jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
+      jest.advanceTimersByTime(600);
       // updateWorkoutActivityForSet stores currentSetNumber/currentTotalSets
       await updateWorkoutActivityForSet('Bench Press', 2, 4);
+      jest.advanceTimersByTime(600);
       await startRestTimerActivity(120, 'Bench Press');
       jest.clearAllMocks();
+
+      // Advance past throttle window so stop update fires immediately
+      jest.advanceTimersByTime(600);
 
       await stopRestTimerActivity();
 
@@ -274,6 +263,7 @@ describe('liveActivity service', () => {
       );
       // Should NOT stop the activity
       expect(LiveActivity.stopActivity).not.toHaveBeenCalled();
+      jest.useRealTimers();
     });
 
     it('cancels notification when rest is stopped', async () => {
@@ -394,7 +384,7 @@ describe('liveActivity service', () => {
   });
 
   describe('dismissed activity recovery', () => {
-    it('nulls out activity ID after updateActivity throws, subsequent calls no-op', async () => {
+    it('nulls out activity ID after "not found" error, subsequent calls no-op', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
 
       // Simulate the activity being dismissed by user/iOS
@@ -413,6 +403,87 @@ describe('liveActivity service', () => {
       await stopRestTimerActivity();
 
       expect(LiveActivity.updateActivity).not.toHaveBeenCalled();
+    });
+
+    it('transient error preserves activity ID, subsequent calls still work', async () => {
+      jest.useFakeTimers();
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+
+      // Simulate a transient/rate-limit error (no "not found" in message)
+      (LiveActivity.updateActivity as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('Rate limit exceeded');
+      });
+
+      // This call hits the error but should NOT null out activity ID
+      await updateWorkoutActivityForSet('Bench Press', 2, 4);
+      jest.clearAllMocks();
+
+      // Advance past throttle window
+      jest.advanceTimersByTime(600);
+
+      // Subsequent call should still invoke updateActivity
+      await updateWorkoutActivityForSet('Bench Press', 3, 4);
+
+      expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
+        'mock-activity-id',
+        expect.objectContaining({
+          title: 'Bench Press',
+          subtitle: 'Set 3/4',
+        }),
+      );
+
+      jest.useRealTimers();
+    });
+  });
+
+  describe('deduplication', () => {
+    it('prevents duplicate updates with identical content state', async () => {
+      jest.useFakeTimers();
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+      jest.clearAllMocks();
+
+      // First call should go through
+      await updateWorkoutActivityForSet('Bench Press', 2, 4);
+      // Advance past throttle window
+      jest.advanceTimersByTime(600);
+      // Second call with identical state should be deduped
+      await updateWorkoutActivityForSet('Bench Press', 2, 4);
+
+      expect(LiveActivity.updateActivity).toHaveBeenCalledTimes(1);
+
+      jest.useRealTimers();
+    });
+  });
+
+  describe('throttle', () => {
+    it('coalesces rapid updates, only first and last fire', async () => {
+      jest.useFakeTimers();
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+      jest.clearAllMocks();
+
+      // First update — goes through immediately
+      await updateWorkoutActivityForSet('Bench Press', 2, 4);
+      // Rapid updates within throttle window — should be coalesced
+      await updateWorkoutActivityForSet('Bench Press', 3, 4);
+      await updateWorkoutActivityForSet('Bench Press', 4, 4);
+
+      // Only the first should have fired so far
+      expect(LiveActivity.updateActivity).toHaveBeenCalledTimes(1);
+      expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
+        'mock-activity-id',
+        expect.objectContaining({ subtitle: 'Set 2/4' }),
+      );
+
+      // Advance past throttle window — the last pending update should fire
+      jest.advanceTimersByTime(600);
+
+      expect(LiveActivity.updateActivity).toHaveBeenCalledTimes(2);
+      expect(LiveActivity.updateActivity).toHaveBeenLastCalledWith(
+        'mock-activity-id',
+        expect.objectContaining({ subtitle: 'Set 4/4' }),
+      );
+
+      jest.useRealTimers();
     });
   });
 });
