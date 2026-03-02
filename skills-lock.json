@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "remembering-conversations": {
+      "source": "obra/episodic-memory",
+      "sourceType": "github",
+      "computedHash": "2a14fb2ba383270a6de1ea450d5d81d703a95f52d6521293d22bbe1ba0f93380"
+    },
+    "swiftui-expert-skill": {
+      "source": "avdlee/swiftui-agent-skill",
+      "sourceType": "github",
+      "computedHash": "5ee32d89fc40a72d38372b1950eb211077e067a52eecdf479018903425574144"
+    },
+    "update-swiftui-apis": {
+      "source": "avdlee/swiftui-agent-skill",
+      "sourceType": "github",
+      "computedHash": "cd1d2af833b4f98836bbd98684880c73d3a17556d216fe6f4d6eb7149c6dfa3f"
+    }
+  }
+}
