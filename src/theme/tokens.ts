@@ -23,6 +23,7 @@ export const colors = {
   borderSubtle: '#1F1F25',
   primaryMuted: 'rgba(124, 92, 252, 0.12)',
   primaryBorderSubtle: 'rgba(124, 92, 252, 0.2)',
+  info: '#4A9EFF',
 };
 
 export const spacing = {

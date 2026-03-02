@@ -122,18 +122,20 @@ describe('ExerciseHistoryModal', () => {
     expect(await findByText(/150lb × 6/)).toBeTruthy();
   });
 
-  it('shows RPE when present on a set', async () => {
+  it('shows RPE as badge when present on a non-failure set', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
       createMockSession('2026-01-25T10:00:00Z', [
         { weight: 135, reps: 10, rpe: 8 },
       ]),
     ]);
 
-    const { findByText } = render(
+    const { findByText, queryByText } = render(
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
-    expect(await findByText(/@ RPE 8/)).toBeTruthy();
+    // RPE shown as badge (just the number), not inline text
+    expect(await findByText('8')).toBeTruthy();
+    expect(queryByText(/@ RPE/)).toBeNull();
   });
 
   it('shows tag badges for failure/drop sets but filters warmup from recents', async () => {

@@ -432,7 +432,7 @@ export default function WorkoutScreen() {
         reps: null,
         weight: null,
         tag,
-        rpe: tag === 'failure' ? 10 : null,
+        rpe: null,
         is_completed: false,
         notes: null,
       };
@@ -446,7 +446,7 @@ export default function WorkoutScreen() {
         set_number: i + 1,
         weight: '',
         reps: '',
-        rpe: tag === 'failure' ? '10' : '',
+        rpe: '',
         tag,
         is_completed: false,
         previous: previousSets[i] ?? null,
@@ -724,8 +724,8 @@ export default function WorkoutScreen() {
       rpeUpdate.rpe = '';
       dbUpdate.rpe = null;
     } else if (newTag === 'failure') {
-      rpeUpdate.rpe = '10';
-      dbUpdate.rpe = 10;
+      rpeUpdate.rpe = '';
+      dbUpdate.rpe = null;
     }
 
     setExerciseBlocks((prev) => {
@@ -1962,12 +1962,8 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                 placeholderTextColor={placeholderColor}
                 testID={`reps-${blockIdx}-${setIdx}`}
               />
-              {set.tag === 'warmup' ? (
+              {(set.tag === 'warmup' || set.tag === 'failure') ? (
                 <View style={[styles.colRpe]} testID={`rpe-${blockIdx}-${setIdx}`} />
-              ) : set.tag === 'failure' ? (
-                <View style={[styles.rpeDisabled, styles.colRpe]} testID={`rpe-${blockIdx}-${setIdx}`}>
-                  <Text style={styles.rpeDisabledText}>10</Text>
-                </View>
               ) : (
                 <TextInput
                   style={[styles.setInput, styles.colRpe]}
@@ -2328,17 +2324,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  rpeDisabled: {
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    opacity: 0.6,
-  },
-  rpeDisabledText: {
-    color: colors.error,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    textAlign: 'center' as const,
   },
   prBadge: {
     position: 'absolute' as const,

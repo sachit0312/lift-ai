@@ -325,6 +325,9 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 
   // Migration: exercise_order for workout history sequence tracking
   await database.runAsync('ALTER TABLE workout_sets ADD COLUMN exercise_order INTEGER NOT NULL DEFAULT 0').catch(() => {});
+
+  // Migration: null out RPE on failure sets (failure = implicit RPE 10, no need to store it)
+  await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
 }
 
 // ─── Exercises ───

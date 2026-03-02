@@ -170,7 +170,7 @@ export default function HistoryScreen() {
                       <View key={s.id} style={styles.setRow}>
                         <View style={[styles.setDot, { backgroundColor: colors.success }]} />
                         <Text style={styles.setText}>
-                          Set {s.set_number}: {s.weight ?? 0}lb × {s.reps ?? 0}{s.rpe != null ? ` @ RPE ${s.rpe}` : ''}
+                          Set {s.set_number}: {s.weight ?? 0}lb × {s.reps ?? 0}
                         </Text>
                         {tagLabel && (
                           <View style={[styles.setTagBadge, { backgroundColor: tagColor }]}>

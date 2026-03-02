@@ -252,8 +252,12 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                           <Text style={styles.sessionSetNum}>{s.set_number}.</Text>
                           <Text style={styles.sessionSetDetail}>
                             {s.weight}lb × {s.reps}
-                            {s.rpe != null ? ` @ RPE ${s.rpe}` : ''}
                           </Text>
+                          {s.rpe != null && s.tag !== 'failure' && (
+                            <View style={[styles.sessionTagBadge, { backgroundColor: colors.info }]}>
+                              <Text style={styles.sessionTagText}>{s.rpe}</Text>
+                            </View>
+                          )}
                           {s.tag && s.tag !== 'working' && (
                             <View style={[styles.sessionTagBadge, { backgroundColor: getSetTagColor(s.tag) }]}>
                               <Text style={styles.sessionTagText}>{getSetTagLabel(s.tag)}</Text>
