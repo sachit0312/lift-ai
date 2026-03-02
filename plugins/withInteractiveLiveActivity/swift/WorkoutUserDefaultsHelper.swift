@@ -14,31 +14,12 @@ struct WorkoutSetState: Codable {
     var exerciseBlockIndex: Int
     var setNumber: Int
     var totalSets: Int
-    var weight: Double
-    var reps: Int
     var restSeconds: Int
     var restEnabled: Bool
 }
 
-struct NextSetState: Codable {
-    var exerciseName: String
-    var setNumber: Int
-    var weight: Double
-    var reps: Int
-}
-
-struct NextExerciseState: Codable {
-    var exerciseName: String
-    var setNumber: Int
-    var totalSets: Int
-    var weight: Double
-    var reps: Int
-}
-
 struct WorkoutState: Codable {
     var current: WorkoutSetState
-    var next: NextSetState?
-    var nextExercise: NextExerciseState?
     var isResting: Bool
     var restEndTime: Double
     var workoutActive: Bool
@@ -46,10 +27,6 @@ struct WorkoutState: Codable {
 
 struct WorkoutAction: Codable {
     var type: String
-    var weight: Double?
-    var reps: Int?
-    var blockIndex: Int?
-    var setIndex: Int?
     var delta: Double?
     var ts: Double
 }
@@ -92,7 +69,7 @@ class WorkoutUserDefaultsHelper {
         }
         defaults?.set(jsonString, forKey: workoutStateKey)
         defaults?.synchronize()
-        logger.debug("writeWorkoutState: wrote state (weight=\(state.current.weight), reps=\(state.current.reps))")
+        logger.debug("writeWorkoutState: wrote state (exercise=\(state.current.exerciseName), set=\(state.current.setNumber)/\(state.current.totalSets))")
     }
 
     func appendAction(_ action: WorkoutAction) {

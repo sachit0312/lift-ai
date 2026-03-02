@@ -17,13 +17,8 @@ jest.mock('../../services/liveActivity', () => ({
   updateWorkoutActivityForRest: jest.fn(),
 }));
 
-jest.mock('../../services/database', () => ({
-  updateWorkoutSet: jest.fn().mockResolvedValue(undefined),
-}));
-
 import { syncStateToWidget, startPolling } from '../../services/workoutBridge';
 import { updateWorkoutActivityForSet, updateWorkoutActivityForRest } from '../../services/liveActivity';
-import { updateWorkoutSet } from '../../services/database';
 
 // ─── Helpers ───
 
@@ -69,14 +64,10 @@ function makeOptions(overrides: Partial<UseWidgetBridgeOptions> = {}): UseWidget
   return {
     blocksRef: { current: blocks },
     workoutRef: { current: { id: 'w1', user_id: 'u1', template_id: null, upcoming_workout_id: null, started_at: new Date().toISOString(), finished_at: null, ai_summary: null, notes: null } as Workout },
-    upcomingTargets: null,
     isResting: false,
     restEndTime: 0,
-    onCompleteSet: jest.fn(),
     onDismissRest: jest.fn(),
     onAdjustRest: jest.fn(),
-    onStartRest: jest.fn(),
-    setExerciseBlocks: jest.fn(),
     ...overrides,
   };
 }
@@ -106,16 +97,8 @@ describe('useWidgetBridge', () => {
       expect(state.current.exerciseBlockIndex).toBe(0);
       expect(state.current.setNumber).toBe(1);
       expect(state.current.totalSets).toBe(2);
-      expect(state.current.weight).toBe(135);
-      expect(state.current.reps).toBe(10);
       expect(state.current.restSeconds).toBe(150);
       expect(state.current.restEnabled).toBe(true);
-      // Next set should use previous data since weight/reps are empty
-      expect(state.next).not.toBeNull();
-      expect(state.next?.weight).toBe(130);
-      expect(state.next?.reps).toBe(8);
-      // No next exercise (only 1 block)
-      expect(state.nextExercise).toBeNull();
     });
 
     it('handles empty blocks gracefully', () => {
@@ -129,10 +112,6 @@ describe('useWidgetBridge', () => {
       expect(state.current.exerciseBlockIndex).toBe(0);
       expect(state.current.setNumber).toBe(1);
       expect(state.current.totalSets).toBe(1);
-      expect(state.current.weight).toBe(0);
-      expect(state.current.reps).toBe(0);
-      expect(state.next).toBeNull();
-      expect(state.nextExercise).toBeNull();
     });
 
     it('finds first incomplete set starting from preferBlockIdx', () => {
@@ -187,27 +166,6 @@ describe('useWidgetBridge', () => {
 
       expect(state.isResting).toBe(true);
       expect(state.restEndTime).toBe(restEnd);
-    });
-
-    it('populates nextExercise when multiple blocks exist', () => {
-      const block0 = createBlock({
-        exercise: createMockExercise({ id: 'ex-a', name: 'Squat' }),
-      });
-      const block1 = createBlock({
-        exercise: createMockExercise({ id: 'ex-b', name: 'Leg Press' }),
-        sets: [
-          { id: 's3', exercise_id: 'ex-b', set_number: 1, weight: '200', reps: '12', rpe: '', tag: 'working', is_completed: false, previous: null },
-        ],
-      });
-
-      const options = makeOptions({ blocksRef: { current: [block0, block1] } });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      const state = result.current.buildWidgetState([block0, block1], false, 0);
-      expect(state.nextExercise).not.toBeNull();
-      expect(state.nextExercise?.exerciseName).toBe('Leg Press');
-      expect(state.nextExercise?.weight).toBe(200);
-      expect(state.nextExercise?.reps).toBe(12);
     });
   });
 
@@ -271,30 +229,6 @@ describe('useWidgetBridge', () => {
   });
 
   describe('handleWidgetActions', () => {
-    it('dispatches completeSet correctly', async () => {
-      const setExerciseBlocks = jest.fn();
-      const onStartRest = jest.fn();
-      const options = makeOptions({ setExerciseBlocks, onStartRest });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      await act(async () => {
-        result.current.handleWidgetActions([
-          { type: 'completeSet', blockIndex: 0, setIndex: 0, weight: 140, reps: 8, ts: Date.now() },
-        ]);
-      });
-
-      // Should update exercise blocks via setExerciseBlocks
-      expect(setExerciseBlocks).toHaveBeenCalledTimes(1);
-      // Should persist to SQLite
-      expect(updateWorkoutSet).toHaveBeenCalledWith('set1', {
-        weight: 140,
-        reps: 8,
-        is_completed: true,
-      });
-      // Block has restEnabled=true, so should start rest timer
-      expect(onStartRest).toHaveBeenCalledWith(150, 'Bench Press');
-    });
-
     it('dispatches skipRest correctly', () => {
       const onDismissRest = jest.fn();
       const options = makeOptions({ onDismissRest });
@@ -325,35 +259,20 @@ describe('useWidgetBridge', () => {
     });
 
     it('ignores actions when no active workout', () => {
-      const setExerciseBlocks = jest.fn();
+      const onDismissRest = jest.fn();
       const options = makeOptions({
         workoutRef: { current: null },
-        setExerciseBlocks,
+        onDismissRest,
       });
       const { result } = renderHook(() => useWidgetBridge(options));
 
       act(() => {
         result.current.handleWidgetActions([
-          { type: 'completeSet', blockIndex: 0, setIndex: 0, weight: 100, reps: 5, ts: Date.now() },
+          { type: 'skipRest', ts: Date.now() },
         ]);
       });
 
-      expect(setExerciseBlocks).not.toHaveBeenCalled();
-      expect(updateWorkoutSet).not.toHaveBeenCalled();
-    });
-
-    it('ignores out-of-bounds block/set indices', () => {
-      const setExerciseBlocks = jest.fn();
-      const options = makeOptions({ setExerciseBlocks });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      act(() => {
-        result.current.handleWidgetActions([
-          { type: 'completeSet', blockIndex: 5, setIndex: 0, weight: 100, reps: 5, ts: Date.now() },
-        ]);
-      });
-
-      expect(setExerciseBlocks).not.toHaveBeenCalled();
+      expect(onDismissRest).not.toHaveBeenCalled();
     });
   });
 

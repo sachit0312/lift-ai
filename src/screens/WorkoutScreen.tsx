@@ -15,7 +15,6 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
-  AppState,
 } from 'react-native';
 import { useRestTimer } from '../hooks/useRestTimer';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -167,14 +166,10 @@ export default function WorkoutScreen() {
   } = useWidgetBridge({
     blocksRef,
     workoutRef,
-    upcomingTargets,
     isResting,
     restEndTime: currentEndTime,
-    onCompleteSet: () => {},  // Not used directly — handleWidgetCompleteSet handles internally
     onDismissRest: dismissRest,
     onAdjustRest: adjustRestTimer,
-    onStartRest: startRestTimer,
-    setExerciseBlocks,
   });
 
   // Keep ref in sync so rest timer callbacks always get latest syncWidgetState
@@ -1205,17 +1200,6 @@ export default function WorkoutScreen() {
 
   useEffect(() => {
     requestNotificationPermissions();
-  }, []);
-
-  // ─── Sync widget state on foreground return ───
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && workoutRef.current) {
-        syncWidgetState();
-      }
-    });
-    return () => subscription.remove();
   }, []);
 
   // ─── Cleanup ───

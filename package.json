@@ -15,7 +15,8 @@
     "build:prod": "eas build --platform ios --profile production",
     "submit:ios": "eas submit --platform ios --profile production",
     "update:prod": "eas update --channel production",
-    "update:preview": "eas update --channel preview"
+    "update:preview": "eas update --channel preview",
+    "postinstall": "node patches/fix-devicectl-json-version.js"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

@@ -57,9 +57,9 @@ struct UnifiedWorkoutView: View {
   let contentState: LiveActivityAttributes.ContentState
   let attributes: LiveActivityAttributes
 
-  private var isResting: Bool {
-    guard let end = contentState.timerEndDateInMilliseconds, end > 0 else { return false }
-    return Date(timeIntervalSince1970: end / 1000) > Date()
+  private var restEndDate: Date? {
+    guard let end = contentState.timerEndDateInMilliseconds, end > 0 else { return nil }
+    return Date(timeIntervalSince1970: end / 1000)
   }
 
   private var parsed: ParsedSetState? {
@@ -70,11 +70,18 @@ struct UnifiedWorkoutView: View {
     contentState.timerEndDateInMilliseconds ?? 0
   }
 
+  private var isResting: Bool {
+    guard let restEnd = restEndDate else { return false }
+    return restEnd > Date()
+  }
+
   var body: some View {
+    let resting = isResting
+
     VStack(spacing: 6) {
       // Header row: exercise name + set counter
       HStack {
-        if isResting {
+        if resting {
           Text("Rest")
             .font(.subheadline)
             .fontWeight(.semibold)
@@ -100,7 +107,7 @@ struct UnifiedWorkoutView: View {
       }
 
       // Rest timer section (only when resting)
-      if isResting {
+      if resting {
         // Countdown timer
         Text(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
           .id(restEndTime)  // Force recreation on timer adjustment
@@ -154,41 +161,6 @@ struct UnifiedWorkoutView: View {
         }
       }
 
-      // Complete Set button — dimmed during rest, active otherwise
-      if isResting {
-        // Disabled appearance during rest (not a real Button with intent)
-        HStack {
-          Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 14))
-          Text("Complete Set")
-            .font(.subheadline)
-            .fontWeight(.semibold)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(
-          RoundedRectangle(cornerRadius: 10)
-            .fill(Color.gray.opacity(0.4))
-        )
-        .foregroundStyle(Color.white.opacity(0.5))
-      } else {
-        Button(intent: CompleteSetIntent()) {
-          HStack {
-            Image(systemName: "checkmark.circle.fill")
-              .font(.system(size: 14))
-            Text("Complete Set")
-              .font(.subheadline)
-              .fontWeight(.semibold)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 8)
-          .background(
-            RoundedRectangle(cornerRadius: 10)
-              .fill(Color(hex: attributes.progressViewTint ?? "#7C5CFC"))
-          )
-        }
-        .buttonStyle(.plain)
-      }
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 10)

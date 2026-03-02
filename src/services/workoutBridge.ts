@@ -9,42 +9,19 @@ export interface WidgetSetState {
   exerciseBlockIndex: number;
   setNumber: number;
   totalSets: number;
-  weight: number;
-  reps: number;
   restSeconds: number;
   restEnabled: boolean;
 }
 
-export interface WidgetNextSetState {
-  exerciseName: string;
-  setNumber: number;
-  weight: number;
-  reps: number;
-}
-
-export interface WidgetNextExerciseState {
-  exerciseName: string;
-  setNumber: number;
-  totalSets: number;
-  weight: number;
-  reps: number;
-}
-
 export interface WidgetState {
   current: WidgetSetState;
-  next: WidgetNextSetState | null;
-  nextExercise: WidgetNextExerciseState | null;
   isResting: boolean;
   restEndTime: number;
   workoutActive: boolean;
 }
 
 export interface WidgetAction {
-  type: 'completeSet' | 'skipRest' | 'adjustRest';
-  weight?: number;
-  reps?: number;
-  blockIndex?: number;
-  setIndex?: number;
+  type: 'skipRest' | 'adjustRest';
   delta?: number;
   ts: number;
 }

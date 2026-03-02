@@ -22,18 +22,9 @@ const createMockWidgetState = (overrides?: Partial<WidgetState>): WidgetState =>
     exerciseBlockIndex: 0,
     setNumber: 1,
     totalSets: 4,
-    weight: 225,
-    reps: 8,
     restSeconds: 150,
     restEnabled: true,
   },
-  next: {
-    exerciseName: 'Bench Press',
-    setNumber: 2,
-    weight: 225,
-    reps: 8,
-  },
-  nextExercise: null,
   isResting: false,
   restEndTime: 0,
   workoutActive: true,
@@ -85,7 +76,7 @@ describe('workoutBridge', () => {
 
     it('reads and clears action queue', () => {
       const actions = [
-        { type: 'completeSet', weight: 225, reps: 8, blockIndex: 0, setIndex: 2, ts: 1740000000 },
+        { type: 'skipRest', ts: 1740000000 },
       ];
       mockGetItem.mockReturnValue(JSON.stringify(actions));
 
@@ -93,6 +84,18 @@ describe('workoutBridge', () => {
 
       expect(result).toEqual(actions);
       expect(mockRemoveItem).toHaveBeenCalledWith('liftai_action_queue');
+    });
+
+    it('reads adjustRest action with delta', () => {
+      const actions = [
+        { type: 'adjustRest', delta: 15, ts: 1740000000 },
+      ];
+      mockGetItem.mockReturnValue(JSON.stringify(actions));
+
+      const result = pollForActions();
+
+      expect(result).toEqual(actions);
+      expect(result[0]).toHaveProperty('delta', 15);
     });
 
     it('no-ops on Android', () => {
