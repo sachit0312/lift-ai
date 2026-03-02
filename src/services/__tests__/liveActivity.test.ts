@@ -4,7 +4,6 @@ import * as Notifications from 'expo-notifications';
 
 // Must import after mocks are set up via jest.config.js moduleNameMapper
 import {
-  startRestTimerActivity,
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
@@ -13,6 +12,8 @@ import {
   updateWorkoutActivityForSet,
   updateWorkoutActivityForRest,
   stopWorkoutActivity,
+  scheduleTimerEndNotification,
+  cancelTimerEndNotification,
 } from '../liveActivity';
 
 // Helper to flush async microtasks (notification scheduling is async)
@@ -130,47 +131,9 @@ describe('liveActivity service', () => {
     });
   });
 
-  describe('startRestTimerActivity', () => {
-    it('updates existing activity to show rest timer', async () => {
-      await startWorkoutActivity('Bench Press', 'Set 1/4');
-      jest.clearAllMocks();
-
-      await startRestTimerActivity(150, 'Bench Press');
-
-      expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
-        'mock-activity-id',
-        expect.objectContaining({
-          title: 'Bench Press',
-          subtitle: 'Rest Timer',
-          progressBar: expect.objectContaining({
-            date: expect.any(Number),
-          }),
-        }),
-      );
-    });
-
-    it('starts new activity as fallback when none exists', async () => {
-      await startRestTimerActivity(150, 'Bench Press');
-
-      expect(LiveActivity.startActivity).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Bench Press',
-          subtitle: 'Rest Timer',
-          progressBar: expect.objectContaining({
-            date: expect.any(Number),
-          }),
-        }),
-        expect.objectContaining({
-          timerType: 'circular',
-          deepLinkUrl: '/workout',
-        }),
-      );
-    });
-
+  describe('scheduleTimerEndNotification', () => {
     it('schedules banner notification with title, body, and matching seconds', async () => {
-      await startRestTimerActivity(90, 'Squats');
-
-      await flushPromises();
+      await scheduleTimerEndNotification(90);
 
       expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -183,7 +146,6 @@ describe('liveActivity service', () => {
           }),
         }),
       );
-      // Verify title and body for visible banner notification
       const callArg = (Notifications.scheduleNotificationAsync as jest.Mock).mock.calls[0][0];
       expect(callArg.content.title).toBe('Rest Complete');
       expect(callArg.content.body).toBe('Time for your next set');
@@ -194,7 +156,7 @@ describe('liveActivity service', () => {
     it('updates Live Activity with new countdown and preserves exercise name', async () => {
       jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await startRestTimerActivity(120, 'Bench Press');
+      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
       jest.clearAllMocks();
 
       // Advance past throttle window so adjust update fires immediately
@@ -206,7 +168,7 @@ describe('liveActivity service', () => {
         'mock-activity-id',
         expect.objectContaining({
           title: 'Bench Press',
-          subtitle: 'Set 1/1',
+          subtitle: 'Set 1/4',
           progressBar: expect.objectContaining({
             date: expect.any(Number),
           }),
@@ -215,18 +177,19 @@ describe('liveActivity service', () => {
       jest.useRealTimers();
     });
 
-    it('awaits cancel before scheduling new notification', async () => {
+    it('schedules new notification on adjust', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await startRestTimerActivity(120, 'Bench Press');
-      await flushPromises();
+      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
+      // Schedule a notification to simulate what useRestTimer does
+      await scheduleTimerEndNotification(120);
 
       jest.clearAllMocks();
 
       await adjustRestTimerActivity(15);
+      // Serialized notification ops chain on microtask queue — flush them
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
 
-      await flushPromises();
-
-      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('mock-notification-id');
       expect(Notifications.scheduleNotificationAsync).toHaveBeenCalled();
     });
 
@@ -242,16 +205,14 @@ describe('liveActivity service', () => {
       jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       jest.advanceTimersByTime(600);
-      // updateWorkoutActivityForSet stores currentSetNumber/currentTotalSets
-      await updateWorkoutActivityForSet('Bench Press', 2, 4);
-      jest.advanceTimersByTime(600);
-      await startRestTimerActivity(120, 'Bench Press');
+      // updateWorkoutActivityForRest stores currentSetNumber/currentTotalSets
+      await updateWorkoutActivityForRest('Bench Press', 120, 2, 4);
       jest.clearAllMocks();
 
       // Advance past throttle window so stop update fires immediately
       jest.advanceTimersByTime(600);
 
-      await stopRestTimerActivity();
+      stopRestTimerActivity();
 
       // Should update with "Set X/Y" subtitle (parseable by widget), not stop the activity
       expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
@@ -268,18 +229,22 @@ describe('liveActivity service', () => {
 
     it('cancels notification when rest is stopped', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await startRestTimerActivity(120, 'Bench Press');
-      await flushPromises();
+      // Schedule a notification so we can verify it gets cancelled
+      await scheduleTimerEndNotification(120);
+      await new Promise(resolve => setImmediate(resolve));
 
       jest.clearAllMocks();
 
-      await stopRestTimerActivity();
+      stopRestTimerActivity();
+      // Serialized notification ops chain on microtask queue — flush them
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
 
       expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('mock-notification-id');
     });
 
-    it('no-ops when no activity is active', async () => {
-      await stopRestTimerActivity();
+    it('no-ops when no activity is active', () => {
+      stopRestTimerActivity();
 
       expect(LiveActivity.updateActivity).not.toHaveBeenCalled();
     });
@@ -308,9 +273,8 @@ describe('liveActivity service', () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       await updateWorkoutActivityForSet('Bench Press', 2, 4);
       await updateWorkoutActivityForRest('Bench Press', 90, 2, 4);
-      await startRestTimerActivity(120, 'Bench Press');
       await adjustRestTimerActivity(15);
-      await stopRestTimerActivity();
+      stopRestTimerActivity();
       await stopWorkoutActivity();
       await requestNotificationPermissions();
 
@@ -328,7 +292,7 @@ describe('liveActivity service', () => {
 
     it('returns remaining seconds when timer is active', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await startRestTimerActivity(120, 'Bench Press');
+      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
 
       const remaining = getRestTimerRemainingSeconds();
       expect(remaining).not.toBeNull();
@@ -337,7 +301,8 @@ describe('liveActivity service', () => {
     });
 
     it('returns remaining seconds for a short-duration timer', async () => {
-      await startRestTimerActivity(1, 'Squats');
+      await startWorkoutActivity('Squats', 'Set 1/3');
+      await updateWorkoutActivityForRest('Squats', 1, 1, 3);
       const remaining = getRestTimerRemainingSeconds();
       expect(remaining).not.toBeNull();
       expect(remaining).toBeGreaterThanOrEqual(0);
@@ -346,7 +311,7 @@ describe('liveActivity service', () => {
 
     it('returns null after workout activity is stopped', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await startRestTimerActivity(120, 'Bench Press');
+      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
       await stopWorkoutActivity();
 
       expect(getRestTimerRemainingSeconds()).toBeNull();
@@ -359,7 +324,7 @@ describe('liveActivity service', () => {
         throw new Error('Live Activity not available');
       });
 
-      await expect(startRestTimerActivity(120, 'Bench Press')).resolves.not.toThrow();
+      await expect(startWorkoutActivity('Bench Press', 'Set 1/4')).resolves.not.toThrow();
     });
 
     it('does not throw when updateActivity fails', async () => {
@@ -400,7 +365,7 @@ describe('liveActivity service', () => {
       await updateWorkoutActivityForSet('Bench Press', 3, 4);
       await updateWorkoutActivityForRest('Bench Press', 90, 3, 4);
       await adjustRestTimerActivity(15);
-      await stopRestTimerActivity();
+      stopRestTimerActivity();
 
       expect(LiveActivity.updateActivity).not.toHaveBeenCalled();
     });

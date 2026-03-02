@@ -75,6 +75,20 @@ struct UnifiedWorkoutView: View {
     return restEnd > Date()
   }
 
+  /// Progress bar interval using original template rest duration (never changes on +/-15s).
+  /// This gives proportional display: bar = remaining / original_start_total.
+  private var progressInterval: ClosedRange<Date> {
+    let endMs = restEndTime
+    let endDate = Date(timeIntervalSince1970: endMs / 1000)
+    if let state = WorkoutUserDefaultsHelper.shared.readWorkoutState(),
+       state.current.restSeconds > 0 {
+      let totalMs = Double(state.current.restSeconds) * 1000
+      let startDate = Date(timeIntervalSince1970: (endMs - totalMs) / 1000)
+      return min(startDate, endDate) ... endDate
+    }
+    return Date.now ... max(Date.now, endDate)
+  }
+
   var body: some View {
     let resting = isResting
 
@@ -116,8 +130,8 @@ struct UnifiedWorkoutView: View {
           .multilineTextAlignment(.center)
           .invalidatableContent()
 
-        // Progress bar
-        ProgressView(timerInterval: Date.toTimerInterval(miliseconds: restEndTime))
+        // Progress bar — uses original rest total for proportional display
+        ProgressView(timerInterval: progressInterval, countsDown: true)
           .id(restEndTime)  // Force recreation on timer adjustment
           .tint(attributes.progressViewTint.map { Color(hex: $0) })
 

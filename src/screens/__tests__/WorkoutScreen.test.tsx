@@ -48,7 +48,6 @@ jest.mock('../../services/sync', () => ({
 }));
 
 jest.mock('../../services/liveActivity', () => ({
-  startRestTimerActivity: jest.fn(),
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
   requestNotificationPermissions: jest.fn(),
@@ -57,6 +56,9 @@ jest.mock('../../services/liveActivity', () => ({
   updateWorkoutActivityForSet: jest.fn(),
   updateWorkoutActivityForRest: jest.fn(),
   stopWorkoutActivity: jest.fn(),
+  scheduleTimerEndNotification: jest.fn(),
+  scheduleRestNotification: jest.fn(),
+  cancelTimerEndNotification: jest.fn(),
 }));
 
 jest.mock('../../services/workoutBridge', () => ({
@@ -64,6 +66,7 @@ jest.mock('../../services/workoutBridge', () => ({
   startPolling: jest.fn(),
   stopPolling: jest.fn(),
   clearWidgetState: jest.fn(),
+  getWidgetRestState: jest.fn().mockReturnValue(null),
 }));
 
 jest.mock('@react-navigation/native', () => ({
@@ -106,6 +109,7 @@ import {
   startPolling,
   stopPolling,
   clearWidgetState,
+  getWidgetRestState,
 } from '../../services/workoutBridge';
 import WorkoutScreen from '../WorkoutScreen';
 
@@ -1353,7 +1357,7 @@ describe('WorkoutScreen', () => {
       });
     });
 
-    it('resyncs rest timer when app returns to foreground', async () => {
+    it('rest timer bar remains visible on foreground return when still resting', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
@@ -1369,16 +1373,16 @@ describe('WorkoutScreen', () => {
         expect(result.getByText(/Rest —/)).toBeTruthy();
       });
 
-      // Simulate returning from background with 45 seconds remaining
-      (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(45);
+      // Widget state says still resting (timer hasn't expired)
+      (getWidgetRestState as jest.Mock).mockReturnValue(null);
 
       await act(async () => {
         fireAppState('active');
       });
 
-      // Timer should show the resynced value (0:45)
+      // Rest bar should still be showing (timer hasn't expired)
       await waitFor(() => {
-        expect(result.getByText('0:45')).toBeTruthy();
+        expect(result.getByText(/Rest —/)).toBeTruthy();
       });
     });
 
@@ -1398,7 +1402,7 @@ describe('WorkoutScreen', () => {
       expect(getRestTimerRemainingSeconds).not.toHaveBeenCalled();
     });
 
-    it('dismisses rest timer when getRestTimerRemainingSeconds returns null', async () => {
+    it('dismisses rest timer when widget says rest was skipped while backgrounded', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
@@ -1416,8 +1420,8 @@ describe('WorkoutScreen', () => {
 
       (stopRestTimerActivity as jest.Mock).mockClear();
 
-      // Simulate Live Activity state cleared while backgrounded (returns null)
-      (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(null);
+      // Widget says rest was skipped while backgrounded
+      (getWidgetRestState as jest.Mock).mockReturnValue({ isResting: false, restEndTime: 0 });
 
       await act(async () => {
         fireAppState('active');
@@ -1432,7 +1436,7 @@ describe('WorkoutScreen', () => {
       expect(stopRestTimerActivity).toHaveBeenCalled();
     });
 
-    it('auto-dismisses rest timer if expired while backgrounded', async () => {
+    it('auto-dismisses rest timer if widget reports expired while backgrounded', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
@@ -1451,8 +1455,9 @@ describe('WorkoutScreen', () => {
       // Clear mocks so we can check stopRestTimerActivity was called by resync
       (stopRestTimerActivity as jest.Mock).mockClear();
 
-      // Simulate returning from background with timer expired
-      (getRestTimerRemainingSeconds as jest.Mock).mockReturnValue(0);
+      // Widget says rest ended (not resting anymore) — similar to timer naturally expiring
+      // while backgrounded and the widget updating its state
+      (getWidgetRestState as jest.Mock).mockReturnValue({ isResting: false, restEndTime: 0 });
 
       await act(async () => {
         fireAppState('active');

@@ -3,8 +3,10 @@ import { AppState, Vibration } from 'react-native';
 import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
-  getRestTimerRemainingSeconds,
+  scheduleRestNotification,
+  cancelTimerEndNotification,
 } from '../services/liveActivity';
+import { getWidgetRestState } from '../services/workoutBridge';
 
 interface UseRestTimerOptions {
   onRestEnd: () => void;
@@ -18,7 +20,7 @@ interface UseRestTimerReturn {
   isResting: boolean;
   currentEndTime: number;
   startRestTimer: (seconds: number, exerciseName: string) => void;
-  adjustRestTimer: (delta: number) => void;
+  adjustRestTimer: (delta: number, opts?: { fromWidget?: boolean }) => void;
   dismissRest: () => void;
 }
 
@@ -36,6 +38,23 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   const onRestUpdateRef = useRef(onRestUpdate);
   onRestUpdateRef.current = onRestUpdate;
 
+  // ─── Shared cleanup helper ───
+  const endRest = useCallback((vibrate: boolean) => {
+    if (restRef.current) clearInterval(restRef.current);
+    restRef.current = null;
+    currentEndTimeRef.current = 0;
+    setRestSeconds(0);
+    setRestTotal(0);
+    setRestExerciseName('');
+    cancelTimerEndNotification();
+    stopRestTimerActivity();
+    onRestEndRef.current();
+    if (vibrate) {
+      try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
+    }
+  }, []);
+
+  // ─── Start rest timer ───
   const startRestTimer = useCallback((seconds: number, exerciseName: string) => {
     if (restRef.current) clearInterval(restRef.current);
     const total = seconds;
@@ -48,69 +67,79 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
 
     onRestUpdateRef.current(true, endTime);
 
+    // Schedule notification for when timer ends (Fix 1)
+    // Routed through serialized queue to prevent race with adjustRestTimerActivity
+    scheduleRestNotification(total);
+
+    // Interval computes remaining from absolute endTime (Fix 7+8: aligns with lock screen)
     restRef.current = setInterval(() => {
-      setRestSeconds((prev) => {
-        if (prev <= 1) {
-          if (restRef.current) clearInterval(restRef.current);
-          restRef.current = null;
-          currentEndTimeRef.current = 0;
-          stopRestTimerActivity();
-          onRestEndRef.current();
-          try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, []);
+      const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
+      setRestSeconds(remaining);
 
-  const adjustRestTimer = useCallback((delta: number) => {
-    setRestSeconds((prev) => {
-      const next = Math.max(0, prev + delta);
-      if (next === 0 && restRef.current) {
-        clearInterval(restRef.current);
-        restRef.current = null;
+      if (remaining <= 0) {
+        endRest(true);
       }
-      return next;
-    });
-    setRestTotal((prev) => Math.max(prev + delta, 1));
+    }, 1000);
+  }, [endRest]);
 
-    currentEndTimeRef.current += delta * 1000;
+  // ─── Adjust timer (+/-15s) ───
+  const adjustRestTimer = useCallback((delta: number, opts?: { fromWidget?: boolean }) => {
+    const newEndTime = currentEndTimeRef.current + delta * 1000;
+    const remaining = Math.max(0, Math.round((newEndTime - Date.now()) / 1000));
 
-    adjustRestTimerActivity(delta);
+    if (remaining <= 0) {
+      // Timer hit zero via adjustment — treat like natural expiry (Fix 4)
+      endRest(true);
+    } else {
+      currentEndTimeRef.current = newEndTime;
+      setRestSeconds(remaining);
+      setRestTotal((prev) => Math.max(prev + delta, 1));
 
-    onRestUpdateRef.current(true, currentEndTimeRef.current);
-  }, []);
+      // Always update Live Activity from RN — Swift's refreshLiveActivity is a no-op
+      // due to cross-target type mismatch. The skipNextLiveActivityUpdate flag in
+      // useWidgetBridge prevents the redundant second update from syncWidgetState.
+      adjustRestTimerActivity(delta);
+      onRestUpdateRef.current(true, newEndTime);
+    }
+  }, [endRest]);
 
+  // ─── Dismiss/skip rest ───
   const dismissRest = useCallback(() => {
-    if (restRef.current) clearInterval(restRef.current);
-    restRef.current = null;
-    setRestSeconds(0);
-    currentEndTimeRef.current = 0;
+    // Fix 5: call onRestEnd (via endRest) so widget state is synced
+    endRest(false);
+  }, [endRest]);
 
-    stopRestTimerActivity();
-  }, []);
-
-  // Resync rest timer on foreground return
+  // ─── Resync rest timer on foreground return ───
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && restRef.current !== null) {
-        const remaining = getRestTimerRemainingSeconds();
-        if (remaining === null || remaining <= 0) {
-          if (restRef.current) clearInterval(restRef.current);
-          restRef.current = null;
-          currentEndTimeRef.current = 0;
-          setRestSeconds(0);
-          stopRestTimerActivity();
-          onRestEndRef.current();
-          try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
+        // Fix 2: Read widget-side state (may have been updated by Swift intents while backgrounded)
+        const widgetState = getWidgetRestState();
+
+        // If widget says rest was skipped, honor that without vibrating
+        if (widgetState && !widgetState.isResting) {
+          endRest(false);
+          return;
+        }
+
+        // Use the widget's end time if available (it reflects +/-15s adjustments)
+        const effectiveEndTime = widgetState
+          ? Math.max(currentEndTimeRef.current, widgetState.restEndTime)
+          : currentEndTimeRef.current;
+        currentEndTimeRef.current = effectiveEndTime;
+
+        const remaining = Math.max(0, Math.round((effectiveEndTime - Date.now()) / 1000));
+
+        if (remaining <= 0) {
+          // Fix 3: cancelTimerEndNotification is called inside endRest, before vibrating
+          endRest(true);
         } else {
           setRestSeconds(remaining);
         }
       }
     });
     return () => subscription.remove();
-  }, []);
+  }, [endRest]);
 
   // Clean up interval on unmount
   useEffect(() => {

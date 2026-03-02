@@ -148,10 +148,9 @@ export async function updateWorkoutActivityForRest(
       subtitle: `Set ${setNumber}/${totalSets}`,
       progressBar: { date: endTime },
     });
-    // Notifications are NOT scheduled here — they're managed exclusively by
-    // startRestTimerActivity / adjustRestTimerActivity / stopRestTimerActivity.
-    // Scheduling here caused duplicate notifications because this function is
-    // also called via syncWidgetState, racing with the dedicated timer functions.
+    // Notifications are NOT scheduled here — they're managed by useRestTimer.
+    // Scheduling here caused duplicates because this function is also called
+    // via syncWidgetState on every rest state change.
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to update workout activity for rest', e);
     Sentry.captureException(e);
@@ -195,47 +194,16 @@ export async function stopWorkoutActivity(): Promise<void> {
 
 // ─── Rest Timer Functions (now operate within persistent activity) ───
 
-export async function startRestTimerActivity(totalSeconds: number, exerciseName: string): Promise<void> {
-  if (Platform.OS !== 'ios') return;
-  try {
-    currentExerciseName = exerciseName;
-    const endTime = Date.now() + totalSeconds * 1000;
-    currentEndTime = endTime;
-
-    if (currentActivityId) {
-      // Update existing persistent activity to show rest timer
-      safeUpdateActivity({
-        title: exerciseName,
-        subtitle: 'Rest Timer',
-        progressBar: { date: endTime },
-      });
-    } else {
-      // Fallback: start a new activity if none exists
-      const activityId = LiveActivity.startActivity(
-        {
-          title: exerciseName,
-          subtitle: 'Rest Timer',
-          progressBar: { date: endTime },
-        },
-        {
-          timerType: 'circular',
-          deepLinkUrl: '/workout',
-          backgroundColor: colors.surface,
-          titleColor: colors.text,
-          subtitleColor: colors.textSecondary,
-          progressViewTint: colors.primary,
-        },
-      );
-      currentActivityId = activityId ?? null;
-    }
-
-    // Cancel any existing then schedule notification for when timer ends
+/**
+ * Schedule the initial "Rest Complete" notification via the serialized queue.
+ * This prevents a race with adjustRestTimerActivity's cancel+reschedule
+ * if the user taps +/-15s immediately after rest starts.
+ */
+export function scheduleRestNotification(seconds: number): void {
+  serializedNotificationOp(async () => {
     await cancelTimerEndNotification();
-    await scheduleTimerEndNotification(totalSeconds);
-  } catch (e: unknown) {
-    if (__DEV__) console.error('Failed to start rest timer', e);
-    Sentry.captureException(e);
-  }
+    await scheduleTimerEndNotification(seconds);
+  });
 }
 
 export async function adjustRestTimerActivity(deltaSeconds: number): Promise<void> {
@@ -252,18 +220,20 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
       progressBar: { date: newEndTime },
     });
 
-    // Reschedule notification — await cancel to prevent stacking
-    await cancelTimerEndNotification();
-    if (remainingSeconds > 0) {
-      await scheduleTimerEndNotification(remainingSeconds);
-    }
+    // Reschedule notification via serialized queue to prevent stacking
+    serializedNotificationOp(async () => {
+      await cancelTimerEndNotification();
+      if (remainingSeconds > 0) {
+        await scheduleTimerEndNotification(remainingSeconds);
+      }
+    });
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to adjust rest timer', e);
     Sentry.captureException(e);
   }
 }
 
-export async function stopRestTimerActivity(): Promise<void> {
+export function stopRestTimerActivity(): void {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
     currentEndTime = 0;
@@ -274,11 +244,20 @@ export async function stopRestTimerActivity(): Promise<void> {
       subtitle: `Set ${currentSetNumber}/${currentTotalSets}`,
     });
 
-    await cancelTimerEndNotification();
+    serializedNotificationOp(() => cancelTimerEndNotification());
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to stop rest timer', e);
     Sentry.captureException(e);
   }
+}
+
+// ─── Notification serialization ───
+// Prevents concurrent cancel+schedule calls from interleaving when multiple
+// adjustments fire in quick succession (e.g., rapid +15s taps from widget).
+let notificationChain: Promise<void> = Promise.resolve();
+
+function serializedNotificationOp(fn: () => Promise<void>): void {
+  notificationChain = notificationChain.then(fn).catch(() => {});
 }
 
 // ─── Internal helpers ───
@@ -339,7 +318,7 @@ function doUpdate(contentState: LiveActivityState, json: string): void {
   }
 }
 
-async function scheduleTimerEndNotification(seconds: number): Promise<void> {
+export async function scheduleTimerEndNotification(seconds: number): Promise<void> {
   try {
     currentNotificationId = await Notifications.scheduleNotificationAsync({
       content: {
@@ -359,7 +338,7 @@ async function scheduleTimerEndNotification(seconds: number): Promise<void> {
   }
 }
 
-async function cancelTimerEndNotification(): Promise<void> {
+export async function cancelTimerEndNotification(): Promise<void> {
   if (currentNotificationId) {
     const idToCancel = currentNotificationId;
     currentNotificationId = null;

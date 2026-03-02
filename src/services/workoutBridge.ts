@@ -81,6 +81,23 @@ export function stopPolling(): void {
   }
 }
 
+/**
+ * Read current rest state from UserDefaults (reflects widget-side changes).
+ * Used by foreground resync to detect +/-15s adjustments or skips
+ * that happened while the app was backgrounded.
+ */
+export function getWidgetRestState(): { isResting: boolean; restEndTime: number } | null {
+  if (Platform.OS !== 'ios') return null;
+  try {
+    const raw = getItem(WORKOUT_STATE_KEY);
+    if (!raw) return null;
+    const state: WidgetState = JSON.parse(raw);
+    return { isResting: state.isResting, restEndTime: state.restEndTime };
+  } catch {
+    return null;
+  }
+}
+
 export function clearWidgetState(): void {
   if (Platform.OS !== 'ios') return;
   try {

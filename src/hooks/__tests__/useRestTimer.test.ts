@@ -8,13 +8,26 @@ jest.mock('../../services/liveActivity', () => ({
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
   getRestTimerRemainingSeconds: jest.fn(),
+  scheduleRestNotification: jest.fn(),
+  cancelTimerEndNotification: jest.fn(),
+}));
+
+jest.mock('../../services/workoutBridge', () => ({
+  getWidgetRestState: jest.fn().mockReturnValue(null),
+  syncStateToWidget: jest.fn(),
+  startPolling: jest.fn(),
+  stopPolling: jest.fn(),
+  clearWidgetState: jest.fn(),
 }));
 
 const {
   adjustRestTimerActivity,
   stopRestTimerActivity,
-  getRestTimerRemainingSeconds,
+  scheduleRestNotification,
+  cancelTimerEndNotification,
 } = require('../../services/liveActivity');
+
+const { getWidgetRestState } = require('../../services/workoutBridge');
 
 // Capture the AppState listener so tests can simulate foreground return
 let appStateCallback: ((state: string) => void) | null = null;
@@ -44,6 +57,7 @@ describe('useRestTimer', () => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     appStateCallback = null;
+    getWidgetRestState.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -80,6 +94,16 @@ describe('useRestTimer', () => {
     expect(endTime).toBeGreaterThanOrEqual(Date.now() + 119 * 1000);
   });
 
+  it('startRestTimer schedules notification', () => {
+    const { result } = setup();
+
+    act(() => {
+      result.current.startRestTimer(90, 'Squats');
+    });
+
+    expect(scheduleRestNotification).toHaveBeenCalledWith(90);
+  });
+
   it('timer counts down and calls onRestEnd at 0', () => {
     const { result, onRestEnd } = setup();
 
@@ -110,6 +134,7 @@ describe('useRestTimer', () => {
 
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(stopRestTimerActivity).toHaveBeenCalledTimes(1);
+    expect(cancelTimerEndNotification).toHaveBeenCalled();
     expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
   });
 
@@ -144,24 +169,53 @@ describe('useRestTimer', () => {
     expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
   });
 
-  it('adjustRestTimer clears interval when reaching 0', () => {
-    const { result } = setup();
+  it('adjustRestTimer with fromWidget still updates Live Activity (Swift refresh is no-op)', () => {
+    const { result, onRestUpdate } = setup();
+
+    act(() => {
+      result.current.startRestTimer(60, 'Deadlift');
+    });
+    jest.clearAllMocks();
+    onRestUpdate.mockClear();
+
+    act(() => {
+      result.current.adjustRestTimer(15, { fromWidget: true });
+    });
+
+    expect(result.current.restSeconds).toBe(75);
+    expect(result.current.restTotal).toBe(75);
+    // RN must update Live Activity — Swift's refreshLiveActivity is a no-op
+    // due to cross-target type mismatch
+    expect(adjustRestTimerActivity).toHaveBeenCalledWith(15);
+    // Should still call onRestUpdate so widget bridge state stays in sync
+    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
+  });
+
+  it('adjustRestTimer to zero ends rest properly', () => {
+    const { result, onRestEnd } = setup();
 
     act(() => {
       result.current.startRestTimer(10, 'Curls');
     });
+    jest.clearAllMocks();
 
-    // Adjust by -15 (more than remaining) — clamped to 0
+    // Adjust by -15 (more than remaining) — should end rest
     act(() => {
       result.current.adjustRestTimer(-15);
     });
 
     expect(result.current.restSeconds).toBe(0);
     expect(result.current.isResting).toBe(false);
+    expect(stopRestTimerActivity).toHaveBeenCalled();
+    expect(cancelTimerEndNotification).toHaveBeenCalled();
+    expect(onRestEnd).toHaveBeenCalledTimes(1);
+    expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
+    // Should NOT call adjustRestTimerActivity since rest ended
+    expect(adjustRestTimerActivity).not.toHaveBeenCalled();
   });
 
-  it('dismissRest clears timer and resets state', () => {
-    const { result } = setup();
+  it('dismissRest clears timer, resets state, and calls onRestEnd', () => {
+    const { result, onRestEnd } = setup();
 
     act(() => {
       result.current.startRestTimer(90, 'OHP');
@@ -177,10 +231,14 @@ describe('useRestTimer', () => {
     expect(result.current.isResting).toBe(false);
     expect(result.current.currentEndTime).toBe(0);
     expect(stopRestTimerActivity).toHaveBeenCalled();
+    expect(cancelTimerEndNotification).toHaveBeenCalled();
+    expect(onRestEnd).toHaveBeenCalledTimes(1);
+    // Dismiss should NOT vibrate
+    expect(Vibration.vibrate).not.toHaveBeenCalled();
   });
 
   it('starting a new rest timer replaces the previous one', () => {
-    const { result, onRestUpdate } = setup();
+    const { result } = setup();
 
     act(() => {
       result.current.startRestTimer(60, 'Bench Press');
@@ -208,8 +266,10 @@ describe('useRestTimer', () => {
       result.current.startRestTimer(120, 'Rows');
     });
 
-    // Simulate foreground return with 45s remaining
-    getRestTimerRemainingSeconds.mockReturnValue(45);
+    // Simulate backgrounding: advance Date.now by 75s without firing interval
+    jest.setSystemTime(new Date(Date.now() + 75000));
+
+    // Simulate foreground return — resync should compute 45s remaining
     act(() => {
       appStateCallback?.('active');
     });
@@ -225,8 +285,9 @@ describe('useRestTimer', () => {
       result.current.startRestTimer(120, 'Rows');
     });
 
-    // Simulate foreground return with expired timer
-    getRestTimerRemainingSeconds.mockReturnValue(0);
+    // Simulate backgrounding: advance Date.now past end time
+    jest.setSystemTime(new Date(Date.now() + 130000));
+
     act(() => {
       appStateCallback?.('active');
     });
@@ -235,7 +296,52 @@ describe('useRestTimer', () => {
     expect(result.current.isResting).toBe(false);
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(stopRestTimerActivity).toHaveBeenCalled();
+    expect(cancelTimerEndNotification).toHaveBeenCalled();
     expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
+  });
+
+  it('foreground resync respects widget skip (no vibration)', () => {
+    const { result, onRestEnd } = setup();
+
+    act(() => {
+      result.current.startRestTimer(120, 'Rows');
+    });
+    jest.clearAllMocks();
+
+    // Widget says rest was skipped while backgrounded
+    getWidgetRestState.mockReturnValue({ isResting: false, restEndTime: 0 });
+
+    act(() => {
+      appStateCallback?.('active');
+    });
+
+    expect(result.current.restSeconds).toBe(0);
+    expect(result.current.isResting).toBe(false);
+    expect(onRestEnd).toHaveBeenCalledTimes(1);
+    // Should NOT vibrate since user already skipped from widget
+    expect(Vibration.vibrate).not.toHaveBeenCalled();
+  });
+
+  it('foreground resync uses widget end time when adjusted', () => {
+    const { result } = setup();
+
+    act(() => {
+      result.current.startRestTimer(60, 'Bench');
+    });
+
+    // Simulate: user added +15s from widget while backgrounded
+    // Advance 30s (without firing interval)
+    jest.setSystemTime(new Date(Date.now() + 30000));
+    // Widget state reflects the adjustment (+15s)
+    const extendedEndTime = Date.now() + 45000; // 45s from now
+    getWidgetRestState.mockReturnValue({ isResting: true, restEndTime: extendedEndTime });
+
+    act(() => {
+      appStateCallback?.('active');
+    });
+
+    expect(result.current.restSeconds).toBe(45);
+    expect(result.current.isResting).toBe(true);
   });
 
   it('foreground return does nothing when not resting', () => {

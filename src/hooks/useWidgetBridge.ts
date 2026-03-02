@@ -20,7 +20,7 @@ export interface UseWidgetBridgeOptions {
   isResting: boolean;
   restEndTime: number;
   onDismissRest: () => void;
-  onAdjustRest: (delta: number) => void;
+  onAdjustRest: (delta: number, opts?: { fromWidget?: boolean }) => void;
 }
 
 export interface UseWidgetBridgeReturn {
@@ -44,6 +44,12 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
   } = options;
 
   const lastActiveBlockRef = useRef(0);
+
+  // When a widget action triggers a rest adjustment, adjustRestTimerActivity fires
+  // from useRestTimer with the correct delta math. This flag prevents syncWidgetState
+  // from sending a second update via updateWorkoutActivityForRest (which recomputes
+  // endTime from Date.now(), causing timestamp drift and flicker).
+  const skipNextLiveActivityUpdate = useRef(false);
 
   const isRestingRef = useRef(isResting);
   isRestingRef.current = isResting;
@@ -129,6 +135,15 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
       // Write to UserDefaults (for intent logic + action queue)
       syncStateToWidget(state);
 
+      // Skip Live Activity update if this sync was triggered by a widget action
+      // (adjustRestTimerActivity already sent the correct update from useRestTimer).
+      // Only skip for resting updates — if the adjustment ended the rest, we still
+      // need to send the set-entry update so the lock screen switches views.
+      if (skipNextLiveActivityUpdate.current) {
+        skipNextLiveActivityUpdate.current = false;
+        if (resting) return;
+      }
+
       // Update ContentState (triggers widget view re-render)
       if (resting && end > 0) {
         updateWorkoutActivityForRest(
@@ -153,14 +168,16 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
       if (!workoutRef.current) return;
       for (const action of actions) {
         if (action.type === 'skipRest') {
-          onDismissRest();
-          syncWidgetState(undefined, false, 0);
+          onDismissRest(); // endRest → onRestEnd → syncWidgetState already fires
         } else if (action.type === 'adjustRest' && action.delta != null) {
-          onAdjustRest(action.delta);
+          // adjustRestTimerActivity fires from useRestTimer — prevent syncWidgetState
+          // from sending a second update with a slightly different timestamp (flicker)
+          skipNextLiveActivityUpdate.current = true;
+          onAdjustRest(action.delta, { fromWidget: true });
         }
       }
     },
-    [workoutRef, onDismissRest, onAdjustRest, syncWidgetState],
+    [workoutRef, onDismissRest, onAdjustRest],
   );
 
   const startWidgetPolling = useCallback(() => {

@@ -27,7 +27,7 @@ import { useNotesDebounce } from '../hooks/useNotesDebounce';
 import { useWidgetBridge } from '../hooks/useWidgetBridge';
 import type { PreviousSetData, LocalSet, ExerciseBlock } from '../types/workout';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
-import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS } from '../constants/exercise';
+import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
 import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
@@ -452,7 +452,7 @@ export default function WorkoutScreen() {
     });
     const stickyNotes = exercise.notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
-    return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal], restEnabled: true, bestE1RM };
+    return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
   }
 
   function activateWorkout(workout: Workout, blocks: ExerciseBlock[], name: string | null = null) {

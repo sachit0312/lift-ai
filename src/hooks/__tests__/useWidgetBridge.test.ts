@@ -167,6 +167,7 @@ describe('useWidgetBridge', () => {
       expect(state.isResting).toBe(true);
       expect(state.restEndTime).toBe(restEnd);
     });
+
   });
 
   describe('syncWidgetState', () => {
@@ -240,11 +241,11 @@ describe('useWidgetBridge', () => {
         ]);
       });
 
+      // onDismissRest (dismissRest → endRest → onRestEnd) handles the widget sync
       expect(onDismissRest).toHaveBeenCalledTimes(1);
-      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
     });
 
-    it('dispatches adjustRest correctly', () => {
+    it('dispatches adjustRest with fromWidget flag', () => {
       const onAdjustRest = jest.fn();
       const options = makeOptions({ onAdjustRest });
       const { result } = renderHook(() => useWidgetBridge(options));
@@ -255,7 +256,88 @@ describe('useWidgetBridge', () => {
         ]);
       });
 
-      expect(onAdjustRest).toHaveBeenCalledWith(15);
+      expect(onAdjustRest).toHaveBeenCalledWith(15, { fromWidget: true });
+    });
+
+    it('skips Live Activity update on syncWidgetState after widget adjustRest', () => {
+      const onAdjustRest = jest.fn();
+      const restEnd = Date.now() + 60000;
+      const options = makeOptions({ onAdjustRest, isResting: true, restEndTime: restEnd });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      // Simulate widget adjustRest action (sets skip flag internally)
+      act(() => {
+        result.current.handleWidgetActions([
+          { type: 'adjustRest', delta: 15, ts: Date.now() },
+        ]);
+      });
+
+      jest.clearAllMocks();
+
+      // Next syncWidgetState should write to UserDefaults but skip Live Activity
+      act(() => {
+        result.current.syncWidgetState(undefined, true, restEnd);
+      });
+
+      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
+      // Live Activity update already sent by adjustRestTimerActivity in useRestTimer;
+      // syncWidgetState must not send a second update (would cause flicker).
+      expect(updateWorkoutActivityForRest).not.toHaveBeenCalled();
+      expect(updateWorkoutActivityForSet).not.toHaveBeenCalled();
+    });
+
+    it('skip flag does not suppress set-entry update when adjustment ends rest', () => {
+      const onAdjustRest = jest.fn();
+      const restEnd = Date.now() + 5000; // only 5s left
+      const options = makeOptions({ onAdjustRest, isResting: true, restEndTime: restEnd });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      // Widget sends -15s which would zero the timer
+      act(() => {
+        result.current.handleWidgetActions([
+          { type: 'adjustRest', delta: -15, ts: Date.now() },
+        ]);
+      });
+
+      jest.clearAllMocks();
+
+      // endRest fires syncWidgetState with isResting=false — must NOT be skipped
+      act(() => {
+        result.current.syncWidgetState(undefined, false, 0);
+      });
+
+      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
+      // Set-entry update MUST fire so lock screen switches from rest to set view
+      expect(updateWorkoutActivityForSet).toHaveBeenCalledTimes(1);
+      expect(updateWorkoutActivityForRest).not.toHaveBeenCalled();
+    });
+
+    it('skip flag resets after one syncWidgetState call', () => {
+      const onAdjustRest = jest.fn();
+      const restEnd = Date.now() + 60000;
+      const options = makeOptions({ onAdjustRest, isResting: true, restEndTime: restEnd });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      // Trigger widget action (sets skip flag)
+      act(() => {
+        result.current.handleWidgetActions([
+          { type: 'adjustRest', delta: 15, ts: Date.now() },
+        ]);
+      });
+
+      // First sync — skips Live Activity
+      act(() => {
+        result.current.syncWidgetState(undefined, true, restEnd);
+      });
+
+      jest.clearAllMocks();
+
+      // Second sync — should update Live Activity normally
+      act(() => {
+        result.current.syncWidgetState(undefined, true, restEnd);
+      });
+
+      expect(updateWorkoutActivityForRest).toHaveBeenCalledTimes(1);
     });
 
     it('ignores actions when no active workout', () => {
