@@ -1139,7 +1139,7 @@ describe('WorkoutScreen', () => {
   // ─── Batch 2A: Previous Set Data ───
 
   describe('previous set data', () => {
-    it('shows previous data in PREV column when history exists', async () => {
+    it('shows previous data as input placeholders when history exists', async () => {
       // Mock getExerciseHistory to return previous session data
       (getExerciseHistory as jest.Mock).mockResolvedValue([{
         workout: { id: 'w-prev', started_at: '2026-01-01', finished_at: '2026-01-01' },
@@ -1149,23 +1149,25 @@ describe('WorkoutScreen', () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
-      // PREV column should show "135×10"
+      // Previous data should appear as placeholder in weight input
       await waitFor(() => {
-        expect(result.getByText('135×10')).toBeTruthy();
+        const weightInput = result.getByTestId('weight-0-0');
+        expect(weightInput.props.placeholder).toBe('135');
       });
 
       // Reset mock
       (getExerciseHistory as jest.Mock).mockResolvedValue([]);
     });
 
-    it('shows dash when no previous data exists', async () => {
+    it('shows empty placeholder when no previous data exists', async () => {
       // Default mock already returns empty array for getExerciseHistory
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
-      // PREV column should show "—" (em dash)
+      // Weight input should have empty placeholder
       await waitFor(() => {
-        expect(result.getByText('—')).toBeTruthy();
+        const weightInput = result.getByTestId('weight-0-0');
+        expect(weightInput.props.placeholder).toBe('');
       });
     });
 

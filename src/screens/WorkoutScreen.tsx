@@ -1887,7 +1887,6 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
       {/* Set header row */}
       <View style={styles.setHeaderRow}>
         <Text style={[styles.setHeaderCell, styles.setNumCol]}>SET</Text>
-        <Text style={[styles.setHeaderCell, styles.colPrev]}>PREV</Text>
         <Text style={[styles.setHeaderCell, styles.colFlex]}>LBS</Text>
         <Text style={[styles.setHeaderCell, styles.colFlex]}>REPS</Text>
         <Text style={[styles.setHeaderCell, styles.colRpe]}>RPE</Text>
@@ -1898,9 +1897,6 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
       {block.sets.map((set, setIdx) => {
         const tagLabel = getSetTagLabel(set.tag);
         const tagColor = getSetTagColor(set.tag);
-        const prevText = set.previous
-          ? `${set.previous.weight}×${set.previous.reps}`
-          : '—';
         const hasError = validationErrors[`${blockIdx}-${setIdx}`];
         const target = upcomingTargets
           ?.find(e => e.exercise_id === block.exercise.id)
@@ -1941,9 +1937,6 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                   </Text>
                 )}
               </TouchableOpacity>
-              <Text style={[styles.previousCol, styles.colPrev]} numberOfLines={1}>
-                {prevText}
-              </Text>
               <TextInput
                 style={[styles.setInput, styles.colFlex, hasError && styles.setInputError]}
                 keyboardType="numeric"
@@ -2266,8 +2259,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase' as const,
   },
   setNumCol: { width: 36, alignItems: 'center' as const, justifyContent: 'center' as const },
-  colPrev: { flex: 1.3, marginHorizontal: spacing.xs },
-  colFlex: { flex: 1, marginHorizontal: spacing.xs },
+  colFlex: { flex: 1.2, marginHorizontal: spacing.xs },
   colRpe: { width: 40, marginHorizontal: spacing.xs },
   checkCol: { width: 44, alignItems: 'center' as const, marginLeft: spacing.xs },
 
@@ -2307,12 +2299,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: fontWeight.bold,
   },
-  previousCol: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-    textAlign: 'center',
-  },
   setInput: {
     backgroundColor: colors.surfaceLight,
     color: colors.text,
@@ -2322,8 +2308,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: spacing.sm,
     textAlign: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   prBadge: {
     position: 'absolute' as const,
@@ -2340,7 +2324,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   setInputError: {
-    borderColor: colors.error,
     backgroundColor: colors.errorBg,
   },
   swipeDeleteContainer: {
