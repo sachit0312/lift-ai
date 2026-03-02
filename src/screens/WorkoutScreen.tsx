@@ -1968,7 +1968,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                   testID={`rpe-${blockIdx}-${setIdx}`}
                 />
               )}
-              <View style={{ position: 'relative' }}>
+              <View style={[styles.checkCol, { position: 'relative' }]}>
                 <TouchableOpacity
                   style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
                   onPress={() => onToggleComplete(blockIdx, setIdx)}
