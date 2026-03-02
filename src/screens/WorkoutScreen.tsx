@@ -154,8 +154,10 @@ export default function WorkoutScreen() {
     startRestTimer, adjustRestTimer, dismissRest,
   } = useRestTimer({ onRestEnd, onRestUpdate });
 
-  // Keep blocksRef in sync for stable callbacks
+  // Keep refs in sync for stable callbacks
   blocksRef.current = exerciseBlocks;
+  const upcomingTargetsRef = useRef<typeof upcomingTargets>(null);
+  upcomingTargetsRef.current = upcomingTargets;
 
   // Widget bridge hook (extracted from inline functions)
   const {
@@ -739,12 +741,51 @@ export default function WorkoutScreen() {
 
   const handleToggleComplete = useCallback(async (blockIdx: number, setIdx: number) => {
     const block = blocksRef.current[blockIdx];
-    const set = block?.sets[setIdx];
+    let set = block?.sets[setIdx];
     if (!set || !block) return;
 
     // Capture timer data NOW, before state update (avoid stale closure)
     const { restEnabled, restSeconds: blockRestSeconds, exercise } = block;
     const exerciseName = exercise.name;
+
+    // Auto-fill empty weight/reps from target or previous values on completion
+    if (!set.is_completed) {
+      let weightFilled = set.weight;
+      let repsFilled = set.reps;
+      let rpeFilled = set.rpe;
+
+      const target = upcomingTargetsRef.current
+        ?.find(e => e.exercise_id === block.exercise.id)
+        ?.sets?.find(s => s.set_number === set.set_number);
+
+      if (!weightFilled.trim()) {
+        if (target?.target_weight != null) weightFilled = String(target.target_weight);
+        else if (set.previous?.weight != null) weightFilled = String(set.previous.weight);
+      }
+      if (!repsFilled.trim()) {
+        if (target?.target_reps != null) repsFilled = String(target.target_reps);
+        else if (set.previous?.reps != null) repsFilled = String(set.previous.reps);
+      }
+      if (!rpeFilled.trim() && set.tag !== 'warmup' && set.tag !== 'failure') {
+        if (target?.target_rpe != null) rpeFilled = String(target.target_rpe);
+      }
+
+      if (weightFilled !== set.weight || repsFilled !== set.reps || rpeFilled !== set.rpe) {
+        setExerciseBlocks(prev => {
+          const next = [...prev];
+          const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
+          updatedBlock.sets[setIdx] = {
+            ...updatedBlock.sets[setIdx],
+            weight: weightFilled,
+            reps: repsFilled,
+            rpe: rpeFilled,
+          };
+          next[blockIdx] = updatedBlock;
+          return next;
+        });
+        set = { ...set, weight: weightFilled, reps: repsFilled, rpe: rpeFilled };
+      }
+    }
 
     // Validate when marking complete (not when unchecking)
     if (!set.is_completed && (!set.weight.trim() || !set.reps.trim())) {
@@ -774,6 +815,7 @@ export default function WorkoutScreen() {
       is_completed: newCompleted,
       weight: set.weight === '' ? null : Number(set.weight),
       reps: set.reps === '' ? null : Number(set.reps),
+      rpe: set.rpe === '' ? null : Number(set.rpe),
     });
 
     if (newCompleted) {
