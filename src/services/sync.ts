@@ -2,6 +2,20 @@ import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
 import { getDb } from './database';
 
+function handleSyncError(label: string, error: unknown): void {
+  if (__DEV__) console.error(`Sync ${label} error:`, error);
+  Sentry.captureException(error);
+}
+
+export function fireAndForgetSync(): void {
+  syncToSupabase().catch(e => Sentry.addBreadcrumb({
+    category: 'sync',
+    message: 'syncToSupabase fire-and-forget failed',
+    level: 'warning',
+    data: { error: String(e) },
+  }));
+}
+
 // ─── Row Interfaces (raw SQLite rows for sync queries) ───
 
 /** Exercise row for sync — subset of columns selected */
@@ -82,7 +96,7 @@ export async function syncToSupabase(): Promise<void> {
         notes: e.notes,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
-      if (error) { if (__DEV__) console.error('Sync exercises error:', error); Sentry.captureException(error); return; }
+      if (error) { handleSyncError('exercises', error); return; }
     }
 
     // Templates — select specific columns
@@ -90,14 +104,14 @@ export async function syncToSupabase(): Promise<void> {
     if (templates.length > 0) {
       const mapped = templates.map((t: SyncTemplateRow) => ({ ...t, user_id: session.user.id }));
       const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
-      if (error) { if (__DEV__) console.error('Sync templates error:', error); Sentry.captureException(error); return; }
+      if (error) { handleSyncError('templates', error); return; }
     }
 
     // Template exercises — select specific columns (including rest_seconds, warmup_sets for Supabase sync)
     const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, sort_order, default_sets, warmup_sets, rest_seconds FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
-      if (error) { if (__DEV__) console.error('Sync template_exercises error:', error); Sentry.captureException(error); return; }
+      if (error) { handleSyncError('template_exercises', error); return; }
     }
 
     // Workouts (only finished) — select specific columns
@@ -105,7 +119,7 @@ export async function syncToSupabase(): Promise<void> {
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({ ...w, user_id: session.user.id }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
-      if (error) { if (__DEV__) console.error('Sync workouts error:', error); Sentry.captureException(error); return; }
+      if (error) { handleSyncError('workouts', error); return; }
     }
 
     // Workout sets — only for finished workouts, convert is_completed to boolean
@@ -121,13 +135,12 @@ export async function syncToSupabase(): Promise<void> {
         is_completed: !!s.is_completed,
       }));
       const { error } = await supabase.from('workout_sets').upsert(mapped, { onConflict: 'id' });
-      if (error) { if (__DEV__) console.error('Sync workout_sets error:', error); Sentry.captureException(error); return; }
+      if (error) { handleSyncError('workout_sets', error); return; }
     }
 
     if (__DEV__) console.log('Sync to Supabase complete');
   } catch (err) {
-    if (__DEV__) console.error('syncToSupabase failed:', err);
-    Sentry.captureException(err);
+    handleSyncError('syncToSupabase', err);
   }
 }
 
@@ -142,13 +155,9 @@ export async function deleteTemplateFromSupabase(templateId: string): Promise<vo
       .eq('id', templateId)
       .eq('user_id', session.user.id);
 
-    if (error) {
-      if (__DEV__) console.error('Delete template from Supabase error:', error);
-      Sentry.captureException(error);
-    }
+    if (error) { handleSyncError('deleteTemplate', error); }
   } catch (err) {
-    if (__DEV__) console.error('deleteTemplateFromSupabase failed:', err);
-    Sentry.captureException(err);
+    handleSyncError('deleteTemplateFromSupabase', err);
   }
 }
 
@@ -162,13 +171,9 @@ export async function deleteTemplateExerciseFromSupabase(templateExerciseId: str
       .delete()
       .eq('id', templateExerciseId);
 
-    if (error) {
-      if (__DEV__) console.error('Delete template_exercise from Supabase error:', error);
-      Sentry.captureException(error);
-    }
+    if (error) { handleSyncError('deleteTemplateExercise', error); }
   } catch (err) {
-    if (__DEV__) console.error('deleteTemplateExerciseFromSupabase failed:', err);
-    Sentry.captureException(err);
+    handleSyncError('deleteTemplateExerciseFromSupabase', err);
   }
 }
 
@@ -220,11 +225,7 @@ async function pullExercises(): Promise<void> {
     .select('*')
     .eq('user_id', session.user.id);
 
-  if (error) {
-    if (__DEV__) console.error('Pull exercises error:', error);
-    Sentry.captureException(error);
-    return;
-  }
+  if (error) { handleSyncError('pull exercises', error); return; }
   if (!exercises || exercises.length === 0) return;
 
   for (const ex of exercises as PullExerciseRow[]) {
@@ -256,11 +257,7 @@ async function pullTemplates(): Promise<void> {
     .select('*')
     .eq('user_id', session.user.id);
 
-  if (tErr) {
-    if (__DEV__) console.error('Pull templates error:', tErr);
-    Sentry.captureException(tErr);
-    return;
-  }
+  if (tErr) { handleSyncError('pull templates', tErr); return; }
   if (!templates || templates.length === 0) return;
 
   const templateList = templates as PullTemplateRow[];
@@ -284,8 +281,7 @@ async function pullTemplates(): Promise<void> {
     .order('sort_order');
 
   if (teErr) {
-    if (__DEV__) console.error('Pull template_exercises error:', teErr);
-    Sentry.captureException(teErr);
+    handleSyncError('pull template_exercises', teErr);
   } else {
     // Group by template_id
     const teByTemplate = new Map<string, PullTemplateExerciseRow[]>();
@@ -328,8 +324,7 @@ export async function pullExercisesAndTemplates(): Promise<void> {
     await pullExercises();   // exercises first (FK dependency)
     await pullTemplates();
   } catch (err) {
-    if (__DEV__) console.error('pullExercisesAndTemplates failed:', err);
-    Sentry.captureException(err);
+    handleSyncError('pullExercisesAndTemplates', err);
   }
 }
 
@@ -381,11 +376,7 @@ export async function pullWorkoutHistory(): Promise<void> {
       .order('finished_at', { ascending: false })
       .limit(200);
 
-    if (wErr) {
-      if (__DEV__) console.error('Pull workouts error:', wErr);
-      Sentry.captureException(wErr);
-      return;
-    }
+    if (wErr) { handleSyncError('pull workouts', wErr); return; }
     if (!workouts || workouts.length === 0) return;
 
     // Upsert workouts into local SQLite
@@ -409,11 +400,7 @@ export async function pullWorkoutHistory(): Promise<void> {
       .select('*')
       .in('workout_id', workoutIds);
 
-    if (sErr) {
-      if (__DEV__) console.error('Pull workout_sets error:', sErr);
-      Sentry.captureException(sErr);
-      return;
-    }
+    if (sErr) { handleSyncError('pull workout_sets', sErr); return; }
 
     for (const s of (sets ?? []) as PullWorkoutSetRow[]) {
       await db.runAsync(
@@ -432,8 +419,7 @@ export async function pullWorkoutHistory(): Promise<void> {
 
     if (__DEV__) console.log('Pull workout history complete');
   } catch (err) {
-    if (__DEV__) console.error('pullWorkoutHistory failed:', err);
-    Sentry.captureException(err);
+    handleSyncError('pullWorkoutHistory', err);
   }
 }
 
@@ -452,11 +438,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
       .order('created_at', { ascending: false })
       .limit(1);
 
-    if (wErr) {
-      if (__DEV__) console.error('Pull upcoming_workouts error:', wErr);
-      Sentry.captureException(wErr);
-      return;
-    }
+    if (wErr) { handleSyncError('pull upcoming_workouts', wErr); return; }
     if (!workouts || workouts.length === 0) return;
 
     const workout = workouts[0];
@@ -479,11 +461,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
       .eq('upcoming_workout_id', workout.id)
       .order('sort_order');
 
-    if (eErr) {
-      if (__DEV__) console.error('Pull upcoming_workout_exercises error:', eErr);
-      Sentry.captureException(eErr);
-      return;
-    }
+    if (eErr) { handleSyncError('pull upcoming_workout_exercises', eErr); return; }
 
     const exerciseList = exercises ?? [];
 
@@ -504,8 +482,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
         .order('set_number');
 
       if (sErr) {
-        if (__DEV__) console.error('Pull upcoming_workout_sets error:', sErr);
-        Sentry.captureException(sErr);
+        handleSyncError('pull upcoming_workout_sets', sErr);
       } else {
         for (const s of allSets ?? []) {
           await db.runAsync(
@@ -518,7 +495,6 @@ export async function pullUpcomingWorkout(): Promise<void> {
 
     if (__DEV__) console.log('Pull upcoming workout complete');
   } catch (err) {
-    if (__DEV__) console.error('pullUpcomingWorkout failed:', err);
-    Sentry.captureException(err);
+    handleSyncError('pullUpcomingWorkout', err);
   }
 }

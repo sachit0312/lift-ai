@@ -28,6 +28,8 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   const [restSeconds, setRestSeconds] = useState(0);
   const [restTotal, setRestTotal] = useState(0);
   const [restExerciseName, setRestExerciseName] = useState('');
+  const [isResting, setIsResting] = useState(false);
+  const [currentEndTime, setCurrentEndTime] = useState(0);
 
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentEndTimeRef = useRef(0);
@@ -43,6 +45,8 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     if (restRef.current) clearInterval(restRef.current);
     restRef.current = null;
     currentEndTimeRef.current = 0;
+    setIsResting(false);
+    setCurrentEndTime(0);
     setRestSeconds(0);
     setRestTotal(0);
     setRestExerciseName('');
@@ -64,6 +68,8 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
 
     const endTime = Date.now() + total * 1000;
     currentEndTimeRef.current = endTime;
+    setIsResting(true);
+    setCurrentEndTime(endTime);
 
     onRestUpdateRef.current(true, endTime);
 
@@ -92,6 +98,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       endRest(true);
     } else {
       currentEndTimeRef.current = newEndTime;
+      setCurrentEndTime(newEndTime);
       setRestSeconds(remaining);
       setRestTotal((prev) => Math.max(prev + delta, 1));
 
@@ -127,6 +134,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
           ? Math.max(currentEndTimeRef.current, widgetState.restEndTime)
           : currentEndTimeRef.current;
         currentEndTimeRef.current = effectiveEndTime;
+        setCurrentEndTime(effectiveEndTime);
 
         const remaining = Math.max(0, Math.round((effectiveEndTime - Date.now()) / 1000));
 
@@ -152,8 +160,8 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     restSeconds,
     restTotal,
     restExerciseName,
-    isResting: restRef.current !== null,
-    currentEndTime: currentEndTimeRef.current,
+    isResting,
+    currentEndTime,
     startRestTimer,
     adjustRestTimer,
     dismissRest,

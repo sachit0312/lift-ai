@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .catch((error) => {
         Sentry.captureException(error);
-        console.error('Failed to get session:', error);
+        if (__DEV__) console.error('Failed to get session:', error);
       })
       .finally(() => {
         setLoading(false);
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ]);
             } catch (error) {
               Sentry.captureException(error);
-              console.error('Failed to sync data on sign in:', error);
+              if (__DEV__) console.error('Failed to sync data on sign in:', error);
             } finally {
               setSyncing(false);
             }
@@ -83,11 +83,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const user = session?.user ?? null;
-
   const value = useMemo(
-    () => ({ session, user, loading, syncing }),
-    [session, user, loading, syncing]
+    () => ({ session, user: session?.user ?? null, loading, syncing }),
+    [session, loading, syncing]
   );
 
   return (

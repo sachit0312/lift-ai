@@ -42,6 +42,7 @@ jest.mock('../../services/database', () => ({
 
 jest.mock('../../services/sync', () => ({
   syncToSupabase: jest.fn().mockResolvedValue(undefined),
+  fireAndForgetSync: jest.fn(),
   pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
   pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
   pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),

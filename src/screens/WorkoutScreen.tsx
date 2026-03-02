@@ -27,10 +27,10 @@ import { useNotesDebounce } from '../hooks/useNotesDebounce';
 import { useWidgetBridge } from '../hooks/useWidgetBridge';
 import type { PreviousSetData, LocalSet, ExerciseBlock } from '../types/workout';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
-import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
+import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
-import { syncToSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
+import { fireAndForgetSync, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 import {
   requestNotificationPermissions,
   startWorkoutActivity,
@@ -423,35 +423,30 @@ export default function WorkoutScreen() {
     tagOverrides?: SetTag[],
   ): Promise<ExerciseBlock> {
     const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
-    const setsToInsert = Array.from({ length: setCount }, (_, i) => {
-      const tag = tagOverrides?.[i] ?? 'working' as SetTag;
-      return {
-        workout_id: workoutId,
-        exercise_id: exercise.id,
-        set_number: i + 1,
-        reps: null,
-        weight: null,
-        tag,
-        rpe: null,
-        is_completed: false,
-        notes: null,
-      };
-    });
+    const tags: SetTag[] = Array.from({ length: setCount }, (_, i) => tagOverrides?.[i] ?? 'working');
+    const setsToInsert = tags.map((tag, i) => ({
+      workout_id: workoutId,
+      exercise_id: exercise.id,
+      set_number: i + 1,
+      reps: null,
+      weight: null,
+      tag,
+      rpe: null,
+      is_completed: false,
+      notes: null,
+    }));
     const inserted = await addWorkoutSetsBatch(setsToInsert);
-    const sets: LocalSet[] = inserted.map((ws, i) => {
-      const tag = tagOverrides?.[i] ?? 'working' as SetTag;
-      return {
-        id: ws.id,
-        exercise_id: exercise.id,
-        set_number: i + 1,
-        weight: '',
-        reps: '',
-        rpe: '',
-        tag,
-        is_completed: false,
-        previous: previousSets[i] ?? null,
-      };
-    });
+    const sets: LocalSet[] = inserted.map((ws, i) => ({
+      id: ws.id,
+      exercise_id: exercise.id,
+      set_number: i + 1,
+      weight: '',
+      reps: '',
+      rpe: '',
+      tag: tags[i],
+      is_completed: false,
+      previous: previousSets[i] ?? null,
+    }));
     const stickyNotes = exercise.notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
     return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
@@ -1129,7 +1124,7 @@ export default function WorkoutScreen() {
     const durationStr = `${m}m ${s}s`;
 
     await finishWorkout(workout.id);
-    syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } }));
+    fireAndForgetSync();
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();
@@ -1194,7 +1189,7 @@ export default function WorkoutScreen() {
           onPress: async () => {
             try {
               await applyWorkoutChangesToTemplate(templateUpdatePlan);
-              syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'sync after template update failed', level: 'warning', data: { error: String(e) } }));
+              fireAndForgetSync();
               setTemplateUpdatePlan(null);
               setTemplateChangeDescriptions([]);
             } catch (e) {
@@ -1533,7 +1528,7 @@ export default function WorkoutScreen() {
 
               <Text style={styles.createLabel}>Type</Text>
               <View style={styles.createChipRow}>
-                {EXERCISE_TYPE_OPTIONS.map((t) => (
+                {EXERCISE_TYPE_OPTIONS_WITH_ICONS.map((t) => (
                   <TouchableOpacity
                     key={t.value}
                     style={[styles.createChip, newExType === t.value && styles.createChipSelected]}
@@ -2156,8 +2151,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: 200,
     maxWidth: 500,
-    alignSelf: 'center' as const,
-    width: '100%' as const,
+    alignSelf: 'center',
+    width: '100%',
   },
 
   // Exercise card
@@ -2256,12 +2251,12 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     textAlign: 'center',
     letterSpacing: 1,
-    textTransform: 'uppercase' as const,
+    textTransform: 'uppercase',
   },
-  setNumCol: { width: 36, alignItems: 'center' as const, justifyContent: 'center' as const },
+  setNumCol: { width: 36, alignItems: 'center', justifyContent: 'center' },
   colFlex: { flex: 1.2, marginHorizontal: spacing.xs },
   colRpe: { width: 40, marginHorizontal: spacing.xs },
-  checkCol: { width: 44, alignItems: 'center' as const, marginLeft: spacing.xs },
+  checkCol: { width: 44, alignItems: 'center', marginLeft: spacing.xs },
 
   // Set row
   setRow: {
@@ -2291,8 +2286,8 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   setNumBadgeText: {
     color: colors.white,
@@ -2310,7 +2305,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   prBadge: {
-    position: 'absolute' as const,
+    position: 'absolute',
     right: -4,
     top: -4,
     backgroundColor: colors.warning,
@@ -2638,8 +2633,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   templateChangeRow: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: spacing.xs,
   },
   templateChangeText: {
@@ -2652,9 +2647,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.md,
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     minHeight: layout.buttonHeightSm,
   },
   updateTemplateBtnText: {
@@ -2734,7 +2729,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: borderRadius.md,
     paddingVertical: spacing.sm + 2,
-    alignItems: 'center' as const,
+    alignItems: 'center',
   },
   upcomingBtnText: {
     color: colors.white,

@@ -15,12 +15,36 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '../services/supabase';
-import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, authStyles } from '../theme';
 import type { AuthStackParamList } from '../navigation/RootNavigator';
+import { EMAIL_REGEX } from '../constants/validation';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function extractOAuthTokens(url: string): { access_token: string; refresh_token: string } {
+  const fragment = url.split('#')[1];
+  const query = url.split('?')[1]?.split('#')[0];
+  const raw = fragment || query;
+
+  if (!raw) {
+    throw new Error('No fragment or query params in redirect URL');
+  }
+
+  const params = new URLSearchParams(raw);
+  const access_token = params.get('access_token');
+  const refresh_token = params.get('refresh_token');
+
+  if (__DEV__) {
+    const source = fragment ? 'fragment' : 'query';
+    console.log(`[OAuth] Tokens from ${source}:`, { hasAccess: !!access_token, hasRefresh: !!refresh_token });
+  }
+
+  if (!access_token || !refresh_token) {
+    throw new Error('Tokens not found in URL');
+  }
+
+  return { access_token, refresh_token };
+}
 
 export default function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
@@ -81,7 +105,6 @@ export default function LoginScreen({ navigation }: Props) {
     setError('');
     setGoogleLoading(true);
     try {
-      // For native builds, use the native scheme directly with a path
       const redirectTo = Platform.select({
         ios: 'liftai://auth/callback',
         android: 'liftai://auth/callback',
@@ -110,39 +133,9 @@ export default function LoginScreen({ navigation }: Props) {
 
         if (result.type === 'success') {
           if (__DEV__) console.log('[OAuth] Success! URL:', result.url);
-          const url = result.url;
-          const fragment = url.split('#')[1];
-          const query = url.split('?')[1]?.split('#')[0];
-
-          if (__DEV__) console.log('[OAuth] Fragment:', fragment, 'Query:', query);
-
-          if (fragment) {
-            const params = new URLSearchParams(fragment);
-            const access_token = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
-            if (__DEV__) console.log('[OAuth] Tokens from fragment:', { hasAccess: !!access_token, hasRefresh: !!refresh_token });
-
-            if (access_token && refresh_token) {
-              if (__DEV__) console.log('[OAuth] Setting session');
-              await supabase.auth.setSession({ access_token, refresh_token });
-            } else {
-              throw new Error('Tokens not found in URL fragment');
-            }
-          } else if (query) {
-            const params = new URLSearchParams(query);
-            const access_token = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
-            if (__DEV__) console.log('[OAuth] Tokens from query:', { hasAccess: !!access_token, hasRefresh: !!refresh_token });
-
-            if (access_token && refresh_token) {
-              if (__DEV__) console.log('[OAuth] Setting session from query params');
-              await supabase.auth.setSession({ access_token, refresh_token });
-            } else {
-              throw new Error('Tokens not found in URL');
-            }
-          } else {
-            throw new Error('No fragment or query params in redirect URL');
-          }
+          const tokens = extractOAuthTokens(result.url);
+          if (__DEV__) console.log('[OAuth] Setting session');
+          await supabase.auth.setSession(tokens);
         } else if (result.type === 'cancel') {
           if (__DEV__) console.log('[OAuth] User cancelled');
           throw new Error('Sign in cancelled');
@@ -161,24 +154,24 @@ export default function LoginScreen({ navigation }: Props) {
   const isLoading = loading || googleLoading;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={authStyles.container}>
       <KeyboardAvoidingView
-        style={styles.inner}
+        style={authStyles.inner}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.logoContainer}>
+        <View style={authStyles.logoContainer}>
           <Ionicons name="barbell" size={48} color={colors.primary} />
         </View>
 
-        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={authStyles.title}>Welcome Back</Text>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error ? <Text style={authStyles.errorText}>{error}</Text> : null}
         {resetSent ? (
           <Text style={styles.resetSentText}>Password reset email sent. Check your inbox.</Text>
         ) : null}
 
         <TextInput
-          style={styles.input}
+          style={authStyles.input}
           placeholder="Email"
           placeholderTextColor={colors.textMuted}
           value={email}
@@ -190,7 +183,7 @@ export default function LoginScreen({ navigation }: Props) {
         />
 
         <TextInput
-          style={styles.input}
+          style={authStyles.input}
           placeholder="Password"
           placeholderTextColor={colors.textMuted}
           value={password}
@@ -210,7 +203,7 @@ export default function LoginScreen({ navigation }: Props) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.loginButton, isLoading && styles.disabledButton]}
+          style={[authStyles.primaryButton, isLoading && authStyles.disabledButton]}
           onPress={handleEmailLogin}
           disabled={isLoading}
           testID="login-btn"
@@ -218,12 +211,12 @@ export default function LoginScreen({ navigation }: Props) {
           {loading ? (
             <ActivityIndicator color={colors.white} />
           ) : (
-            <Text style={styles.loginButtonText}>Log In</Text>
+            <Text style={authStyles.primaryButtonText}>Log In</Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.googleButton, isLoading && styles.disabledButton]}
+          style={[styles.googleButton, isLoading && authStyles.disabledButton]}
           onPress={handleGoogleLogin}
           disabled={isLoading}
         >
@@ -238,12 +231,12 @@ export default function LoginScreen({ navigation }: Props) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.signupLink}
+          style={authStyles.switchLink}
           onPress={() => navigation.navigate('Signup')}
           disabled={isLoading}
         >
-          <Text style={styles.signupText}>
-            Don't have an account? <Text style={styles.signupTextBold}>Sign Up</Text>
+          <Text style={authStyles.switchText}>
+            Don't have an account? <Text style={authStyles.switchTextBold}>Sign Up</Text>
           </Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
@@ -252,32 +245,6 @@ export default function LoginScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  inner: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-    justifyContent: 'center',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  title: {
-    color: colors.text,
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  errorText: {
-    color: colors.error,
-    fontSize: fontSize.sm,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-  },
   resetSentText: {
     color: colors.success,
     fontSize: fontSize.sm,
@@ -287,36 +254,11 @@ const styles = StyleSheet.create({
   forgotPasswordLink: {
     alignSelf: 'flex-end',
     marginBottom: spacing.sm,
-    paddingVertical: 12,
+    paddingVertical: spacing.md,
   },
   forgotPasswordText: {
     color: colors.primary,
     fontSize: fontSize.sm,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    color: colors.text,
-    fontSize: fontSize.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    marginBottom: 18,
-  },
-  loginButton: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    minHeight: layout.buttonHeight,
-    justifyContent: 'center',
-  },
-  loginButtonText: {
-    color: colors.white,
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
   },
   googleButton: {
     backgroundColor: colors.white,
@@ -335,21 +277,6 @@ const styles = StyleSheet.create({
   googleButtonText: {
     color: colors.background,
     fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  signupLink: {
-    marginTop: spacing.xl,
-    alignItems: 'center',
-  },
-  signupText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-  },
-  signupTextBold: {
-    color: colors.primary,
     fontWeight: fontWeight.semibold,
   },
 });

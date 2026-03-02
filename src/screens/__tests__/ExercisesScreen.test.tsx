@@ -12,7 +12,7 @@ jest.mock('../../services/database', () => ({
 }));
 
 jest.mock('../../services/sync', () => ({
-  syncToSupabase: jest.fn().mockResolvedValue(undefined),
+  fireAndForgetSync: jest.fn(),
 }));
 
 jest.mock('@react-navigation/native', () => ({

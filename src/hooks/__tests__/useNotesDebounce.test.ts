@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useNotesDebounce } from '../useNotesDebounce';
 import { updateExerciseNotes, updateWorkoutSet } from '../../services/database';
-import { syncToSupabase } from '../../services/sync';
+import { fireAndForgetSync } from '../../services/sync';
 import * as Sentry from '@sentry/react-native';
 
 jest.mock('../../services/database', () => ({
@@ -11,11 +11,12 @@ jest.mock('../../services/database', () => ({
 
 jest.mock('../../services/sync', () => ({
   syncToSupabase: jest.fn().mockResolvedValue(undefined),
+  fireAndForgetSync: jest.fn(),
 }));
 
 const mockUpdateExerciseNotes = updateExerciseNotes as jest.MockedFunction<typeof updateExerciseNotes>;
 const mockUpdateWorkoutSet = updateWorkoutSet as jest.MockedFunction<typeof updateWorkoutSet>;
-const mockSyncToSupabase = syncToSupabase as jest.MockedFunction<typeof syncToSupabase>;
+const mockFireAndForgetSync = fireAndForgetSync as jest.MockedFunction<typeof fireAndForgetSync>;
 const mockCaptureException = Sentry.captureException as jest.MockedFunction<typeof Sentry.captureException>;
 
 describe('useNotesDebounce', () => {
@@ -57,7 +58,7 @@ describe('useNotesDebounce', () => {
     expect(mockUpdateExerciseNotes).toHaveBeenCalledWith('ex-1', 'second');
     expect(mockUpdateWorkoutSet).toHaveBeenCalledTimes(1);
     expect(mockUpdateWorkoutSet).toHaveBeenCalledWith('set-1', { notes: 'second' });
-    expect(mockSyncToSupabase).toHaveBeenCalledTimes(1);
+    expect(mockFireAndForgetSync).toHaveBeenCalledTimes(1);
   });
 
   it('passes null to updateExerciseNotes when notes are empty', () => {
@@ -87,7 +88,7 @@ describe('useNotesDebounce', () => {
 
     expect(mockUpdateExerciseNotes).toHaveBeenCalledTimes(1);
     expect(mockUpdateWorkoutSet).not.toHaveBeenCalled();
-    expect(mockSyncToSupabase).toHaveBeenCalledTimes(1);
+    expect(mockFireAndForgetSync).toHaveBeenCalledTimes(1);
   });
 
   it('flushPendingNotes saves all pending notes immediately', async () => {
@@ -157,7 +158,7 @@ describe('useNotesDebounce', () => {
 
     expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
     expect(mockUpdateWorkoutSet).not.toHaveBeenCalled();
-    expect(mockSyncToSupabase).not.toHaveBeenCalled();
+    expect(mockFireAndForgetSync).not.toHaveBeenCalled();
   });
 
   it('clearPendingNotes followed by flush does nothing', async () => {

@@ -17,10 +17,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, chipStyles } from '../theme';
 import { modalStyles } from '../theme/sharedStyles';
 import { getAllExercises, updateExercise } from '../services/database';
-import { syncToSupabase } from '../services/sync';
+import { fireAndForgetSync } from '../services/sync';
 import { filterExercises } from '../utils/exerciseSearch';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
@@ -92,7 +92,7 @@ export default function ExercisesScreen() {
         muscle_groups: editMuscles,
         notes: editNotes.trim() || null,
       });
-      syncToSupabase().catch(() => {});
+      fireAndForgetSync();
       await loadExercises();
       closeEditModal();
     } catch {
@@ -195,12 +195,12 @@ export default function ExercisesScreen() {
               />
 
               <Text style={styles.editLabel}>Type</Text>
-              <View style={styles.typeGrid}>
+              <View style={chipStyles.typeGrid}>
                 {EXERCISE_TYPE_OPTIONS_WITH_ICONS.map((t) => (
                   <TouchableOpacity
                     key={t.value}
                     style={[
-                      styles.typeChip,
+                      chipStyles.typeChip,
                       editType === t.value && { backgroundColor: exerciseTypeColor(t.value), borderColor: exerciseTypeColor(t.value) },
                     ]}
                     onPress={() => setEditType(t.value)}
@@ -211,26 +211,26 @@ export default function ExercisesScreen() {
                       color={editType === t.value ? colors.white : colors.textSecondary}
                       style={{ marginRight: 4 }}
                     />
-                    <Text style={[styles.chipText, editType === t.value && styles.chipTextActive]}>{t.label}</Text>
+                    <Text style={[chipStyles.chipText, editType === t.value && chipStyles.chipTextActive]}>{t.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
               <Text style={styles.editLabel}>Muscle Groups</Text>
-              <View style={styles.muscleGrid}>
+              <View style={chipStyles.muscleGrid}>
                 {MUSCLE_GROUPS.map((mg) => {
                   const selected = editMuscles.includes(mg);
                   return (
                     <TouchableOpacity
                       key={mg}
-                      style={[styles.muscleChip, selected && styles.muscleChipSelected]}
+                      style={[chipStyles.muscleChip, selected && chipStyles.muscleChipSelected]}
                       onPress={() =>
                         setEditMuscles((prev) =>
                           selected ? prev.filter((m) => m !== mg) : [...prev, mg],
                         )
                       }
                     >
-                      <Text style={[styles.chipText, selected && styles.chipTextActive]}>{mg}</Text>
+                      <Text style={[chipStyles.chipText, selected && chipStyles.chipTextActive]}>{mg}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: fontSize.md,
     marginTop: spacing.sm,
-    textAlign: 'center' as const,
+    textAlign: 'center',
   },
   exerciseCard: {
     flexDirection: 'row',
@@ -360,48 +360,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
     marginTop: spacing.md,
     marginBottom: spacing.xs,
-  },
-  typeGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  typeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  chipText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  chipTextActive: {
-    color: colors.white,
-    fontWeight: fontWeight.semibold,
-  },
-  muscleGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  muscleChip: {
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minHeight: 36,
-  },
-  muscleChipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
   notesInput: {
     minHeight: 80,

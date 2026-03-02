@@ -29,14 +29,33 @@ interface RecentSession {
   sets: { weight: number; reps: number; tag: SetTag; rpe: number | null; set_number: number }[];
 }
 
+function thinLabels<T extends { date: string }>(items: T[]): string[] {
+  if (items.length <= 8) return items.map(d => d.date);
+  const step = Math.ceil(items.length / 6);
+  return items.map((d, i) => (i % step === 0 || i === items.length - 1) ? d.date : '');
+}
+
+interface HistoryData {
+  chartData: DataPoint[];
+  volumeData: VolumePoint[];
+  prValue: number;
+  prDateFormatted: string;
+  recentSessions: RecentSession[];
+  isPlateaued: boolean;
+}
+
+const EMPTY_DATA: HistoryData = {
+  chartData: [],
+  volumeData: [],
+  prValue: 0,
+  prDateFormatted: '',
+  recentSessions: [],
+  isPlateaued: false,
+};
+
 export default function ExerciseHistoryModal({ visible, exercise, onClose }: Props) {
   const [loading, setLoading] = useState(false);
-  const [chartData, setChartData] = useState<DataPoint[]>([]);
-  const [volumeData, setVolumeData] = useState<VolumePoint[]>([]);
-  const [prValue, setPrValue] = useState(0);
-  const [prDateFormatted, setPrDateFormatted] = useState('');
-  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
-  const [isPlateaued, setIsPlateaued] = useState(false);
+  const [data, setData] = useState<HistoryData>(EMPTY_DATA);
 
   useEffect(() => {
     if (!visible || !exercise) return;
@@ -49,9 +68,13 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
     try {
       const history = await getExerciseHistory(exercise.id, 20);
 
-      const points: DataPoint[] = history
+      function isCompletedWorkingSet(s: { is_completed: boolean | number; weight: number | null; reps: number | null; tag: string }): boolean {
+        return !!(s.is_completed && s.weight && s.reps && s.tag !== 'warmup');
+      }
+
+      const pointsWithDate: { point: DataPoint; fullDate: Date }[] = history
         .map((h) => {
-          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup');
+          const completedSets = h.sets.filter(isCompletedWorkingSet);
           if (completedSets.length === 0) return null;
           const estimates = completedSets.map(s => {
             const rpe = s.tag === 'failure' ? 10 : s.rpe;
@@ -60,17 +83,17 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
           if (estimates.length === 0) return null;
           const best = Math.max(...estimates);
           const d = new Date(h.workout.started_at);
-          return { date: `${d.getMonth() + 1}/${d.getDate()}`, best1RM: Math.round(best) };
+          return { point: { date: `${d.getMonth() + 1}/${d.getDate()}`, best1RM: Math.round(best) }, fullDate: d };
         })
         .filter(Boolean)
-        .reverse() as DataPoint[];
+        .reverse() as { point: DataPoint; fullDate: Date }[];
 
-      setChartData(points);
+      const chartData = pointsWithDate.map(p => p.point);
 
       // Volume data: sum weight * reps for all completed sets per session
-      const volPoints: VolumePoint[] = history
+      const volumeData: VolumePoint[] = history
         .map((h) => {
-          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup');
+          const completedSets = h.sets.filter(isCompletedWorkingSet);
           if (completedSets.length === 0) return null;
           const volume = completedSets.reduce((sum, s) => {
             const v = (s.weight ?? 0) * (s.reps ?? 0);
@@ -82,48 +105,30 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         .filter(Boolean)
         .reverse() as VolumePoint[];
 
-      setVolumeData(volPoints);
-
       // Plateau detection
-      if (points.length >= 5) {
-        const recentMax = Math.max(...points.slice(-5).map(p => p.best1RM));
-        const fiveAgo = points[points.length - 5].best1RM;
-        setIsPlateaued(recentMax <= fiveAgo);
-      } else {
-        setIsPlateaued(false);
+      let isPlateaued = false;
+      if (chartData.length >= 5) {
+        const recentMax = Math.max(...chartData.slice(-5).map(p => p.best1RM));
+        const fiveAgo = chartData[chartData.length - 5].best1RM;
+        isPlateaued = recentMax <= fiveAgo;
       }
 
-      if (points.length > 0) {
-        let maxVal = 0;
-        let maxDateFormatted = '';
-        // Find PR from history to get full date for formatting
-        for (let i = 0; i < history.length; i++) {
-          const h = history[i];
-          const completedSets = h.sets.filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup');
-          if (completedSets.length === 0) continue;
-          const estimates = completedSets.map(s => {
-            const rpe = s.tag === 'failure' ? 10 : s.rpe;
-            return calculateEstimated1RM(s.weight ?? 0, s.reps ?? 0, rpe);
-          }).filter(v => isFinite(v) && v > 0);
-          if (estimates.length === 0) continue;
-          const best = Math.max(...estimates);
-          const rounded = Math.round(best);
-          if (rounded >= maxVal) {
-            maxVal = rounded;
-            const d = new Date(h.workout.started_at);
-            maxDateFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      let prValue = 0;
+      let prDateFormatted = '';
+      if (pointsWithDate.length > 0) {
+        let prEntry = pointsWithDate[0];
+        for (let i = 1; i < pointsWithDate.length; i++) {
+          if (pointsWithDate[i].point.best1RM > prEntry.point.best1RM) {
+            prEntry = pointsWithDate[i];
           }
         }
-        setPrValue(maxVal);
-        setPrDateFormatted(maxDateFormatted);
-      } else {
-        setPrValue(0);
-        setPrDateFormatted('');
+        prValue = prEntry.point.best1RM;
+        prDateFormatted = prEntry.fullDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       }
 
-      const recent = history.slice(0, 5).map(h => {
+      const recentSessions = history.slice(0, 5).map(h => {
         const completedSets = h.sets
-          .filter(s => s.is_completed && s.weight && s.reps && s.tag !== 'warmup')
+          .filter(isCompletedWorkingSet)
           .sort((a, b) => a.set_number - b.set_number)
           .map(s => ({
             weight: s.weight!,
@@ -138,7 +143,8 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
           sets: completedSets,
         };
       }).filter(Boolean).slice(0, 3) as RecentSession[];
-      setRecentSessions(recent);
+
+      setData({ chartData, volumeData, prValue, prDateFormatted, recentSessions, isPlateaued });
     } finally {
       setLoading(false);
     }
@@ -163,33 +169,31 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
             <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
           ) : (
             <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-              {prValue > 0 && chartData.length >= 3 && (
+              {data.prValue > 0 && data.chartData.length >= 3 && (
                 <View style={styles.prBanner}>
                   <View style={styles.prHeader}>
                     <Ionicons name="trophy" size={20} color={colors.warning} />
                     <Text style={styles.prLabel}>Personal Record</Text>
                   </View>
-                  <Text style={styles.prValue}>{prValue} lb</Text>
-                  <Text style={styles.prSubtext}>1RM · {prDateFormatted}</Text>
+                  <Text style={styles.prValue}>{data.prValue} lb</Text>
+                  <Text style={styles.prSubtext}>1RM · {data.prDateFormatted}</Text>
                 </View>
               )}
 
-              {isPlateaued && chartData.length >= 5 && (
+              {data.isPlateaued && data.chartData.length >= 5 && (
                 <View style={styles.plateauBanner} testID="plateau-badge">
                   <Ionicons name="trending-down" size={16} color={colors.warning} />
                   <Text style={styles.plateauText}>Plateau — 1RM unchanged for 5 sessions</Text>
                 </View>
               )}
 
-              {chartData.length >= 3 ? (
+              {data.chartData.length >= 3 ? (
                 <View style={styles.chartContainer}>
                   <Text style={styles.sectionTitle}>1RM Progression</Text>
                   <LineChart
                     data={{
-                      labels: chartData.length <= 8
-                        ? chartData.map(d => d.date)
-                        : chartData.filter((_, i) => i % Math.ceil(chartData.length / 6) === 0 || i === chartData.length - 1).map(d => d.date),
-                      datasets: [{ data: chartData.map(d => d.best1RM) }],
+                      labels: thinLabels(data.chartData),
+                      datasets: [{ data: data.chartData.map(d => d.best1RM) }],
                     }}
                     width={screenWidth - spacing.md * 2}
                     height={180}
@@ -208,21 +212,19 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                 </View>
               ) : (
                 <Text style={styles.noData}>
-                  {chartData.length === 0
+                  {data.chartData.length === 0
                     ? 'No workout data yet'
-                    : `${3 - chartData.length} more session${3 - chartData.length === 1 ? '' : 's'} needed for chart`}
+                    : `${3 - data.chartData.length} more session${3 - data.chartData.length === 1 ? '' : 's'} needed for chart`}
                 </Text>
               )}
 
-              {volumeData.length >= 3 && (
+              {data.volumeData.length >= 3 && (
                 <View style={styles.chartContainer}>
                   <Text style={styles.sectionTitle}>Volume Progression</Text>
                   <LineChart
                     data={{
-                      labels: volumeData.length <= 8
-                        ? volumeData.map(d => d.date)
-                        : volumeData.filter((_, i) => i % Math.ceil(volumeData.length / 6) === 0 || i === volumeData.length - 1).map(d => d.date),
-                      datasets: [{ data: volumeData.map(d => d.volume) }],
+                      labels: thinLabels(data.volumeData),
+                      datasets: [{ data: data.volumeData.map(d => d.volume) }],
                     }}
                     width={screenWidth - spacing.md * 2}
                     height={180}
@@ -241,10 +243,10 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                 </View>
               )}
 
-              {recentSessions.length > 0 && (
+              {data.recentSessions.length > 0 && (
                 <View style={styles.recentSection}>
                   <Text style={styles.sectionTitle}>Recent Performances</Text>
-                  {recentSessions.map((session, i) => (
+                  {data.recentSessions.map((session, i) => (
                     <View key={i} style={styles.sessionCard} testID={`session-row-${i}`}>
                       <Text style={styles.sessionDate} testID={`session-date-${i}`}>{session.date}</Text>
                       {session.sets.map((s, j) => (
@@ -311,8 +313,8 @@ const styles = StyleSheet.create({
   closeButton: {
     minWidth: 44,
     minHeight: 44,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   body: {
     paddingHorizontal: spacing.lg,
@@ -333,7 +335,7 @@ const styles = StyleSheet.create({
     color: colors.warning,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase' as const,
+    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   prValue: {
@@ -356,7 +358,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     letterSpacing: 0.5,
     marginBottom: spacing.sm,
-    textTransform: 'uppercase' as const,
+    textTransform: 'uppercase',
   },
   noData: {
     color: colors.textMuted,

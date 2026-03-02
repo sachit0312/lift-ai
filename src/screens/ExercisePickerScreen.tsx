@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TemplatesStackParamList } from '../navigation/TabNavigator';
-import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, layout, chipStyles } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { filterExercises } from '../utils/exerciseSearch';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
@@ -18,8 +18,6 @@ import * as Sentry from '@sentry/react-native';
 
 type RouteProp = NativeStackScreenProps<TemplatesStackParamList, 'ExercisePicker'>['route'];
 type Nav = NativeStackNavigationProp<TemplatesStackParamList, 'ExercisePicker'>;
-
-const typeBadgeColor = exerciseTypeColor;
 
 export default function ExercisePickerScreen() {
   const route = useRoute<RouteProp>();
@@ -103,8 +101,8 @@ export default function ExercisePickerScreen() {
       <View style={styles.cardContent}>
         <View style={styles.cardTop}>
           <Text style={styles.exerciseName}>{item.name}</Text>
-          <View style={[styles.badge, { backgroundColor: typeBadgeColor(item.type) + '20' }]}>
-            <Text style={[styles.badgeText, { color: typeBadgeColor(item.type) }]}>{item.type}</Text>
+          <View style={[styles.badge, { backgroundColor: exerciseTypeColor(item.type) + '20' }]}>
+            <Text style={[styles.badgeText, { color: exerciseTypeColor(item.type) }]}>{item.type}</Text>
           </View>
         </View>
         {item.muscle_groups.length > 0 && (
@@ -144,13 +142,13 @@ export default function ExercisePickerScreen() {
           {validationError ? <Text style={styles.errorText}>{validationError}</Text> : null}
 
           <Text style={styles.label}>Type</Text>
-          <View style={styles.typeGrid}>
+          <View style={[chipStyles.typeGrid, { marginTop: spacing.xs }]}>
             {EXERCISE_TYPE_OPTIONS_WITH_ICONS.map((t) => (
               <TouchableOpacity
                 key={t.value}
                 style={[
-                  styles.typeChip,
-                  newType === t.value && { backgroundColor: typeBadgeColor(t.value), borderColor: typeBadgeColor(t.value) },
+                  chipStyles.typeChip,
+                  newType === t.value && { backgroundColor: exerciseTypeColor(t.value), borderColor: exerciseTypeColor(t.value) },
                 ]}
                 onPress={() => setNewType(t.value)}
               >
@@ -160,13 +158,13 @@ export default function ExercisePickerScreen() {
                   color={newType === t.value ? colors.white : colors.textSecondary}
                   style={{ marginRight: 4 }}
                 />
-                <Text style={[styles.chipText, newType === t.value && styles.chipTextActive]}>{t.label}</Text>
+                <Text style={[chipStyles.chipText, newType === t.value && chipStyles.chipTextActive]}>{t.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
           <Text style={styles.label}>Muscle Groups</Text>
-          <View style={styles.muscleGrid}>
+          <View style={[chipStyles.muscleGrid, { marginTop: spacing.xs }]}>
             {MUSCLE_GROUPS.map((mg) => {
               const selected = newMuscles.includes(mg);
               return (
@@ -174,8 +172,8 @@ export default function ExercisePickerScreen() {
                   key={mg}
                   testID={`muscle-${mg}`}
                   style={[
-                    styles.muscleChip,
-                    selected && styles.muscleChipSelected,
+                    chipStyles.muscleChip,
+                    selected && chipStyles.muscleChipSelected,
                   ]}
                   onPress={() =>
                     setNewMuscles((prev) =>
@@ -183,7 +181,7 @@ export default function ExercisePickerScreen() {
                     )
                   }
                 >
-                  <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                  <Text style={[chipStyles.chipText, selected && chipStyles.chipTextActive]}>
                     {mg}
                   </Text>
                 </TouchableOpacity>
@@ -357,50 +355,6 @@ const styles = StyleSheet.create({
     color: colors.error,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
-  },
-  typeGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  typeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  chipText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  chipTextActive: {
-    color: colors.white,
-    fontWeight: fontWeight.semibold,
-  },
-  muscleGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  muscleChip: {
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minHeight: 36,
-  },
-  muscleChipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
   saveBtn: {
     backgroundColor: colors.primary,

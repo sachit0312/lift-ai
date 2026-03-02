@@ -6,13 +6,6 @@ export const MUSCLE_GROUPS = [
   'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Forearms',
 ] as const;
 
-export const EXERCISE_TYPE_OPTIONS: { value: ExerciseType; label: string }[] = [
-  { value: 'weighted', label: 'Weighted' },
-  { value: 'bodyweight', label: 'Bodyweight' },
-  { value: 'machine', label: 'Machine' },
-  { value: 'cable', label: 'Cable' },
-];
-
 export const EXERCISE_TYPE_OPTIONS_WITH_ICONS: { value: ExerciseType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'weighted', label: 'Weighted', icon: 'barbell-outline' },
   { value: 'bodyweight', label: 'Bodyweight', icon: 'body-outline' },

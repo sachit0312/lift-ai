@@ -13,8 +13,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../services/supabase';
-import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../theme';
+import { colors, spacing, fontSize, fontWeight, borderRadius, authStyles } from '../theme';
 import type { AuthStackParamList } from '../navigation/RootNavigator';
+import { EMAIL_REGEX } from '../constants/validation';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Signup'>;
 
@@ -31,8 +32,7 @@ export default function SignupScreen({ navigation }: Props) {
       setError('Please fill in all fields.');
       return;
     }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
+    if (!EMAIL_REGEX.test(email.trim())) {
       setError('Please enter a valid email address.');
       return;
     }
@@ -56,9 +56,9 @@ export default function SignupScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={authStyles.container}>
       <KeyboardAvoidingView
-        style={styles.inner}
+        style={authStyles.inner}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {signupSuccess ? (
@@ -72,21 +72,21 @@ export default function SignupScreen({ navigation }: Props) {
               style={styles.backToLoginButton}
               onPress={() => navigation.navigate('Login')}
             >
-              <Text style={styles.backToLoginText}>Back to Login</Text>
+              <Text style={authStyles.primaryButtonText}>Back to Login</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <>
-            <View style={styles.logoContainer}>
+            <View style={authStyles.logoContainer}>
               <Ionicons name="barbell" size={48} color={colors.primary} />
             </View>
 
-            <Text style={styles.title}>Create Account</Text>
+            <Text style={authStyles.title}>Create Account</Text>
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={authStyles.errorText}>{error}</Text> : null}
 
             <TextInput
-              style={styles.input}
+              style={authStyles.input}
               placeholder="Email"
               placeholderTextColor={colors.textMuted}
               value={email}
@@ -98,7 +98,7 @@ export default function SignupScreen({ navigation }: Props) {
             />
 
             <TextInput
-              style={styles.input}
+              style={authStyles.input}
               placeholder="Password"
               placeholderTextColor={colors.textMuted}
               value={password}
@@ -109,7 +109,7 @@ export default function SignupScreen({ navigation }: Props) {
             />
 
             <TextInput
-              style={styles.input}
+              style={authStyles.input}
               placeholder="Confirm Password"
               placeholderTextColor={colors.textMuted}
               value={confirmPassword}
@@ -120,7 +120,7 @@ export default function SignupScreen({ navigation }: Props) {
             />
 
             <TouchableOpacity
-              style={[styles.signupButton, loading && styles.disabledButton]}
+              style={[authStyles.primaryButton, loading && authStyles.disabledButton]}
               onPress={handleSignup}
               disabled={loading}
               testID="signup-btn"
@@ -128,17 +128,17 @@ export default function SignupScreen({ navigation }: Props) {
               {loading ? (
                 <ActivityIndicator color={colors.white} />
               ) : (
-                <Text style={styles.signupButtonText}>Create Account</Text>
+                <Text style={authStyles.primaryButtonText}>Create Account</Text>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.loginLink}
+              style={authStyles.switchLink}
               onPress={() => navigation.navigate('Login')}
               disabled={loading}
             >
-              <Text style={styles.loginText}>
-                Already have an account? <Text style={styles.loginTextBold}>Log In</Text>
+              <Text style={authStyles.switchText}>
+                Already have an account? <Text style={authStyles.switchTextBold}>Log In</Text>
               </Text>
             </TouchableOpacity>
           </>
@@ -149,72 +149,6 @@ export default function SignupScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  inner: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-    justifyContent: 'center',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  title: {
-    color: colors.text,
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  errorText: {
-    color: colors.error,
-    fontSize: fontSize.sm,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    color: colors.text,
-    fontSize: fontSize.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    marginBottom: 18,
-  },
-  signupButton: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    minHeight: layout.buttonHeight,
-    justifyContent: 'center',
-  },
-  signupButtonText: {
-    color: colors.white,
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  loginLink: {
-    marginTop: spacing.xl,
-    alignItems: 'center',
-  },
-  loginText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-  },
-  loginTextBold: {
-    color: colors.primary,
-    fontWeight: fontWeight.semibold,
-  },
   successContainer: {
     alignItems: 'center',
     paddingHorizontal: spacing.md,
@@ -239,10 +173,5 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     alignItems: 'center',
-  },
-  backToLoginText: {
-    color: colors.white,
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
   },
 });

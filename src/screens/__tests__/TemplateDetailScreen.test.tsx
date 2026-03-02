@@ -11,7 +11,7 @@ jest.mock('../../services/database', () => ({
 
 jest.mock('../../services/sync', () => ({
   deleteTemplateExerciseFromSupabase: jest.fn().mockResolvedValue(undefined),
-  syncToSupabase: jest.fn().mockResolvedValue(undefined),
+  fireAndForgetSync: jest.fn(),
 }));
 
 const mockNavigate = jest.fn();

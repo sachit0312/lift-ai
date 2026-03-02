@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { updateExerciseNotes, updateWorkoutSet } from '../services/database';
-import { syncToSupabase } from '../services/sync';
+import { fireAndForgetSync } from '../services/sync';
 
 interface UseNotesDebounceReturn {
   debouncedSaveNotes: (exerciseId: string, notes: string, setId: string | null) => void;
@@ -65,7 +65,7 @@ export function useNotesDebounce(): UseNotesDebounceReturn {
           updateWorkoutSet(pending.setId, { notes: pending.notes });
         }
         pendingNotesRef.current.delete(exerciseId);
-        syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } }));
+        fireAndForgetSync();
       }
       notesTimerRef.current.delete(exerciseId);
     }, 500);

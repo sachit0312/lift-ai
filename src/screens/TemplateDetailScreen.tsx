@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, Alert, StyleSheet, Platform,
   Modal, TextInput, KeyboardAvoidingView, ActivityIndicator,
@@ -16,7 +16,7 @@ import {
   updateTemplateExerciseOrder,
   updateTemplate,
 } from '../services/database';
-import { deleteTemplateExerciseFromSupabase, syncToSupabase } from '../services/sync';
+import { deleteTemplateExerciseFromSupabase, fireAndForgetSync } from '../services/sync';
 import type { TemplateExercise } from '../types/database';
 import * as Sentry from '@sentry/react-native';
 
@@ -58,19 +58,21 @@ export default function TemplateDetailScreen() {
     }, [loadExercises]),
   );
 
+  function performRename(name: string) {
+    updateTemplate(templateId, name).then(() => {
+      setTemplateName(name);
+      navigation.setOptions({ title: name });
+    }).catch((e) => {
+      if (__DEV__) console.error('Failed to rename template', e);
+      Sentry.captureException(e);
+      Alert.alert('Error', 'Failed to rename template. Please try again.');
+    });
+  }
+
   const handleEditName = () => {
     if (Platform.OS === 'ios') {
       Alert.prompt('Rename Template', 'Enter new name', (name) => {
-        if (name && name.trim()) {
-          updateTemplate(templateId, name.trim()).then(() => {
-            setTemplateName(name.trim());
-            navigation.setOptions({ title: name.trim() });
-          }).catch((e) => {
-            if (__DEV__) console.error('Failed to rename template', e);
-            Sentry.captureException(e);
-            Alert.alert('Error', 'Failed to rename template. Please try again.');
-          });
-        }
+        if (name && name.trim()) performRename(name.trim());
       }, 'plain-text', templateName);
     } else {
       setRenameValue(templateName);
@@ -82,64 +84,29 @@ export default function TemplateDetailScreen() {
     const name = renameValue.trim();
     if (name) {
       setShowRenameModal(false);
-      updateTemplate(templateId, name).then(() => {
-        setTemplateName(name);
-        navigation.setOptions({ title: name });
-      }).catch((e) => {
-        if (__DEV__) console.error('Failed to rename template', e);
-        Sentry.captureException(e);
-        Alert.alert('Error', 'Failed to rename template. Please try again.');
-      });
+      performRename(name);
     }
   };
 
-  const handleIncreaseSets = useCallback((item: TemplateExercise) => {
-    const newSets = item.default_sets + 1;
-    updateTemplateExerciseDefaults(item.id, { sets: newSets })
-      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
-      .catch((e) => { if (__DEV__) console.error('Failed to update sets', e); Sentry.captureException(e); });
-  }, [loadExercises]);
+  const makeStepperHandler = useCallback(
+    (field: string, getCurrent: (item: TemplateExercise) => number, computeNew: (current: number) => number) =>
+      (item: TemplateExercise) => {
+        const current = getCurrent(item);
+        const newValue = computeNew(current);
+        if (newValue === current) return;
+        updateTemplateExerciseDefaults(item.id, { [field]: newValue })
+          .then(() => { fireAndForgetSync(); return loadExercises(); })
+          .catch((e) => { if (__DEV__) console.error(`Failed to update ${field}`, e); Sentry.captureException(e); });
+      },
+    [loadExercises],
+  );
 
-  const handleDecreaseSets = useCallback((item: TemplateExercise) => {
-    const newSets = Math.max(1, item.default_sets - 1);
-    if (newSets !== item.default_sets) {
-      updateTemplateExerciseDefaults(item.id, { sets: newSets })
-        .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
-        .catch((e) => { if (__DEV__) console.error('Failed to update sets', e); Sentry.captureException(e); });
-    }
-  }, [loadExercises]);
-
-  const handleIncreaseWarmupSets = useCallback((item: TemplateExercise) => {
-    const newWarmup = item.warmup_sets + 1;
-    updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
-      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
-      .catch((e) => { if (__DEV__) console.error('Failed to update warmup sets', e); Sentry.captureException(e); });
-  }, [loadExercises]);
-
-  const handleDecreaseWarmupSets = useCallback((item: TemplateExercise) => {
-    const newWarmup = Math.max(0, item.warmup_sets - 1);
-    if (newWarmup !== item.warmup_sets) {
-      updateTemplateExerciseDefaults(item.id, { warmup_sets: newWarmup })
-        .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
-        .catch((e) => { if (__DEV__) console.error('Failed to update warmup sets', e); Sentry.captureException(e); });
-    }
-  }, [loadExercises]);
-
-  const handleIncreaseRest = useCallback((item: TemplateExercise) => {
-    const newRest = item.rest_seconds + 15;
-    updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
-      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
-      .catch((e) => { if (__DEV__) console.error('Failed to update rest', e); Sentry.captureException(e); });
-  }, [loadExercises]);
-
-  const handleDecreaseRest = useCallback((item: TemplateExercise) => {
-    const newRest = Math.max(15, item.rest_seconds - 15);
-    if (newRest !== item.rest_seconds) {
-      updateTemplateExerciseDefaults(item.id, { rest_seconds: newRest })
-        .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); return loadExercises(); })
-        .catch((e) => { if (__DEV__) console.error('Failed to update rest', e); Sentry.captureException(e); });
-    }
-  }, [loadExercises]);
+  const handleIncreaseSets = useMemo(() => makeStepperHandler('sets', i => i.default_sets, v => v + 1), [makeStepperHandler]);
+  const handleDecreaseSets = useMemo(() => makeStepperHandler('sets', i => i.default_sets, v => Math.max(1, v - 1)), [makeStepperHandler]);
+  const handleIncreaseWarmupSets = useMemo(() => makeStepperHandler('warmup_sets', i => i.warmup_sets, v => v + 1), [makeStepperHandler]);
+  const handleDecreaseWarmupSets = useMemo(() => makeStepperHandler('warmup_sets', i => i.warmup_sets, v => Math.max(0, v - 1)), [makeStepperHandler]);
+  const handleIncreaseRest = useMemo(() => makeStepperHandler('rest_seconds', i => i.rest_seconds, v => v + 15), [makeStepperHandler]);
+  const handleDecreaseRest = useMemo(() => makeStepperHandler('rest_seconds', i => i.rest_seconds, v => Math.max(15, v - 15)), [makeStepperHandler]);
 
   const handleRemove = useCallback((item: TemplateExercise) => {
     Alert.alert('Remove Exercise', `Remove "${item.exercise?.name}" from template?`, [
@@ -168,7 +135,7 @@ export default function TemplateDetailScreen() {
     setExercises(data);
     const orderedIds = data.map((e) => e.id);
     updateTemplateExerciseOrder(templateId, orderedIds)
-      .then(() => { syncToSupabase().catch(e => Sentry.addBreadcrumb({ category: 'sync', message: 'syncToSupabase fire-and-forget failed', level: 'warning', data: { error: String(e) } })); })
+      .then(() => { fireAndForgetSync(); })
       .catch((e) => {
         if (__DEV__) console.error('Failed to update exercise order', e);
         Sentry.captureException(e);
@@ -282,7 +249,7 @@ export default function TemplateDetailScreen() {
         </View>
       </ScaleDecorator>
     );
-  }, [handleDecreaseWarmupSets, handleIncreaseWarmupSets, handleDecreaseSets, handleIncreaseSets, handleDecreaseRest, handleIncreaseRest, handleRemove]);
+  }, [makeStepperHandler, handleRemove]);
 
   if (loading) {
     return (
@@ -456,7 +423,7 @@ const styles = StyleSheet.create({
   },
   stepperGroup: {
     flex: 1,
-    alignItems: 'flex-start' as const,
+    alignItems: 'flex-start',
   },
   stepperLabel: {
     color: colors.textSecondary,

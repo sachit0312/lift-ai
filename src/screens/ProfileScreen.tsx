@@ -18,6 +18,7 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyle
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, deleteAccount } from '../services/supabase';
 import { getWorkoutHistory, getPRsThisWeek } from '../services/database';
+import { calculateStreak } from '../utils/streakCalculation';
 
 interface Stats {
   totalWorkouts: number;
@@ -56,50 +57,7 @@ export default function ProfileScreen() {
 
           const prsThisWeek = await getPRsThisWeek();
 
-          // Calculate streak (consecutive days with workouts)
-          let streak = 0;
-          if (history.length > 0) {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const dayMs = 86400000;
-            let checkDate = today;
-
-            // Check if there's a workout today or yesterday to start the streak
-            const hasToday = history.some(w => {
-              const d = new Date(w.started_at);
-              d.setHours(0, 0, 0, 0);
-              return d.getTime() === today.getTime();
-            });
-            const yesterday = new Date(today.getTime() - dayMs);
-            const hasYesterday = history.some(w => {
-              const d = new Date(w.started_at);
-              d.setHours(0, 0, 0, 0);
-              return d.getTime() === yesterday.getTime();
-            });
-
-            if (hasToday) {
-              checkDate = today;
-            } else if (hasYesterday) {
-              checkDate = yesterday;
-            }
-
-            if (hasToday || hasYesterday) {
-              let current = checkDate;
-              while (true) {
-                const hasWorkout = history.some(w => {
-                  const d = new Date(w.started_at);
-                  d.setHours(0, 0, 0, 0);
-                  return d.getTime() === current.getTime();
-                });
-                if (hasWorkout) {
-                  streak++;
-                  current = new Date(current.getTime() - dayMs);
-                } else {
-                  break;
-                }
-              }
-            }
-          }
+          const streak = calculateStreak(history.map(w => w.started_at));
 
           if (!cancelled) {
             setStats({
@@ -338,7 +296,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
-    width: '48%' as const,
+    width: '48%',
     flexGrow: 1,
     alignItems: 'center',
     borderWidth: 1,
