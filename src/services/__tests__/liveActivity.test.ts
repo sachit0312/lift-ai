@@ -90,7 +90,7 @@ describe('liveActivity service', () => {
         'mock-activity-id',
         expect.objectContaining({
           title: 'Bench Press',
-          subtitle: 'Set 2/4',
+          subtitle: 'Set 2/4|90',
           progressBar: expect.objectContaining({
             date: expect.any(Number),
           }),
@@ -168,7 +168,7 @@ describe('liveActivity service', () => {
         'mock-activity-id',
         expect.objectContaining({
           title: 'Bench Press',
-          subtitle: 'Set 1/4',
+          subtitle: expect.stringMatching(/^Set 1\/4\|\d+$/),
           progressBar: expect.objectContaining({
             date: expect.any(Number),
           }),
@@ -178,6 +178,7 @@ describe('liveActivity service', () => {
     });
 
     it('schedules new notification on adjust', async () => {
+      jest.useRealTimers(); // ensure no fake timer interference
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
       // Schedule a notification to simulate what useRestTimer does
@@ -186,9 +187,10 @@ describe('liveActivity service', () => {
       jest.clearAllMocks();
 
       await adjustRestTimerActivity(15);
-      // Serialized notification ops chain on microtask queue — flush them
-      await new Promise(resolve => setImmediate(resolve));
-      await new Promise(resolve => setImmediate(resolve));
+      // Flush serialized notification chain — use process.nextTick (never faked)
+      for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => process.nextTick(resolve));
+      }
 
       expect(Notifications.scheduleNotificationAsync).toHaveBeenCalled();
     });

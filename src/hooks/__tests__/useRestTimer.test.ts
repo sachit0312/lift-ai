@@ -7,27 +7,14 @@ import { useRestTimer } from '../useRestTimer';
 jest.mock('../../services/liveActivity', () => ({
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
-  getRestTimerRemainingSeconds: jest.fn(),
   scheduleRestNotification: jest.fn(),
-  cancelTimerEndNotification: jest.fn(),
-}));
-
-jest.mock('../../services/workoutBridge', () => ({
-  getWidgetRestState: jest.fn().mockReturnValue(null),
-  syncStateToWidget: jest.fn(),
-  startPolling: jest.fn(),
-  stopPolling: jest.fn(),
-  clearWidgetState: jest.fn(),
 }));
 
 const {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   scheduleRestNotification,
-  cancelTimerEndNotification,
 } = require('../../services/liveActivity');
-
-const { getWidgetRestState } = require('../../services/workoutBridge');
 
 // Capture the AppState listener so tests can simulate foreground return
 let appStateCallback: ((state: string) => void) | null = null;
@@ -57,7 +44,6 @@ describe('useRestTimer', () => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     appStateCallback = null;
-    getWidgetRestState.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -134,8 +120,33 @@ describe('useRestTimer', () => {
 
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(stopRestTimerActivity).toHaveBeenCalledTimes(1);
-    expect(cancelTimerEndNotification).toHaveBeenCalled();
     expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
+  });
+
+  it('endRest re-entrancy guard prevents multiple vibrations', () => {
+    const { result, onRestEnd } = setup();
+
+    act(() => {
+      result.current.startRestTimer(1, 'Bench');
+    });
+
+    // Timer expires — first endRest call
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+
+    expect(onRestEnd).toHaveBeenCalledTimes(1);
+    expect(Vibration.vibrate).toHaveBeenCalledTimes(1);
+
+    // Simulate foreground resync also trying to call endRest
+    jest.clearAllMocks();
+    act(() => {
+      appStateCallback?.('active');
+    });
+
+    // Second call should be a no-op (endingRef guard)
+    expect(onRestEnd).not.toHaveBeenCalled();
+    expect(Vibration.vibrate).not.toHaveBeenCalled();
   });
 
   it('adjustRestTimer modifies remaining time and calls onRestUpdate', () => {
@@ -169,28 +180,6 @@ describe('useRestTimer', () => {
     expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
   });
 
-  it('adjustRestTimer with fromWidget still updates Live Activity (Swift refresh is no-op)', () => {
-    const { result, onRestUpdate } = setup();
-
-    act(() => {
-      result.current.startRestTimer(60, 'Deadlift');
-    });
-    jest.clearAllMocks();
-    onRestUpdate.mockClear();
-
-    act(() => {
-      result.current.adjustRestTimer(15, { fromWidget: true });
-    });
-
-    expect(result.current.restSeconds).toBe(75);
-    expect(result.current.restTotal).toBe(75);
-    // RN must update Live Activity — Swift's refreshLiveActivity is a no-op
-    // due to cross-target type mismatch
-    expect(adjustRestTimerActivity).toHaveBeenCalledWith(15);
-    // Should still call onRestUpdate so widget bridge state stays in sync
-    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
-  });
-
   it('adjustRestTimer to zero ends rest properly', () => {
     const { result, onRestEnd } = setup();
 
@@ -207,7 +196,6 @@ describe('useRestTimer', () => {
     expect(result.current.restSeconds).toBe(0);
     expect(result.current.isResting).toBe(false);
     expect(stopRestTimerActivity).toHaveBeenCalled();
-    expect(cancelTimerEndNotification).toHaveBeenCalled();
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
     // Should NOT call adjustRestTimerActivity since rest ended
@@ -231,7 +219,6 @@ describe('useRestTimer', () => {
     expect(result.current.isResting).toBe(false);
     expect(result.current.currentEndTime).toBe(0);
     expect(stopRestTimerActivity).toHaveBeenCalled();
-    expect(cancelTimerEndNotification).toHaveBeenCalled();
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     // Dismiss should NOT vibrate
     expect(Vibration.vibrate).not.toHaveBeenCalled();
@@ -278,7 +265,7 @@ describe('useRestTimer', () => {
     expect(result.current.isResting).toBe(true);
   });
 
-  it('resyncs on foreground return when timer expired', () => {
+  it('resyncs on foreground return when timer expired — no vibration', () => {
     const { result, onRestEnd } = setup();
 
     act(() => {
@@ -296,52 +283,8 @@ describe('useRestTimer', () => {
     expect(result.current.isResting).toBe(false);
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(stopRestTimerActivity).toHaveBeenCalled();
-    expect(cancelTimerEndNotification).toHaveBeenCalled();
-    expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
-  });
-
-  it('foreground resync respects widget skip (no vibration)', () => {
-    const { result, onRestEnd } = setup();
-
-    act(() => {
-      result.current.startRestTimer(120, 'Rows');
-    });
-    jest.clearAllMocks();
-
-    // Widget says rest was skipped while backgrounded
-    getWidgetRestState.mockReturnValue({ isResting: false, restEndTime: 0 });
-
-    act(() => {
-      appStateCallback?.('active');
-    });
-
-    expect(result.current.restSeconds).toBe(0);
-    expect(result.current.isResting).toBe(false);
-    expect(onRestEnd).toHaveBeenCalledTimes(1);
-    // Should NOT vibrate since user already skipped from widget
+    // No vibration — notification already alerted the user while backgrounded
     expect(Vibration.vibrate).not.toHaveBeenCalled();
-  });
-
-  it('foreground resync uses widget end time when adjusted', () => {
-    const { result } = setup();
-
-    act(() => {
-      result.current.startRestTimer(60, 'Bench');
-    });
-
-    // Simulate: user added +15s from widget while backgrounded
-    // Advance 30s (without firing interval)
-    jest.setSystemTime(new Date(Date.now() + 30000));
-    // Widget state reflects the adjustment (+15s)
-    const extendedEndTime = Date.now() + 45000; // 45s from now
-    getWidgetRestState.mockReturnValue({ isResting: true, restEndTime: extendedEndTime });
-
-    act(() => {
-      appStateCallback?.('active');
-    });
-
-    expect(result.current.restSeconds).toBe(45);
-    expect(result.current.isResting).toBe(true);
   });
 
   it('foreground return does nothing when not resting', () => {

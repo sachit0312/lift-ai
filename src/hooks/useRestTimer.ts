@@ -4,9 +4,7 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   scheduleRestNotification,
-  cancelTimerEndNotification,
 } from '../services/liveActivity';
-import { getWidgetRestState } from '../services/workoutBridge';
 
 interface UseRestTimerOptions {
   onRestEnd: () => void;
@@ -20,7 +18,7 @@ interface UseRestTimerReturn {
   isResting: boolean;
   currentEndTime: number;
   startRestTimer: (seconds: number, exerciseName: string) => void;
-  adjustRestTimer: (delta: number, opts?: { fromWidget?: boolean }) => void;
+  adjustRestTimer: (delta: number) => void;
   dismissRest: () => void;
 }
 
@@ -33,6 +31,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
 
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentEndTimeRef = useRef(0);
+  const endingRef = useRef(false);
 
   // Keep callback refs stable so the interval closure always calls the latest version
   const onRestEndRef = useRef(onRestEnd);
@@ -42,6 +41,8 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
 
   // ─── Shared cleanup helper ───
   const endRest = useCallback((vibrate: boolean) => {
+    if (endingRef.current) return; // only first caller proceeds
+    endingRef.current = true;
     if (restRef.current) clearInterval(restRef.current);
     restRef.current = null;
     currentEndTimeRef.current = 0;
@@ -50,8 +51,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     setRestSeconds(0);
     setRestTotal(0);
     setRestExerciseName('');
-    cancelTimerEndNotification();
-    stopRestTimerActivity();
+    stopRestTimerActivity(); // handles notification cancel internally
     onRestEndRef.current();
     if (vibrate) {
       try { Vibration.vibrate([0, 200, 100, 200]); } catch {}
@@ -60,6 +60,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
 
   // ─── Start rest timer ───
   const startRestTimer = useCallback((seconds: number, exerciseName: string) => {
+    endingRef.current = false; // reset for new timer
     if (restRef.current) clearInterval(restRef.current);
     const total = seconds;
     setRestTotal(total);
@@ -89,7 +90,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   }, [endRest]);
 
   // ─── Adjust timer (+/-15s) ───
-  const adjustRestTimer = useCallback((delta: number, opts?: { fromWidget?: boolean }) => {
+  const adjustRestTimer = useCallback((delta: number) => {
     const newEndTime = currentEndTimeRef.current + delta * 1000;
     const remaining = Math.max(0, Math.round((newEndTime - Date.now()) / 1000));
 
@@ -102,9 +103,6 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       setRestSeconds(remaining);
       setRestTotal((prev) => Math.max(prev + delta, 1));
 
-      // Always update Live Activity from RN — Swift's refreshLiveActivity is a no-op
-      // due to cross-target type mismatch. The skipNextLiveActivityUpdate flag in
-      // useWidgetBridge prevents the redundant second update from syncWidgetState.
       adjustRestTimerActivity(delta);
       onRestUpdateRef.current(true, newEndTime);
     }
@@ -112,7 +110,6 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
 
   // ─── Dismiss/skip rest ───
   const dismissRest = useCallback(() => {
-    // Fix 5: call onRestEnd (via endRest) so widget state is synced
     endRest(false);
   }, [endRest]);
 
@@ -120,27 +117,9 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && restRef.current !== null) {
-        // Fix 2: Read widget-side state (may have been updated by Swift intents while backgrounded)
-        const widgetState = getWidgetRestState();
-
-        // If widget says rest was skipped, honor that without vibrating
-        if (widgetState && !widgetState.isResting) {
-          endRest(false);
-          return;
-        }
-
-        // Use the widget's end time if available (it reflects +/-15s adjustments)
-        const effectiveEndTime = widgetState
-          ? Math.max(currentEndTimeRef.current, widgetState.restEndTime)
-          : currentEndTimeRef.current;
-        currentEndTimeRef.current = effectiveEndTime;
-        setCurrentEndTime(effectiveEndTime);
-
-        const remaining = Math.max(0, Math.round((effectiveEndTime - Date.now()) / 1000));
-
+        const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
         if (remaining <= 0) {
-          // Fix 3: cancelTimerEndNotification is called inside endRest, before vibrating
-          endRest(true);
+          endRest(false); // no vibrate — notification already fired
         } else {
           setRestSeconds(remaining);
         }

@@ -17,19 +17,30 @@ struct ConditionalForegroundViewModifier: ViewModifier {
 
 // MARK: - Parsed State from ContentState
 
-/// Parses set data from ContentState subtitle format: "Set X/Y"
+/// Parses set data from ContentState subtitle format: "Set X/Y" or "Set X/Y|D"
+/// where D = total rest duration in seconds (present only during rest).
 @available(iOS 17.0, *)
 struct ParsedSetState {
   var exerciseName: String
   var setNumber: Int
   var totalSets: Int
+  var totalRestSeconds: Int?
 
   static func from(_ cs: LiveActivityAttributes.ContentState) -> ParsedSetState? {
     guard let subtitle = cs.subtitle else { return nil }
     let setStr = subtitle.replacingOccurrences(of: "Set ", with: "")
-    let setParts = setStr.components(separatedBy: "/")
+
+    // Split by pipe first to extract optional rest duration
+    let pipeParts = setStr.components(separatedBy: "|")
+    let setParts = pipeParts[0].components(separatedBy: "/")
     guard setParts.count == 2, let setNum = Int(setParts[0]), let total = Int(setParts[1]) else { return nil }
-    return ParsedSetState(exerciseName: cs.title, setNumber: setNum, totalSets: total)
+
+    var restSeconds: Int? = nil
+    if pipeParts.count == 2, let d = Int(pipeParts[1]) {
+      restSeconds = d
+    }
+
+    return ParsedSetState(exerciseName: cs.title, setNumber: setNum, totalSets: total, totalRestSeconds: restSeconds)
   }
 }
 
@@ -75,14 +86,13 @@ struct UnifiedWorkoutView: View {
     return restEnd > Date()
   }
 
-  /// Progress bar interval using original template rest duration (never changes on +/-15s).
-  /// This gives proportional display: bar = remaining / original_start_total.
+  /// Progress bar interval using total rest duration encoded in subtitle.
+  /// This gives proportional display: bar = remaining / total_rest_seconds.
   private var progressInterval: ClosedRange<Date> {
     let endMs = restEndTime
     let endDate = Date(timeIntervalSince1970: endMs / 1000)
-    if let state = WorkoutUserDefaultsHelper.shared.readWorkoutState(),
-       state.current.restSeconds > 0 {
-      let totalMs = Double(state.current.restSeconds) * 1000
+    if let p = parsed, let totalRestSeconds = p.totalRestSeconds, totalRestSeconds > 0 {
+      let totalMs = Double(totalRestSeconds) * 1000
       let startDate = Date(timeIntervalSince1970: (endMs - totalMs) / 1000)
       return min(startDate, endDate) ... endDate
     }
@@ -93,24 +103,13 @@ struct UnifiedWorkoutView: View {
     let resting = isResting
 
     VStack(spacing: 6) {
-      // Header row: exercise name + set counter
+      // Header row: exercise name + set counter (identical in both states)
       HStack {
-        if resting {
-          Text("Rest")
-            .font(.subheadline)
-            .fontWeight(.semibold)
-            .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-          Text("· \(contentState.title)")
-            .font(.caption)
-            .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
-            .lineLimit(1)
-        } else {
-          Text(contentState.title)
-            .font(.subheadline)
-            .fontWeight(.semibold)
-            .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
-            .lineLimit(1)
-        }
+        Text(contentState.title)
+          .font(.subheadline)
+          .fontWeight(.semibold)
+          .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
+          .lineLimit(1)
         Spacer()
         if let p = parsed {
           Text("Set \(p.setNumber)/\(p.totalSets)")
@@ -130,51 +129,11 @@ struct UnifiedWorkoutView: View {
           .multilineTextAlignment(.center)
           .invalidatableContent()
 
-        // Progress bar — uses original rest total for proportional display
+        // Progress bar
         ProgressView(timerInterval: progressInterval, countsDown: true)
           .id(restEndTime)  // Force recreation on timer adjustment
           .tint(attributes.progressViewTint.map { Color(hex: $0) })
-
-        // Timer controls + skip
-        HStack(spacing: 8) {
-          Button(intent: DecreaseRestIntent()) {
-            Text("-15s")
-              .font(.caption)
-              .fontWeight(.semibold)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 8)
-              .background(Color.white.opacity(0.15))
-              .clipShape(Capsule())
-          }
-          .buttonStyle(.plain)
-
-          Button(intent: IncreaseRestIntent()) {
-            Text("+15s")
-              .font(.caption)
-              .fontWeight(.semibold)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 8)
-              .background(Color.white.opacity(0.15))
-              .clipShape(Capsule())
-          }
-          .buttonStyle(.plain)
-
-          Button(intent: SkipRestIntent()) {
-            Text("Skip")
-              .font(.caption)
-              .fontWeight(.semibold)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 8)
-              .background(
-                Capsule()
-                  .fill(Color(hex: attributes.progressViewTint ?? "#7C5CFC").opacity(0.3))
-              )
-              .foregroundStyle(Color(hex: attributes.progressViewTint ?? "#7C5CFC"))
-          }
-          .buttonStyle(.plain)
-        }
       }
-
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 10)

@@ -9,11 +9,9 @@ const path = require('path');
 const APP_GROUP_ID = 'group.com.sachitgoyal.liftai';
 const WIDGET_TARGET_NAME = 'LiveActivity';
 
-// New Swift files to add to the widget target (not replacing existing ones)
-const NEW_SWIFT_FILES = [
-  'WorkoutIntents.swift',
-  'WorkoutUserDefaultsHelper.swift',
-];
+// New Swift files to add to the widget target (not replacing existing ones).
+// Empty: interactive buttons removed — widget is now read-only.
+const NEW_SWIFT_FILES = [];
 
 // Swift files that replace expo-live-activity defaults
 const REPLACEMENT_FILES = {

@@ -37,7 +37,6 @@ import {
   stopWorkoutActivity,
 } from '../services/liveActivity';
 import {
-  stopPolling,
   clearWidgetState,
 } from '../services/workoutBridge';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
@@ -167,15 +166,10 @@ export default function WorkoutScreen() {
   const {
     lastActiveBlockRef,
     syncWidgetState,
-    handleWidgetActions,
-    startWidgetPolling,
   } = useWidgetBridge({
     blocksRef,
-    workoutRef,
     isResting,
     restEndTime: currentEndTime,
-    onDismissRest: dismissRest,
-    onAdjustRest: adjustRestTimer,
   });
 
   // Keep ref in sync so rest timer callbacks always get latest syncWidgetState
@@ -377,7 +371,6 @@ export default function WorkoutScreen() {
       startWorkoutActivity(firstIncomplete.exercise.name, `Set ${setNum}/${firstIncomplete.sets.length}`);
     }
     syncWidgetState(blocks, false, 0);
-    startWidgetPolling();
   }
 
   // ─── Helpers ───
@@ -471,7 +464,6 @@ export default function WorkoutScreen() {
       startWorkoutActivity(firstBlock.exercise.name, `Set 1/${firstBlock.sets.length}`);
       syncWidgetState(blocks, false, 0);
     }
-    startWidgetPolling();
   }
 
   // ─── Start workout handlers ───
@@ -1088,7 +1080,6 @@ export default function WorkoutScreen() {
             if (timerRef.current) clearInterval(timerRef.current);
             clearPendingNotes();
             dismissRest();
-            stopPolling();
             stopWorkoutActivity();
             clearWidgetState();
             setActiveWorkout(null);
@@ -1168,7 +1159,6 @@ export default function WorkoutScreen() {
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();
-    stopPolling();
     stopWorkoutActivity();
     clearWidgetState();
 
@@ -1286,7 +1276,6 @@ export default function WorkoutScreen() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
-      stopPolling();
       flushPendingNotes();
     };
   }, []);

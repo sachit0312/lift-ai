@@ -14,6 +14,7 @@ let currentEndTime: number = 0;
 let currentExerciseName: string = '';
 let currentSetNumber: number = 1;
 let currentTotalSets: number = 1;
+let currentMaxRestSeconds: number = 0;
 
 // ─── Update deduplication & throttle state ───
 let lastContentStateJSON = '';
@@ -142,10 +143,13 @@ export async function updateWorkoutActivityForRest(
     currentExerciseName = exerciseName;
     currentSetNumber = setNumber;
     currentTotalSets = totalSets;
+    // Only set on initial rest start — re-syncs from useWidgetBridge pass remaining
+    // seconds (not total), which would shrink the progress bar denominator.
+    if (currentMaxRestSeconds === 0) currentMaxRestSeconds = totalSeconds;
 
     safeUpdateActivity({
       title: exerciseName,
-      subtitle: `Set ${setNumber}/${totalSets}`,
+      subtitle: `Set ${setNumber}/${totalSets}|${currentMaxRestSeconds}`,
       progressBar: { date: endTime },
     });
     // Notifications are NOT scheduled here — they're managed by useRestTimer.
@@ -178,6 +182,7 @@ export async function stopWorkoutActivity(): Promise<void> {
     currentExerciseName = '';
     currentSetNumber = 1;
     currentTotalSets = 1;
+    currentMaxRestSeconds = 0;
     // Reset dedup/throttle state
     lastContentStateJSON = '';
     lastUpdateTimestamp = 0;
@@ -185,7 +190,7 @@ export async function stopWorkoutActivity(): Promise<void> {
       clearTimeout(pendingUpdate.timeoutId);
       pendingUpdate = null;
     }
-    await cancelTimerEndNotification();
+    serializedNotificationOp(() => cancelTimerEndNotification());
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to stop workout Live Activity', e);
     Sentry.captureException(e);
@@ -211,12 +216,13 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
   try {
     const newEndTime = currentEndTime + deltaSeconds * 1000;
     currentEndTime = newEndTime;
+    if (deltaSeconds > 0) currentMaxRestSeconds += deltaSeconds;
 
     const remainingSeconds = Math.max(0, Math.round((newEndTime - Date.now()) / 1000));
 
     safeUpdateActivity({
       title: currentExerciseName,
-      subtitle: `Set ${currentSetNumber}/${currentTotalSets}`,
+      subtitle: `Set ${currentSetNumber}/${currentTotalSets}|${currentMaxRestSeconds}`,
       progressBar: { date: newEndTime },
     });
 
@@ -234,17 +240,19 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
 }
 
 export function stopRestTimerActivity(): void {
-  if (Platform.OS !== 'ios' || !currentActivityId) return;
+  if (Platform.OS !== 'ios') return;
+  // Cancel notification even if activity was dismissed — must run above !currentActivityId guard
+  serializedNotificationOp(() => cancelTimerEndNotification());
+  currentMaxRestSeconds = 0;
+  if (!currentActivityId) return;
   try {
     currentEndTime = 0;
 
-    // Update activity back to set entry view with parseable "Set X/Y" subtitle
+    // Update activity back to set entry view with parseable "Set X/Y" subtitle (no pipe suffix)
     safeUpdateActivity({
       title: currentExerciseName,
       subtitle: `Set ${currentSetNumber}/${currentTotalSets}`,
     });
-
-    serializedNotificationOp(() => cancelTimerEndNotification());
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to stop rest timer', e);
     Sentry.captureException(e);

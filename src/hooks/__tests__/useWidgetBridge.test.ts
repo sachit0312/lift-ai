@@ -1,14 +1,12 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useWidgetBridge, type ExerciseBlock, type UseWidgetBridgeOptions } from '../useWidgetBridge';
 import { createMockExercise } from '../../__tests__/helpers/factories';
-import type { Exercise, Workout, SetTag } from '../../types/database';
+import type { Exercise, SetTag } from '../../types/database';
 
 // ─── Mocks ───
 
 jest.mock('../../services/workoutBridge', () => ({
   syncStateToWidget: jest.fn(),
-  startPolling: jest.fn(),
-  stopPolling: jest.fn(),
   clearWidgetState: jest.fn(),
 }));
 
@@ -17,7 +15,7 @@ jest.mock('../../services/liveActivity', () => ({
   updateWorkoutActivityForRest: jest.fn(),
 }));
 
-import { syncStateToWidget, startPolling } from '../../services/workoutBridge';
+import { syncStateToWidget } from '../../services/workoutBridge';
 import { updateWorkoutActivityForSet, updateWorkoutActivityForRest } from '../../services/liveActivity';
 
 // ─── Helpers ───
@@ -63,11 +61,8 @@ function makeOptions(overrides: Partial<UseWidgetBridgeOptions> = {}): UseWidget
   const blocks: ExerciseBlock[] = [createBlock()];
   return {
     blocksRef: { current: blocks },
-    workoutRef: { current: { id: 'w1', user_id: 'u1', template_id: null, upcoming_workout_id: null, started_at: new Date().toISOString(), finished_at: null, ai_summary: null, session_notes: null } as Workout },
     isResting: false,
     restEndTime: 0,
-    onDismissRest: jest.fn(),
-    onAdjustRest: jest.fn(),
     ...overrides,
   };
 }
@@ -226,149 +221,6 @@ describe('useWidgetBridge', () => {
       expect(syncStateToWidget).toHaveBeenCalledTimes(1);
       const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
       expect(writtenState.current.exerciseName).toBe('Bench Press');
-    });
-  });
-
-  describe('handleWidgetActions', () => {
-    it('dispatches skipRest correctly', () => {
-      const onDismissRest = jest.fn();
-      const options = makeOptions({ onDismissRest });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      act(() => {
-        result.current.handleWidgetActions([
-          { type: 'skipRest', ts: Date.now() },
-        ]);
-      });
-
-      // onDismissRest (dismissRest → endRest → onRestEnd) handles the widget sync
-      expect(onDismissRest).toHaveBeenCalledTimes(1);
-    });
-
-    it('dispatches adjustRest with fromWidget flag', () => {
-      const onAdjustRest = jest.fn();
-      const options = makeOptions({ onAdjustRest });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      act(() => {
-        result.current.handleWidgetActions([
-          { type: 'adjustRest', delta: 15, ts: Date.now() },
-        ]);
-      });
-
-      expect(onAdjustRest).toHaveBeenCalledWith(15, { fromWidget: true });
-    });
-
-    it('skips Live Activity update on syncWidgetState after widget adjustRest', () => {
-      const onAdjustRest = jest.fn();
-      const restEnd = Date.now() + 60000;
-      const options = makeOptions({ onAdjustRest, isResting: true, restEndTime: restEnd });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      // Simulate widget adjustRest action (sets skip flag internally)
-      act(() => {
-        result.current.handleWidgetActions([
-          { type: 'adjustRest', delta: 15, ts: Date.now() },
-        ]);
-      });
-
-      jest.clearAllMocks();
-
-      // Next syncWidgetState should write to UserDefaults but skip Live Activity
-      act(() => {
-        result.current.syncWidgetState(undefined, true, restEnd);
-      });
-
-      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
-      // Live Activity update already sent by adjustRestTimerActivity in useRestTimer;
-      // syncWidgetState must not send a second update (would cause flicker).
-      expect(updateWorkoutActivityForRest).not.toHaveBeenCalled();
-      expect(updateWorkoutActivityForSet).not.toHaveBeenCalled();
-    });
-
-    it('skip flag does not suppress set-entry update when adjustment ends rest', () => {
-      const onAdjustRest = jest.fn();
-      const restEnd = Date.now() + 5000; // only 5s left
-      const options = makeOptions({ onAdjustRest, isResting: true, restEndTime: restEnd });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      // Widget sends -15s which would zero the timer
-      act(() => {
-        result.current.handleWidgetActions([
-          { type: 'adjustRest', delta: -15, ts: Date.now() },
-        ]);
-      });
-
-      jest.clearAllMocks();
-
-      // endRest fires syncWidgetState with isResting=false — must NOT be skipped
-      act(() => {
-        result.current.syncWidgetState(undefined, false, 0);
-      });
-
-      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
-      // Set-entry update MUST fire so lock screen switches from rest to set view
-      expect(updateWorkoutActivityForSet).toHaveBeenCalledTimes(1);
-      expect(updateWorkoutActivityForRest).not.toHaveBeenCalled();
-    });
-
-    it('skip flag resets after one syncWidgetState call', () => {
-      const onAdjustRest = jest.fn();
-      const restEnd = Date.now() + 60000;
-      const options = makeOptions({ onAdjustRest, isResting: true, restEndTime: restEnd });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      // Trigger widget action (sets skip flag)
-      act(() => {
-        result.current.handleWidgetActions([
-          { type: 'adjustRest', delta: 15, ts: Date.now() },
-        ]);
-      });
-
-      // First sync — skips Live Activity
-      act(() => {
-        result.current.syncWidgetState(undefined, true, restEnd);
-      });
-
-      jest.clearAllMocks();
-
-      // Second sync — should update Live Activity normally
-      act(() => {
-        result.current.syncWidgetState(undefined, true, restEnd);
-      });
-
-      expect(updateWorkoutActivityForRest).toHaveBeenCalledTimes(1);
-    });
-
-    it('ignores actions when no active workout', () => {
-      const onDismissRest = jest.fn();
-      const options = makeOptions({
-        workoutRef: { current: null },
-        onDismissRest,
-      });
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      act(() => {
-        result.current.handleWidgetActions([
-          { type: 'skipRest', ts: Date.now() },
-        ]);
-      });
-
-      expect(onDismissRest).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('startWidgetPolling', () => {
-    it('calls startPolling with handleWidgetActions', () => {
-      const options = makeOptions();
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      act(() => {
-        result.current.startWidgetPolling();
-      });
-
-      expect(startPolling).toHaveBeenCalledTimes(1);
-      expect(typeof (startPolling as jest.Mock).mock.calls[0][0]).toBe('function');
     });
   });
 });

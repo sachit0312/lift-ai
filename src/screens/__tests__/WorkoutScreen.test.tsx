@@ -59,15 +59,11 @@ jest.mock('../../services/liveActivity', () => ({
   stopWorkoutActivity: jest.fn(),
   scheduleTimerEndNotification: jest.fn(),
   scheduleRestNotification: jest.fn(),
-  cancelTimerEndNotification: jest.fn(),
 }));
 
 jest.mock('../../services/workoutBridge', () => ({
   syncStateToWidget: jest.fn(),
-  startPolling: jest.fn(),
-  stopPolling: jest.fn(),
   clearWidgetState: jest.fn(),
-  getWidgetRestState: jest.fn().mockReturnValue(null),
 }));
 
 jest.mock('@react-navigation/native', () => ({
@@ -107,10 +103,7 @@ import {
 } from '../../services/liveActivity';
 import {
   syncStateToWidget,
-  startPolling,
-  stopPolling,
   clearWidgetState,
-  getWidgetRestState,
 } from '../../services/workoutBridge';
 import WorkoutScreen from '../WorkoutScreen';
 
@@ -1375,9 +1368,6 @@ describe('WorkoutScreen', () => {
         expect(result.getByText(/Rest —/)).toBeTruthy();
       });
 
-      // Widget state says still resting (timer hasn't expired)
-      (getWidgetRestState as jest.Mock).mockReturnValue(null);
-
       await act(async () => {
         fireAppState('active');
       });
@@ -1404,88 +1394,9 @@ describe('WorkoutScreen', () => {
       expect(getRestTimerRemainingSeconds).not.toHaveBeenCalled();
     });
 
-    it('dismisses rest timer when widget says rest was skipped while backgrounded', async () => {
-      const result = render(<WorkoutScreen />);
-      await startWorkoutWithExercise(result);
-
-      // Start rest timer by completing a set
-      await act(async () => {
-        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
-        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
-      });
-      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
-
-      // Verify rest timer is showing
-      await waitFor(() => {
-        expect(result.getByText(/Rest —/)).toBeTruthy();
-      });
-
-      (stopRestTimerActivity as jest.Mock).mockClear();
-
-      // Widget says rest was skipped while backgrounded
-      (getWidgetRestState as jest.Mock).mockReturnValue({ isResting: false, restEndTime: 0 });
-
-      await act(async () => {
-        fireAppState('active');
-      });
-
-      // Rest timer bar should be dismissed
-      await waitFor(() => {
-        expect(result.queryByText(/Rest —/)).toBeNull();
-      });
-
-      // Live Activity should be stopped
-      expect(stopRestTimerActivity).toHaveBeenCalled();
-    });
-
-    it('auto-dismisses rest timer if widget reports expired while backgrounded', async () => {
-      const result = render(<WorkoutScreen />);
-      await startWorkoutWithExercise(result);
-
-      // Enter weight and reps, complete a set to start rest timer
-      await act(async () => {
-        fireEvent.changeText(result.getByTestId('weight-0-0'), '135');
-        fireEvent.changeText(result.getByTestId('reps-0-0'), '10');
-      });
-      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
-
-      // Verify rest timer is showing
-      await waitFor(() => {
-        expect(result.getByText(/Rest —/)).toBeTruthy();
-      });
-
-      // Clear mocks so we can check stopRestTimerActivity was called by resync
-      (stopRestTimerActivity as jest.Mock).mockClear();
-
-      // Widget says rest ended (not resting anymore) — similar to timer naturally expiring
-      // while backgrounded and the widget updating its state
-      (getWidgetRestState as jest.Mock).mockReturnValue({ isResting: false, restEndTime: 0 });
-
-      await act(async () => {
-        fireAppState('active');
-      });
-
-      // Rest timer bar should be dismissed
-      await waitFor(() => {
-        expect(result.queryByText(/Rest —/)).toBeNull();
-      });
-
-      // Live Activity should be stopped
-      expect(stopRestTimerActivity).toHaveBeenCalled();
-    });
   });
 
   describe('widget bridge integration', () => {
-    it('starts polling when workout is activated', async () => {
-      const result = render(<WorkoutScreen />);
-
-      await waitFor(() => expect(result.getByTestId('start-empty-workout')).toBeTruthy());
-      await act(async () => { fireEvent.press(result.getByTestId('start-empty-workout')); });
-      await waitFor(() => expect(result.getByTestId('finish-workout-btn')).toBeTruthy());
-
-      expect(startPolling).toHaveBeenCalled();
-    });
-
     it('syncs widget state when exercise is added to workout', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
@@ -1493,32 +1404,7 @@ describe('WorkoutScreen', () => {
       expect(syncStateToWidget).toHaveBeenCalled();
     });
 
-    it('stops polling when workout is cancelled', async () => {
-      const mockAlert = jest.spyOn(require('react-native').Alert, 'alert');
-      const result = render(<WorkoutScreen />);
-
-      await waitFor(() => expect(result.getByTestId('start-empty-workout')).toBeTruthy());
-      await act(async () => { fireEvent.press(result.getByTestId('start-empty-workout')); });
-      await waitFor(() => expect(result.getByTestId('finish-workout-btn')).toBeTruthy());
-
-      (stopPolling as jest.Mock).mockClear();
-
-      // Tap cancel button
-      await act(async () => { fireEvent.press(result.getByTestId('cancel-workout-btn')); });
-
-      // Simulate pressing "Discard" in the alert
-      const alertCall = mockAlert.mock.calls[0];
-      const buttons = alertCall[2] as Array<{ text: string; onPress?: () => void }>;
-      const discardButton = buttons.find(b => b.text === 'Discard');
-
-      await act(async () => { discardButton?.onPress?.(); });
-
-      expect(stopPolling).toHaveBeenCalled();
-
-      mockAlert.mockRestore();
-    });
-
-    it('stops polling and clears widget state on finish', async () => {
+    it('clears widget state on finish', async () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
@@ -1529,7 +1415,6 @@ describe('WorkoutScreen', () => {
       });
       await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
 
-      (stopPolling as jest.Mock).mockClear();
       (clearWidgetState as jest.Mock).mockClear();
 
       // Tap finish
@@ -1541,9 +1426,8 @@ describe('WorkoutScreen', () => {
       await act(async () => { fireEvent.press(finishButtons[finishButtons.length - 1]); });
 
       await waitFor(() => {
-        expect(stopPolling).toHaveBeenCalled();
+        expect(clearWidgetState).toHaveBeenCalled();
       });
-      expect(clearWidgetState).toHaveBeenCalled();
     });
 
     it('syncs widget state when exercise is added mid-workout', async () => {
