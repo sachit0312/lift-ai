@@ -566,8 +566,13 @@ describe('pullUpcomingWorkout', () => {
 
     await pullUpcomingWorkout();
 
-    // Should not clear local tables or insert anything
-    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+    // Should clear local tables (to stay in sync) but not insert anything
+    const calls = __mockDb.runAsync.mock.calls.map((c: any[]) => c[0] as string);
+    expect(calls).toEqual([
+      'DELETE FROM upcoming_workout_sets',
+      'DELETE FROM upcoming_workout_exercises',
+      'DELETE FROM upcoming_workouts',
+    ]);
   });
 
   it('clears local upcoming tables before inserting new data', async () => {
@@ -858,7 +863,13 @@ describe('pullUpcomingWorkout', () => {
 
     await pullUpcomingWorkout();
 
-    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+    // Should clear local tables (to stay in sync) but not insert anything
+    const calls = __mockDb.runAsync.mock.calls.map((c: any[]) => c[0] as string);
+    expect(calls).toEqual([
+      'DELETE FROM upcoming_workout_sets',
+      'DELETE FROM upcoming_workout_exercises',
+      'DELETE FROM upcoming_workouts',
+    ]);
   });
 
   it('handles null exercises list from Supabase (uses ?? [])', async () => {

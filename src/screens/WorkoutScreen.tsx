@@ -1148,14 +1148,15 @@ export default function WorkoutScreen() {
     }
 
     await finishWorkout(workout.id, undefined, workoutNotes || undefined);
-    fireAndForgetSync();
 
-    // Clear upcoming workout if this workout originated from one
+    // Clear upcoming workout BEFORE syncing — prevents pullUpcomingWorkout from re-fetching it
     if (workout.upcoming_workout_id) {
       clearLocalUpcomingWorkout().catch(() => {});
-      deleteUpcomingWorkoutFromSupabase(workout.upcoming_workout_id);
+      await deleteUpcomingWorkoutFromSupabase(workout.upcoming_workout_id);
       setUpcomingWorkout(null);
     }
+
+    fireAndForgetSync();
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();

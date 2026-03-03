@@ -269,8 +269,13 @@ describe('pullUpcomingWorkout resilience', () => {
 
     await pullUpcomingWorkout();
 
-    // null data means no workouts — should return early, no local writes
-    expect(__mockDb.runAsync).not.toHaveBeenCalled();
+    // null data means no workouts — should clear local tables (to stay in sync) but not insert
+    const calls = __mockDb.runAsync.mock.calls.map((c: any[]) => c[0] as string);
+    expect(calls).toEqual([
+      'DELETE FROM upcoming_workout_sets',
+      'DELETE FROM upcoming_workout_exercises',
+      'DELETE FROM upcoming_workouts',
+    ]);
     expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 

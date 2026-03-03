@@ -46,6 +46,7 @@ jest.mock('../../services/sync', () => ({
   pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
   pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
   pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),
+  deleteUpcomingWorkoutFromSupabase: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/liveActivity', () => ({
