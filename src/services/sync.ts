@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
-import { getDb } from './database';
+import { getDb, clearLocalUpcomingWorkout } from './database';
 
 function handleSyncError(label: string, error: unknown): void {
   if (__DEV__) console.error(`Sync ${label} error:`, error);
@@ -174,6 +174,23 @@ export async function deleteTemplateExerciseFromSupabase(templateExerciseId: str
     if (error) { handleSyncError('deleteTemplateExercise', error); }
   } catch (err) {
     handleSyncError('deleteTemplateExerciseFromSupabase', err);
+  }
+}
+
+export async function deleteUpcomingWorkoutFromSupabase(upcomingWorkoutId: string): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const { error } = await supabase
+      .from('upcoming_workouts')
+      .delete()
+      .eq('id', upcomingWorkoutId)
+      .eq('user_id', session.user.id);
+
+    if (error) { handleSyncError('deleteUpcomingWorkout', error); }
+  } catch (err) {
+    handleSyncError('deleteUpcomingWorkoutFromSupabase', err);
   }
 }
 
@@ -439,14 +456,13 @@ export async function pullUpcomingWorkout(): Promise<void> {
       .limit(1);
 
     if (wErr) { handleSyncError('pull upcoming_workouts', wErr); return; }
+
+    // Always clear local state to match Supabase
+    await clearLocalUpcomingWorkout();
+
     if (!workouts || workouts.length === 0) return;
 
     const workout = workouts[0];
-
-    // Clear local upcoming tables (child tables first)
-    await db.runAsync('DELETE FROM upcoming_workout_sets');
-    await db.runAsync('DELETE FROM upcoming_workout_exercises');
-    await db.runAsync('DELETE FROM upcoming_workouts');
 
     // Insert upcoming workout
     await db.runAsync(

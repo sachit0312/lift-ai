@@ -30,7 +30,7 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyle
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS, REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import { filterExercises } from '../utils/exerciseSearch';
-import { fireAndForgetSync, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
+import { fireAndForgetSync, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory, deleteUpcomingWorkoutFromSupabase } from '../services/sync';
 import {
   requestNotificationPermissions,
   startWorkoutActivity,
@@ -70,6 +70,7 @@ import {
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
   updateWorkoutSessionNotes,
+  clearLocalUpcomingWorkout,
 } from '../services/database';
 import type {
   Template,
@@ -1157,6 +1158,13 @@ export default function WorkoutScreen() {
 
     await finishWorkout(workout.id, undefined, workoutNotes || undefined);
     fireAndForgetSync();
+
+    // Clear upcoming workout if this workout originated from one
+    if (workout.upcoming_workout_id) {
+      clearLocalUpcomingWorkout().catch(() => {});
+      deleteUpcomingWorkoutFromSupabase(workout.upcoming_workout_id);
+      setUpcomingWorkout(null);
+    }
 
     if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();

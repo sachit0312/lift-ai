@@ -987,6 +987,16 @@ export function getBestE1RM(exerciseId: string): Promise<number | null> {
   });
 }
 
+// ─── Clear Upcoming Workout ───
+
+export function clearLocalUpcomingWorkout(): Promise<void> {
+  return withDb('clearLocalUpcomingWorkout', async (database) => {
+    await database.runAsync('DELETE FROM upcoming_workout_sets');
+    await database.runAsync('DELETE FROM upcoming_workout_exercises');
+    await database.runAsync('DELETE FROM upcoming_workouts');
+  });
+}
+
 // ─── Clear All ───
 
 export function clearAllLocalData(): Promise<void> {
