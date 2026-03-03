@@ -41,7 +41,7 @@ export interface Workout {
   started_at: string;
   finished_at: string | null;
   ai_summary: string | null;
-  notes: string | null;
+  session_notes: string | null;
   template_name?: string;
 }
 

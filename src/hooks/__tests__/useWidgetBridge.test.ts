@@ -63,7 +63,7 @@ function makeOptions(overrides: Partial<UseWidgetBridgeOptions> = {}): UseWidget
   const blocks: ExerciseBlock[] = [createBlock()];
   return {
     blocksRef: { current: blocks },
-    workoutRef: { current: { id: 'w1', user_id: 'u1', template_id: null, upcoming_workout_id: null, started_at: new Date().toISOString(), finished_at: null, ai_summary: null, notes: null } as Workout },
+    workoutRef: { current: { id: 'w1', user_id: 'u1', template_id: null, upcoming_workout_id: null, started_at: new Date().toISOString(), finished_at: null, ai_summary: null, session_notes: null } as Workout },
     isResting: false,
     restEndTime: 0,
     onDismissRest: jest.fn(),

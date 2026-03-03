@@ -40,7 +40,7 @@ export function createMockWorkout(overrides: Partial<Workout> = {}): Workout {
     started_at: new Date().toISOString(),
     finished_at: new Date(Date.now() + 3600000).toISOString(),
     ai_summary: null,
-    notes: null,
+    session_notes: null,
     ...overrides,
   };
 }

@@ -69,6 +69,7 @@ import {
   getBestE1RM,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
+  updateWorkoutSessionNotes,
 } from '../services/database';
 import type {
   Template,
@@ -127,6 +128,8 @@ export default function WorkoutScreen() {
   const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
   const [reorderToast, setReorderToast] = useState<string | null>(null);
   const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [workoutNotes, setWorkoutNotes] = useState('');
+  const sessionNotesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasLoadedOnce = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -362,6 +365,7 @@ export default function WorkoutScreen() {
     }
 
     setExerciseBlocks(blocks);
+    setWorkoutNotes(workout.session_notes ?? '');
     startElapsedTimer(workout.started_at);
 
     // Resume persistent Live Activity and widget sync
@@ -457,6 +461,7 @@ export default function WorkoutScreen() {
     setActiveWorkout(workout);
     workoutRef.current = workout;
     setExerciseBlocks(blocks);
+    setWorkoutNotes(workout.session_notes ?? '');
     startElapsedTimer(workout.started_at);
 
     // Start persistent Live Activity and widget sync
@@ -1043,6 +1048,22 @@ export default function WorkoutScreen() {
     debouncedSaveNotes(block.exercise.id, text, firstSet?.id ?? null);
   }, []);
 
+  const handleSessionNotesChange = useCallback((text: string) => {
+    setWorkoutNotes(text);
+    if (sessionNotesDebounceRef.current) clearTimeout(sessionNotesDebounceRef.current);
+    sessionNotesDebounceRef.current = setTimeout(() => {
+      const workout = workoutRef.current;
+      if (workout) updateWorkoutSessionNotes(workout.id, text || null);
+    }, 500);
+  }, []);
+
+  // Cleanup session notes debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (sessionNotesDebounceRef.current) clearTimeout(sessionNotesDebounceRef.current);
+    };
+  }, []);
+
   // ─── Cancel workout ───
 
   function handleCancelWorkout() {
@@ -1056,6 +1077,10 @@ export default function WorkoutScreen() {
           style: 'destructive',
           onPress: async () => {
             const workout = workoutRef.current;
+            if (sessionNotesDebounceRef.current) {
+              clearTimeout(sessionNotesDebounceRef.current);
+              sessionNotesDebounceRef.current = null;
+            }
             if (workout) {
               await deleteWorkout(workout.id);
             }
@@ -1070,6 +1095,7 @@ export default function WorkoutScreen() {
             setTemplateName(null);
             setExerciseBlocks([]);
             setUpcomingTargets(null);
+            setWorkoutNotes('');
             loadState();
           },
         },
@@ -1123,7 +1149,13 @@ export default function WorkoutScreen() {
     const s = diff % 60;
     const durationStr = `${m}m ${s}s`;
 
-    await finishWorkout(workout.id);
+    // Cancel pending session notes debounce — finishWorkout writes the final value from state
+    if (sessionNotesDebounceRef.current) {
+      clearTimeout(sessionNotesDebounceRef.current);
+      sessionNotesDebounceRef.current = null;
+    }
+
+    await finishWorkout(workout.id, undefined, workoutNotes || undefined);
     fireAndForgetSync();
 
     if (timerRef.current) clearInterval(timerRef.current);
@@ -1211,6 +1243,7 @@ export default function WorkoutScreen() {
       setTemplateName(null);
       setExerciseBlocks([]);
       setUpcomingTargets(null);
+      setWorkoutNotes('');
       setTemplateUpdatePlan(null);
       setTemplateChangeDescriptions([]);
       loadState();
@@ -1448,6 +1481,23 @@ export default function WorkoutScreen() {
           <Text style={styles.addExerciseBtnText}>Add Exercise</Text>
         </TouchableOpacity>
 
+        {/* Session Notes */}
+        <View style={styles.sessionNotesSection}>
+          <View style={styles.sessionNotesHeader}>
+            <Ionicons name="document-text-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.xs }} />
+            <Text style={styles.sessionNotesLabel}>Session Notes</Text>
+          </View>
+          <TextInput
+            style={styles.sessionNotesInput}
+            value={workoutNotes}
+            onChangeText={handleSessionNotesChange}
+            placeholder="Jot down thoughts about this session..."
+            placeholderTextColor={colors.textMuted}
+            multiline
+            textAlignVertical="top"
+            testID="session-notes-input"
+          />
+        </View>
 
       </ScrollView>
 
@@ -2451,6 +2501,31 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
+  },
+
+  // Session notes
+  sessionNotesSection: {
+    marginTop: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  sessionNotesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  sessionNotesLabel: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  sessionNotesInput: {
+    backgroundColor: colors.surface,
+    color: colors.text,
+    fontSize: fontSize.sm,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    minHeight: 60,
+    textAlignVertical: 'top',
   },
 
   // Rest bar
