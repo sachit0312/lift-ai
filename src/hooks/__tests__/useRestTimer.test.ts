@@ -8,12 +8,14 @@ jest.mock('../../services/liveActivity', () => ({
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
   scheduleRestNotification: jest.fn(),
+  isRestNotificationScheduled: jest.fn(() => true), // notification scheduled by default
 }));
 
 const {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   scheduleRestNotification,
+  isRestNotificationScheduled,
 } = require('../../services/liveActivity');
 
 // Capture the AppState listener so tests can simulate foreground return
@@ -120,7 +122,8 @@ describe('useRestTimer', () => {
 
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(stopRestTimerActivity).toHaveBeenCalledTimes(1);
-    expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
+    // No in-app vibration — notification already alerted user
+    expect(Vibration.vibrate).not.toHaveBeenCalled();
   });
 
   it('endRest re-entrancy guard prevents multiple vibrations', () => {
@@ -136,7 +139,8 @@ describe('useRestTimer', () => {
     });
 
     expect(onRestEnd).toHaveBeenCalledTimes(1);
-    expect(Vibration.vibrate).toHaveBeenCalledTimes(1);
+    // No in-app vibration — notification handles it
+    expect(Vibration.vibrate).not.toHaveBeenCalled();
 
     // Simulate foreground resync also trying to call endRest
     jest.clearAllMocks();
@@ -175,7 +179,7 @@ describe('useRestTimer', () => {
     });
 
     expect(result.current.restSeconds).toBe(45);
-    expect(result.current.restTotal).toBe(45);
+    expect(result.current.restTotal).toBe(75); // restTotal never decreases (matches lock screen widget)
     expect(adjustRestTimerActivity).toHaveBeenCalledWith(-30);
     expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
   });

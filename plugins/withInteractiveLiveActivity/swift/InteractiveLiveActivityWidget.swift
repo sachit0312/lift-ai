@@ -72,9 +72,10 @@ struct LiveActivityWidget: Widget {
           }
         }
         DynamicIslandExpandedRegion(.bottom) {
-          if let date = context.state.timerEndDateInMilliseconds {
+          if context.state.timerEndDateInMilliseconds != nil {
             dynamicIslandExpandedBottom(
-              endDate: date, progressViewTint: context.attributes.progressViewTint
+              contentState: context.state,
+              progressViewTint: context.attributes.progressViewTint
             )
             .padding(.horizontal, 5)
             .applyWidgetURL(from: context.attributes.deepLinkUrl)
@@ -150,8 +151,28 @@ struct LiveActivityWidget: Widget {
     }
   }
 
-  private func dynamicIslandExpandedBottom(endDate: Double, progressViewTint: String?) -> some View {
-    ProgressView(timerInterval: Date.toTimerInterval(miliseconds: endDate))
+  private func dynamicIslandExpandedBottom(
+    contentState: LiveActivityAttributes.ContentState,
+    progressViewTint: String?
+  ) -> some View {
+    let endMs = contentState.timerEndDateInMilliseconds ?? 0
+    let endDate = Date(timeIntervalSince1970: endMs / 1000)
+
+    // Parse totalRestSeconds from subtitle pipe format ("Set X/Y|D")
+    // to compute proportional progress interval (matches lock screen widget)
+    let interval: ClosedRange<Date> = {
+      if let subtitle = contentState.subtitle {
+        let pipeParts = subtitle.components(separatedBy: "|")
+        if pipeParts.count == 2, let totalRest = Int(pipeParts[1]), totalRest > 0 {
+          let startDate = Date(timeIntervalSince1970: (endMs - Double(totalRest) * 1000) / 1000)
+          return min(startDate, endDate) ... endDate
+        }
+      }
+      return Date.now ... max(Date.now, endDate)
+    }()
+
+    return ProgressView(timerInterval: interval, countsDown: true)
+      .id(endMs) // Force SwiftUI recreation on timer adjustments
       .foregroundStyle(.white)
       .tint(progressViewTint.map { Color(hex: $0) })
       .padding(.top, 5)

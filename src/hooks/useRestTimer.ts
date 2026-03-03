@@ -4,6 +4,7 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   scheduleRestNotification,
+  isRestNotificationScheduled,
 } from '../services/liveActivity';
 
 interface UseRestTimerOptions {
@@ -84,7 +85,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       setRestSeconds(remaining);
 
       if (remaining <= 0) {
-        endRest(true);
+        endRest(!isRestNotificationScheduled()); // vibrate only if notification wasn't scheduled
       }
     }, 1000);
   }, [endRest]);
@@ -101,7 +102,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       currentEndTimeRef.current = newEndTime;
       setCurrentEndTime(newEndTime);
       setRestSeconds(remaining);
-      setRestTotal((prev) => Math.max(prev + delta, 1));
+      if (delta > 0) setRestTotal((prev) => prev + delta);
 
       adjustRestTimerActivity(delta);
       onRestUpdateRef.current(true, newEndTime);

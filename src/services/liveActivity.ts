@@ -36,6 +36,15 @@ Notifications.setNotificationHandler({
 
 // ─── Public API ───
 
+/**
+ * Returns true if a rest-end notification is currently scheduled.
+ * Used by useRestTimer to decide whether to vibrate as fallback —
+ * if the notification exists, it handles alerting; otherwise vibrate in-app.
+ */
+export function isRestNotificationScheduled(): boolean {
+  return currentNotificationId !== null;
+}
+
 // No Platform.OS guard needed: module-level state is only set by functions that
 // guard on iOS, so on Android the values are always in their initial (inactive) state.
 export function getRestTimerRemainingSeconds(): number | null {
