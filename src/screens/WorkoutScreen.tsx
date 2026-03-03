@@ -1640,35 +1640,68 @@ const NoActiveWorkout = React.memo(function NoActiveWorkout({
   startingTemplateId: string | null;
   lastPerformed: Record<string, string>;
 }) {
+  const upcomingTemplateName = React.useMemo(() => {
+    if (!upcomingWorkout?.workout.template_id) return null;
+    return templates.find(t => t.id === upcomingWorkout.workout.template_id)?.name ?? null;
+  }, [upcomingWorkout, templates]);
+
+  const totalSets = React.useMemo(() => {
+    if (!upcomingWorkout) return 0;
+    return upcomingWorkout.exercises.reduce((sum, ex) => sum + ex.sets.length, 0);
+  }, [upcomingWorkout]);
+
+  const noteLines = React.useMemo(() => {
+    const raw = upcomingWorkout?.workout.notes;
+    if (!raw) return [];
+    return raw.split('\n').map(l => l.trim()).filter(Boolean);
+  }, [upcomingWorkout]);
+
+  const hasNotes = noteLines.length > 0;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.noActiveContent}>
-        <View style={styles.heroSection}>
-          <Ionicons name="barbell-outline" size={40} color={colors.primary} />
-          <Text style={styles.heroTitle}>Start Workout</Text>
-          <Text style={styles.heroSub}>Choose a template or start from scratch.</Text>
-        </View>
-
-        {upcomingWorkout && (
+        {upcomingWorkout ? (
           <TouchableOpacity style={styles.upcomingCard} onPress={onStartUpcoming} testID="start-upcoming-workout">
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <Ionicons name="sparkles" size={20} color={colors.primary} style={{ marginRight: 8 }} />
-              <Text style={styles.upcomingTitle}>Workout Ready</Text>
+            <View style={styles.upcomingCardHeader}>
+              <View style={{ flex: 1 }}>
+                {hasNotes && (
+                  <Text style={styles.upcomingEyebrow}>✨ COACH PLANNED</Text>
+                )}
+                <Text style={styles.upcomingCardTitle}>
+                  {upcomingTemplateName ?? 'Upcoming Workout'}
+                </Text>
+                <Text style={styles.upcomingCardMeta}>
+                  {upcomingWorkout.exercises.length} exercises · {totalSets} sets
+                </Text>
+              </View>
+              <View style={styles.upcomingGoBtn}>
+                <Ionicons name="arrow-forward" size={22} color={colors.white} />
+              </View>
             </View>
-            <Text style={styles.upcomingSubtitle}>
-              {upcomingWorkout.exercises.length} exercises
-              {upcomingWorkout.workout.notes ? ` · ${upcomingWorkout.workout.notes}` : ''}
-            </Text>
-            <View style={styles.upcomingBtn}>
-              <Text style={styles.upcomingBtnText}>Start Workout</Text>
-            </View>
+            {hasNotes && (
+              <>
+                <View style={styles.upcomingDivider} />
+                {noteLines.map((line, i) => (
+                  <View key={i} style={styles.upcomingNoteRow}>
+                    <Text style={styles.upcomingNoteBullet}>•</Text>
+                    <Text style={styles.upcomingNoteText}>{line}</Text>
+                  </View>
+                ))}
+              </>
+            )}
           </TouchableOpacity>
+        ) : (
+          <>
+            <View style={styles.emptyIconWrapper}>
+              <Ionicons name="barbell-outline" size={48} color={colors.textMuted} />
+            </View>
+            <TouchableOpacity style={styles.emptyCard} onPress={onStartEmpty} testID="start-empty-workout">
+              <Ionicons name="flash-outline" size={20} color={colors.primary} style={{ marginRight: spacing.sm }} />
+              <Text style={styles.emptyCardText}>Start Empty Workout</Text>
+            </TouchableOpacity>
+          </>
         )}
-
-        <TouchableOpacity style={styles.emptyBtn} onPress={onStartEmpty} testID="start-empty-workout">
-          <Ionicons name="flash-outline" size={20} color={colors.white} style={{ marginRight: spacing.sm }} />
-          <Text style={styles.emptyBtnText}>Start Empty Workout</Text>
-        </TouchableOpacity>
 
         {templates.length > 0 && (
           <>
@@ -2495,33 +2528,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.screenPaddingH,
     paddingTop: spacing.xl,
   },
-  heroSection: {
+  emptyIconWrapper: {
     alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  heroTitle: {
-    color: colors.text,
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    marginBottom: spacing.md,
     marginTop: spacing.md,
   },
-  heroSub: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    marginTop: spacing.xs,
-  },
-  emptyBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.lg,
-    alignItems: 'center',
+  emptyCard: {
+    backgroundColor: colors.primaryMuted,
+    borderWidth: 1,
+    borderColor: colors.primaryBorderSubtle,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xl,
-    minHeight: layout.buttonHeight,
   },
-  emptyBtnText: {
-    color: colors.white,
+  emptyCardText: {
+    color: colors.text,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
@@ -2711,30 +2735,61 @@ const styles = StyleSheet.create({
   // Upcoming workout card
   upcomingCard: {
     backgroundColor: colors.primaryMuted,
+    borderWidth: 1,
+    borderColor: colors.primaryBorderSubtle,
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
   },
-  upcomingTitle: {
+  upcomingCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  upcomingEyebrow: {
+    color: colors.primary,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+    letterSpacing: 1.5,
+    marginBottom: spacing.xs,
+  },
+  upcomingCardTitle: {
     color: colors.text,
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
   },
-  upcomingSubtitle: {
+  upcomingCardMeta: {
     color: colors.textSecondary,
     fontSize: fontSize.sm,
-    marginBottom: spacing.md,
+    marginTop: spacing.xs,
   },
-  upcomingBtn: {
+  upcomingGoBtn: {
+    width: layout.touchMin,
+    height: layout.touchMin,
+    borderRadius: borderRadius.full,
     backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm + 2,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  upcomingBtnText: {
-    color: colors.white,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
+  upcomingDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.primaryBorderSubtle,
+    marginVertical: spacing.md,
+  },
+  upcomingNoteRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  upcomingNoteBullet: {
+    color: colors.primary,
+    fontSize: fontSize.sm,
+  },
+  upcomingNoteText: {
+    color: colors.text,
+    fontSize: fontSize.sm,
+    lineHeight: fontSize.sm * 1.5,
+    flex: 1,
   },
 
   // Create exercise in modal
