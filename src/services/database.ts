@@ -1,7 +1,8 @@
 import * as SQLite from 'expo-sqlite';
 import * as Sentry from '@sentry/react-native';
 import uuid from '../utils/uuid';
-import { calculateEstimated1RM } from '../utils/oneRepMax';
+import { calculateEstimated1RM, calculateE1RM, FRESHNESS_HALF_LIFE_DAYS } from '../utils/oneRepMax';
+import type { E1RMResult } from '../types/oneRepMax';
 import type {
   Exercise, Template, TemplateExercise, Workout, WorkoutSet,
   ExerciseType, TrainingGoal, SetTag,
@@ -984,6 +985,74 @@ export function getBestE1RM(exerciseId: string): Promise<number | null> {
       if (e1rm > best) best = e1rm;
     }
     return best > 0 ? best : null;
+  });
+}
+
+/** Row for freshness-weighted 1RM queries — includes workout date */
+interface PRSetWithDateRow extends PRSetRow {
+  finished_at: string;
+}
+
+/**
+ * Get the freshness-weighted "current" estimated 1RM for an exercise.
+ * Recent sets contribute more than old sets via exponential decay (6-week half-life).
+ * Returns the best decay-weighted e1RM, reflecting current capacity rather than all-time peak.
+ */
+export function getCurrentE1RM(exerciseId: string): Promise<number | null> {
+  return withDb('getCurrentE1RM', async (database) => {
+    const rows = await database.getAllAsync<PRSetWithDateRow>(
+      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe, w.finished_at
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND ws.exercise_id = ?
+         AND ws.is_completed = 1
+         AND ws.weight IS NOT NULL AND ws.weight > 0
+         AND ws.reps IS NOT NULL AND ws.reps > 0`,
+      exerciseId,
+    );
+    if (rows.length === 0) return null;
+
+    const now = Date.now();
+    let best = 0;
+    for (const r of rows) {
+      const e1rm = calculateEstimated1RM(r.weight, r.reps, r.rpe);
+      const daysAgo = (now - new Date(r.finished_at).getTime()) / (1000 * 60 * 60 * 24);
+      const decayFactor = Math.exp(-0.693 * daysAgo / FRESHNESS_HALF_LIFE_DAYS);
+      const weighted = e1rm * decayFactor;
+      if (weighted > best) best = weighted;
+    }
+    return best > 0 ? best : null;
+  });
+}
+
+/**
+ * Get the best estimated 1RM with confidence metadata for an exercise.
+ * Returns the highest e1RM result with its confidence tier and margin.
+ */
+export function getE1RMWithConfidence(exerciseId: string): Promise<E1RMResult | null> {
+  return withDb('getE1RMWithConfidence', async (database) => {
+    const rows = await database.getAllAsync<PRSetRow>(
+      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND ws.exercise_id = ?
+         AND ws.is_completed = 1
+         AND ws.weight IS NOT NULL AND ws.weight > 0
+         AND ws.reps IS NOT NULL AND ws.reps > 0`,
+      exerciseId,
+    );
+    if (rows.length === 0) return null;
+
+    let bestResult: E1RMResult | null = null;
+    for (const r of rows) {
+      const result = calculateE1RM(r.weight, r.reps, r.rpe);
+      if (!bestResult || result.value > bestResult.value) {
+        bestResult = result;
+      }
+    }
+    return bestResult && bestResult.value > 0 ? bestResult : null;
   });
 }
 

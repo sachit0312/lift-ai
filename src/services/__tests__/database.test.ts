@@ -19,6 +19,8 @@ import {
   getExerciseHistory,
   getLastPerformedByTemplate,
   getBestE1RM,
+  getCurrentE1RM,
+  getE1RMWithConfidence,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
 } from '../database';
@@ -249,25 +251,26 @@ describe('getBestE1RM', () => {
   });
 
   it('returns the best estimated 1RM across all sets', async () => {
-    // 100 * (1 + 10/30) = 133.33, 120 * (1 + 5/30) = 140
+    // No RPE → ensemble blend. 120x5 should beat 100x10.
+    // 120x5 ensemble ≈ 137.5, 100x10 ensemble ≈ 133.8
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { exercise_id: 'ex-1', weight: 100, reps: 10, rpe: null },
       { exercise_id: 'ex-1', weight: 120, reps: 5, rpe: null },
     ]);
 
     const result = await getBestE1RM('ex-1');
-    expect(result).toBeCloseTo(140, 1);
+    expect(result).toBeGreaterThan(135);
+    expect(result).toBeLessThan(142);
   });
 
   it('accounts for RPE in e1RM calculation', async () => {
-    // RPE 8 means RIR=2, effective_reps = 5 + 2 = 7
-    // 120 * (1 + 7/30) = 148
+    // RPE 8 → table lookup: 5 reps @ RPE 8 = 81.1% → 120 / 0.811 ≈ 147.84
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { exercise_id: 'ex-1', weight: 120, reps: 5, rpe: 8 },
     ]);
 
     const result = await getBestE1RM('ex-1');
-    expect(result).toBeCloseTo(148, 1);
+    expect(result).toBeCloseTo(147.84, 0);
   });
 });
 
@@ -380,5 +383,81 @@ describe('applyWorkoutChangesToTemplate', () => {
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('SET sort_order')
     );
     expect(sortCalls).toHaveLength(2);
+  });
+});
+
+describe('getCurrentE1RM', () => {
+  it('returns null when no completed sets exist', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    const result = await getCurrentE1RM('ex-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns freshness-weighted e1RM with recent sets valued higher', async () => {
+    const now = new Date().toISOString();
+    const sixWeeksAgo = new Date(Date.now() - 42 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Recent set: 100x5 no RPE → ensemble ~114.6
+    // Old set: 120x5 no RPE → ensemble ~137.5, but decayed by ~50% after 42 days ≈ 68.8
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 100, reps: 5, rpe: null, finished_at: now },
+      { exercise_id: 'ex-1', weight: 120, reps: 5, rpe: null, finished_at: sixWeeksAgo },
+    ]);
+
+    const result = await getCurrentE1RM('ex-1');
+    expect(result).not.toBeNull();
+    // The recent 100x5 should win over the decayed 120x5
+    expect(result).toBeGreaterThan(110);
+    expect(result).toBeLessThan(120);
+  });
+
+  it('returns higher value when recent workout is strong', async () => {
+    const now = new Date().toISOString();
+
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8, finished_at: now },
+    ]);
+
+    const result = await getCurrentE1RM('ex-1');
+    expect(result).not.toBeNull();
+    // 200 / 0.863 ≈ 231.75, decay ≈ 1.0 for today → ~231.75
+    expect(result).toBeGreaterThan(225);
+  });
+});
+
+describe('getE1RMWithConfidence', () => {
+  it('returns null when no completed sets exist', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    const result = await getE1RMWithConfidence('ex-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns E1RMResult with confidence tier for best set', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8 },
+    ]);
+
+    const result = await getE1RMWithConfidence('ex-1');
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe('high');
+    expect(result!.method).toBe('rpe_table');
+    expect(result!.value).toBeGreaterThan(200);
+  });
+
+  it('selects highest absolute e1RM across multiple sets', async () => {
+    // Set 1: 200x3 @ RPE 8 → 200 / 0.863 ≈ 231.75 (high confidence)
+    // Set 2: 100x12 no RPE → ensemble ~140 (low confidence)
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8 },
+      { exercise_id: 'ex-1', weight: 100, reps: 12, rpe: null },
+    ]);
+
+    const result = await getE1RMWithConfidence('ex-1');
+    expect(result).not.toBeNull();
+    // The 200x3 set should win on raw value
+    expect(result!.value).toBeGreaterThan(225);
+    expect(result!.confidence).toBe('high');
   });
 });

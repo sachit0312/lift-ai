@@ -42,7 +42,7 @@ import {
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
 import ConfettiCannon from 'react-native-confetti-cannon';
-import { calculateEstimated1RM } from '../utils/oneRepMax';
+import { calculateE1RM, getPRGatingMargin } from '../utils/oneRepMax';
 import { formatLastPerformed } from '../utils/formatLastPerformed';
 import { computeSetDiffs, buildTemplateUpdatePlan } from '../utils/setDiff';
 import type { TemplateUpdatePlan } from '../utils/setDiff';
@@ -862,20 +862,22 @@ export default function WorkoutScreen() {
         }
       }
 
-      // PR check — compare estimated 1RM against cached best
+      // PR check — compare estimated 1RM against cached best (confidence-gated)
       const w = Number(set.weight), r = Number(set.reps);
       const rpe = set.tag === 'failure' ? 10 : (set.rpe ? Number(set.rpe) : null);
       if (w > 0 && r > 0) {
-        const e1rm = calculateEstimated1RM(w, r, rpe);
+        const result = calculateE1RM(w, r, rpe);
         const bestE1RM = block.bestE1RM;
-        if (bestE1RM != null && e1rm > bestE1RM) {
+        const gatingMargin = getPRGatingMargin(result.confidence);
+        const threshold = bestE1RM != null ? bestE1RM * (1 + gatingMargin) : 0;
+        if (bestE1RM != null && result.value > threshold) {
           const updated = new Set(prSetIdsRef.current).add(set.id);
           prSetIdsRef.current = updated;
           setPrSetIds(updated);
           setExerciseBlocks(prev => {
             const next = [...prev];
             const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
-            if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: e1rm };
+            if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: result.value };
             return next;
           });
           try { Vibration.vibrate([0, 80, 40, 80]); } catch {}

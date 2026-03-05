@@ -3,7 +3,7 @@ import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Dimensions
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
-import { getExerciseHistory } from '../services/database';
+import { getExerciseHistory, getCurrentE1RM } from '../services/database';
 import { calculateEstimated1RM } from '../utils/oneRepMax';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import type { Exercise, SetTag } from '../types/database';
@@ -40,6 +40,7 @@ interface HistoryData {
   volumeData: VolumePoint[];
   prValue: number;
   prDateFormatted: string;
+  currentE1rm: number;
   recentSessions: RecentSession[];
   isPlateaued: boolean;
 }
@@ -49,9 +50,11 @@ const EMPTY_DATA: HistoryData = {
   volumeData: [],
   prValue: 0,
   prDateFormatted: '',
+  currentE1rm: 0,
   recentSessions: [],
   isPlateaued: false,
 };
+
 
 export default function ExerciseHistoryModal({ visible, exercise, onClose }: Props) {
   const [loading, setLoading] = useState(false);
@@ -115,6 +118,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
 
       let prValue = 0;
       let prDateFormatted = '';
+      let currentE1rm = 0;
       if (pointsWithDate.length > 0) {
         let prEntry = pointsWithDate[0];
         for (let i = 1; i < pointsWithDate.length; i++) {
@@ -124,6 +128,10 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         }
         prValue = prEntry.point.best1RM;
         prDateFormatted = prEntry.fullDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+        // Freshness-weighted "current" 1RM from canonical DB function
+        const freshE1rm = await getCurrentE1RM(exercise.id);
+        if (freshE1rm != null) currentE1rm = Math.round(freshE1rm);
       }
 
       const recentSessions = history.slice(0, 5).map(h => {
@@ -144,7 +152,7 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
         };
       }).filter(Boolean).slice(0, 3) as RecentSession[];
 
-      setData({ chartData, volumeData, prValue, prDateFormatted, recentSessions, isPlateaued });
+      setData({ chartData, volumeData, prValue, prDateFormatted, currentE1rm, recentSessions, isPlateaued });
     } finally {
       setLoading(false);
     }
@@ -173,10 +181,20 @@ export default function ExerciseHistoryModal({ visible, exercise, onClose }: Pro
                 <View style={styles.prBanner}>
                   <View style={styles.prHeader}>
                     <Ionicons name="trophy" size={20} color={colors.warning} />
-                    <Text style={styles.prLabel}>Personal Record</Text>
+                    <Text style={styles.prLabel}>Estimated 1RM</Text>
                   </View>
-                  <Text style={styles.prValue}>{data.prValue} lb</Text>
-                  <Text style={styles.prSubtext}>1RM · {data.prDateFormatted}</Text>
+                  <View style={styles.prRow}>
+                    <View style={styles.prStat}>
+                      <Text style={styles.prValue}>{data.currentE1rm > 0 ? data.currentE1rm : data.prValue} lb</Text>
+                      <Text style={styles.prSubtext}>Current</Text>
+                    </View>
+                    {data.currentE1rm > 0 && data.currentE1rm < data.prValue && (
+                      <View style={styles.prStat}>
+                        <Text style={[styles.prValue, styles.prAllTime]}>{data.prValue} lb</Text>
+                        <Text style={styles.prSubtext}>All-time · {data.prDateFormatted}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               )}
 
@@ -342,6 +360,18 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: fontSize.xxl,
     fontWeight: fontWeight.bold,
+  },
+  prRow: {
+    flexDirection: 'row',
+    gap: spacing.xl,
+    marginTop: spacing.xs,
+  },
+  prStat: {
+    flex: 0,
+  },
+  prAllTime: {
+    fontSize: fontSize.lg,
+    color: colors.textMuted,
   },
   prSubtext: {
     color: colors.textMuted,

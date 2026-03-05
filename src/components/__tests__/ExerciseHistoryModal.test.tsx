@@ -4,6 +4,7 @@ import { createMockExercise, createMockSession } from '../../__tests__/helpers/f
 
 jest.mock('../../services/database', () => ({
   getExerciseHistory: jest.fn().mockResolvedValue([]),
+  getCurrentE1RM: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('react-native-chart-kit', () => {
@@ -14,7 +15,7 @@ jest.mock('react-native-chart-kit', () => {
 });
 
 import ExerciseHistoryModal from '../ExerciseHistoryModal';
-import { getExerciseHistory } from '../../services/database';
+import { getExerciseHistory, getCurrentE1RM } from '../../services/database';
 
 const mockExercise = createMockExercise({ name: 'Bench Press' });
 
@@ -82,19 +83,21 @@ describe('ExerciseHistoryModal', () => {
     );
 
     await waitFor(() => {
-      expect(queryByText('Personal Record')).toBeNull();
+      expect(queryByText('Estimated 1RM')).toBeNull();
     });
   });
 
   it('shows PR banner and chart with sufficient data', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue(threeSessions);
+    (getCurrentE1RM as jest.Mock).mockResolvedValue(180);
 
     const { findByText, findAllByText, getAllByTestId } = render(
       <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
     );
 
-    expect(await findByText('Personal Record')).toBeTruthy();
-    expect(await findByText(/\d+ lb/)).toBeTruthy();
+    expect(await findByText('Estimated 1RM')).toBeTruthy();
+    const lbElements = await findAllByText(/\d+ lb/);
+    expect(lbElements.length).toBeGreaterThan(0);
     const oneRmElements = await findAllByText(/1RM/);
     expect(oneRmElements.length).toBeGreaterThan(0);
     await waitFor(() => {
