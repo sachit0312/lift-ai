@@ -41,6 +41,7 @@ import {
 } from '../services/workoutBridge';
 import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../types/database';
+import ConfettiCannon from 'react-native-confetti-cannon';
 import { calculateEstimated1RM } from '../utils/oneRepMax';
 import { formatLastPerformed } from '../utils/formatLastPerformed';
 import { computeSetDiffs, buildTemplateUpdatePlan } from '../utils/setDiff';
@@ -126,6 +127,8 @@ export default function WorkoutScreen() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [lastPerformed, setLastPerformed] = useState<Record<string, string>>({});
   const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
+  const prSetIdsRef = useRef<Set<string>>(new Set());
+  const confettiRef = useRef<ConfettiCannon | null>(null);
   const [reorderToast, setReorderToast] = useState<string | null>(null);
   const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [workoutNotes, setWorkoutNotes] = useState('');
@@ -159,6 +162,7 @@ export default function WorkoutScreen() {
 
   // Keep refs in sync for stable callbacks
   blocksRef.current = exerciseBlocks;
+  prSetIdsRef.current = prSetIds;
   const upcomingTargetsRef = useRef<typeof upcomingTargets>(null);
   upcomingTargetsRef.current = upcomingTargets;
 
@@ -865,7 +869,9 @@ export default function WorkoutScreen() {
         const e1rm = calculateEstimated1RM(w, r, rpe);
         const bestE1RM = block.bestE1RM;
         if (bestE1RM != null && e1rm > bestE1RM) {
-          setPrSetIds(prev => new Set(prev).add(set.id));
+          const updated = new Set(prSetIdsRef.current).add(set.id);
+          prSetIdsRef.current = updated;
+          setPrSetIds(updated);
           setExerciseBlocks(prev => {
             const next = [...prev];
             const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
@@ -873,6 +879,7 @@ export default function WorkoutScreen() {
             return next;
           });
           try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
+          try { confettiRef.current?.start(); } catch {}
         } else {
           try { Vibration.vibrate(50); } catch {}
         }
@@ -887,7 +894,22 @@ export default function WorkoutScreen() {
         syncWidgetState();
       }
     } else {
-      // Un-completing a set: sync widget
+      // Un-completing a set: clear PR badge if present and revert bestE1RM
+      if (prSetIdsRef.current.has(set.id)) {
+        const updated = new Set(prSetIdsRef.current);
+        updated.delete(set.id);
+        prSetIdsRef.current = updated;
+        setPrSetIds(updated);
+        // Re-fetch true historical best (only queries finished workouts)
+        getBestE1RM(block.exercise.id).then(best => {
+          setExerciseBlocks(prev => {
+            const next = [...prev];
+            const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
+            if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: best ?? undefined };
+            return next;
+          });
+        }).catch(() => {});
+      }
       syncWidgetState();
     }
   }, []);
@@ -942,6 +964,22 @@ export default function WorkoutScreen() {
     // Don't allow deleting the last set
     if (block.sets.length <= 1) return;
 
+    // Clear PR badge if deleting a PR set and revert bestE1RM
+    if (prSetIdsRef.current.has(set.id)) {
+      const updated = new Set(prSetIdsRef.current);
+      updated.delete(set.id);
+      prSetIdsRef.current = updated;
+      setPrSetIds(updated);
+      getBestE1RM(block.exercise.id).then(best => {
+        setExerciseBlocks(prev => {
+          const next = [...prev];
+          const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
+          if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: best ?? undefined };
+          return next;
+        });
+      }).catch(() => {});
+    }
+
     Vibration.vibrate(10);
     await deleteWorkoutSet(set.id);
     LayoutAnimation.configureNext({
@@ -993,6 +1031,14 @@ export default function WorkoutScreen() {
             // Re-read from ref at onPress time for latest set IDs
             const currentBlock = blocksRef.current[blockIdx];
             const setsToDelete = currentBlock ? currentBlock.sets : block.sets;
+            // Clean up PR state for any PR sets in this block
+            const prIdsToRemove = setsToDelete.filter(s => prSetIdsRef.current.has(s.id));
+            if (prIdsToRemove.length > 0) {
+              const updated = new Set(prSetIdsRef.current);
+              prIdsToRemove.forEach(s => updated.delete(s.id));
+              prSetIdsRef.current = updated;
+              setPrSetIds(updated);
+            }
             for (const set of setsToDelete) {
               await deleteWorkoutSet(set.id);
             }
@@ -1088,6 +1134,8 @@ export default function WorkoutScreen() {
             setExerciseBlocks([]);
             setUpcomingTargets(null);
             setWorkoutNotes('');
+            setPrSetIds(new Set());
+            prSetIdsRef.current = new Set();
             loadState();
           },
         },
@@ -1243,6 +1291,8 @@ export default function WorkoutScreen() {
       setExerciseBlocks([]);
       setUpcomingTargets(null);
       setWorkoutNotes('');
+      setPrSetIds(new Set());
+      prSetIdsRef.current = new Set();
       setTemplateUpdatePlan(null);
       setTemplateChangeDescriptions([]);
       loadState();
@@ -1664,6 +1714,17 @@ export default function WorkoutScreen() {
         visible={!!historyExercise}
         exercise={historyExercise}
         onClose={handleCloseHistoryModal}
+      />
+
+      <ConfettiCannon
+        ref={confettiRef}
+        count={150}
+        origin={{ x: -10, y: 0 }}
+        autoStart={false}
+        fadeOut
+        colors={[colors.primary, colors.success, '#FFD700', colors.accent, '#FF6B6B']}
+        explosionSpeed={350}
+        fallSpeed={3000}
       />
     </SafeAreaView>
   );

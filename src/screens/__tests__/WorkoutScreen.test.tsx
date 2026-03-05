@@ -67,6 +67,15 @@ jest.mock('../../services/workoutBridge', () => ({
   clearWidgetState: jest.fn(),
 }));
 
+const mockConfettiStart = jest.fn();
+jest.mock('react-native-confetti-cannon', () => {
+  const React = require('react');
+  return React.forwardRef((_props: any, ref: any) => {
+    React.useImperativeHandle(ref, () => ({ start: mockConfettiStart }));
+    return null;
+  });
+});
+
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ goBack: jest.fn(), navigate: jest.fn() }),
   useRoute: () => ({ params: {} }),
@@ -93,6 +102,7 @@ import {
   finishWorkout,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
+  getBestE1RM,
 } from '../../services/database';
 
 import {
@@ -1748,6 +1758,102 @@ describe('WorkoutScreen', () => {
       await waitFor(() => expect(result.getByTestId('start-empty-workout')).toBeTruthy());
 
       mockAlert.mockRestore();
+    });
+  });
+
+  // ─── PR badge + confetti tests ───
+
+  describe('PR badge and confetti', () => {
+    beforeEach(() => {
+      // Set up getBestE1RM to return a beatable value
+      (getBestE1RM as jest.Mock).mockResolvedValue(100);
+      mockConfettiStart.mockClear();
+    });
+
+    afterEach(() => {
+      (getBestE1RM as jest.Mock).mockResolvedValue(null);
+    });
+
+    it('fires confetti on PR detection', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Enter weight/reps that beat the best e1RM of 100
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '225');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '5');
+      });
+
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      await waitFor(() => {
+        expect(mockConfettiStart).toHaveBeenCalled();
+      });
+    });
+
+    it('clears PR badge on uncheck', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Complete a set that triggers PR
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '225');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '5');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // PR badge should be visible
+      await waitFor(() => {
+        expect(result.queryByText('PR')).toBeTruthy();
+      });
+
+      // Reset getBestE1RM for the revert call (returns historical best)
+      (getBestE1RM as jest.Mock).mockResolvedValue(100);
+
+      // Uncheck the set
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // PR badge should be gone
+      await waitFor(() => {
+        expect(result.queryByText('PR')).toBeNull();
+      });
+    });
+
+    it('re-triggers PR after uncheck and re-check', async () => {
+      const result = render(<WorkoutScreen />);
+      await startWorkoutWithExercise(result);
+
+      // Complete a set that triggers PR
+      await act(async () => {
+        fireEvent.changeText(result.getByTestId('weight-0-0'), '225');
+        fireEvent.changeText(result.getByTestId('reps-0-0'), '5');
+      });
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      await waitFor(() => {
+        expect(mockConfettiStart).toHaveBeenCalledTimes(1);
+      });
+
+      // Reset getBestE1RM for the revert call
+      (getBestE1RM as jest.Mock).mockResolvedValue(100);
+
+      // Uncheck
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      // Wait for PR badge to clear
+      await waitFor(() => {
+        expect(result.queryByText('PR')).toBeNull();
+      });
+
+      mockConfettiStart.mockClear();
+
+      // Re-check — should trigger PR again since bestE1RM was reverted
+      await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
+
+      await waitFor(() => {
+        expect(mockConfettiStart).toHaveBeenCalled();
+        expect(result.queryByText('PR')).toBeTruthy();
+      });
     });
   });
 
