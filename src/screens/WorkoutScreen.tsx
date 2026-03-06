@@ -2258,9 +2258,9 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   if (prev.upcomingTargets !== next.upcomingTargets) return false;
   // Only re-render for validation errors affecting this block
   const prefix = `${prev.blockIdx}-`;
-  const prevHasError = Object.keys(prev.validationErrors).some(k => k.startsWith(prefix));
-  const nextHasError = Object.keys(next.validationErrors).some(k => k.startsWith(prefix));
-  if (prevHasError !== nextHasError) return false;
+  const prevKeys = Object.keys(prev.validationErrors).filter(k => k.startsWith(prefix)).join(',');
+  const nextKeys = Object.keys(next.validationErrors).filter(k => k.startsWith(prefix)).join(',');
+  if (prevKeys !== nextKeys) return false;
   // All callbacks (isPRSet, onToggleRestTimer, etc.) are stable via useCallback([])
   return true;
 });
