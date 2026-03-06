@@ -90,6 +90,12 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const BACKGROUND_PULL_TIMEOUT_MS = 15000;
 
+// Pre-allocated style/hitSlop objects to avoid re-creation in render loops
+const HIT_SLOP_8 = { top: 8, bottom: 8, left: 8, right: 8 };
+const HIT_SLOP_4 = { top: 4, bottom: 4, left: 4, right: 4 };
+const HIT_SLOP_10 = { top: 10, bottom: 10, left: 10, right: 10 };
+const CHECK_COL_STYLE = { position: 'relative' as const };
+
 // ─── Types for local state ───
 
 // ─── Main Component ───
@@ -153,7 +159,7 @@ export default function WorkoutScreen() {
     syncWidgetStateRef.current(undefined, resting, endTime);
   }, []);
   const {
-    restSeconds, restTotal, restExerciseName,
+    restTotal, restExerciseName,
     isResting, currentEndTime,
     startRestTimer, adjustRestTimer, dismissRest,
   } = useRestTimer({ onRestEnd, onRestUpdate });
@@ -292,13 +298,19 @@ export default function WorkoutScreen() {
     const exercises = await getBulkExercises(exerciseOrder);
     const exerciseLookup = new Map(exercises.map(e => [e.id, e]));
 
-    for (const exId of exerciseOrder) {
-      const wSets = exerciseMap[exId];
-      const exercise = exerciseLookup.get(exId);
-      if (!exercise) continue;
+    // Parallelize per-exercise DB queries (history + bestE1RM)
+    const validExIds = exerciseOrder.filter(id => exerciseLookup.has(id));
+    const [historyResults, e1rmResults] = await Promise.all([
+      Promise.all(validExIds.map(id => getExerciseHistoryData(id))),
+      Promise.all(validExIds.map(id => getBestE1RM(id))),
+    ]);
 
-      const { lastTime, previousSets } = await getExerciseHistoryData(exId);
-      const bestE1RM = await getBestE1RM(exId) ?? undefined;
+    for (let i = 0; i < validExIds.length; i++) {
+      const exId = validExIds[i];
+      const wSets = exerciseMap[exId];
+      const exercise = exerciseLookup.get(exId)!;
+      const { lastTime, previousSets } = historyResults[i];
+      const bestE1RM = e1rmResults[i] ?? undefined;
       originalBestE1RMRef.current.set(exId, bestE1RM);
       const setNotes = wSets[0]?.notes;
       const restoredNotes = setNotes || exercise.notes || '';
@@ -406,7 +418,6 @@ export default function WorkoutScreen() {
     restSec?: number,
     tagOverrides?: SetTag[],
   ): Promise<ExerciseBlock> {
-    const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
     const tags: SetTag[] = Array.from({ length: setCount }, (_, i) => tagOverrides?.[i] ?? 'working');
     const setsToInsert = tags.map((tag, i) => ({
       workout_id: workoutId,
@@ -419,7 +430,14 @@ export default function WorkoutScreen() {
       is_completed: false,
       notes: null,
     }));
-    const inserted = await addWorkoutSetsBatch(setsToInsert);
+    // Run DB queries in parallel: history, bestE1RM, and batch insert are independent
+    const [{ previousSets, lastTime }, bestE1RMRaw, inserted] = await Promise.all([
+      getExerciseHistoryData(exercise.id),
+      getBestE1RM(exercise.id),
+      addWorkoutSetsBatch(setsToInsert),
+    ]);
+    const bestE1RM = bestE1RMRaw ?? undefined;
+    originalBestE1RMRef.current.set(exercise.id, bestE1RM);
     const sets: LocalSet[] = inserted.map((ws, i) => ({
       id: ws.id,
       exercise_id: exercise.id,
@@ -432,8 +450,6 @@ export default function WorkoutScreen() {
       previous: previousSets[i] ?? null,
     }));
     const stickyNotes = exercise.notes ?? '';
-    const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
-    originalBestE1RMRef.current.set(exercise.id, bestE1RM);
     return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
   }
 
@@ -461,19 +477,21 @@ export default function WorkoutScreen() {
       const workout = await startWorkout(template.id);
       const templateExercises = await getTemplateExercises(template.id);
 
-      const blocks: ExerciseBlock[] = [];
-      for (const te of templateExercises) {
-        if (!te.exercise) continue;
-        const totalSets = te.warmup_sets + te.default_sets;
-        const tags: SetTag[] = [
-          ...Array(te.warmup_sets).fill('warmup' as SetTag),
-          ...Array(te.default_sets).fill('working' as SetTag),
-        ];
-        const block = await buildExerciseBlock(workout.id, te.exercise, totalSets, te.rest_seconds, tags);
-        block.originalWarmupSets = te.warmup_sets;
-        block.originalWorkingSets = te.default_sets;
-        blocks.push(block);
-      }
+      const blocks = await Promise.all(
+        templateExercises
+          .filter(te => te.exercise)
+          .map(async (te) => {
+            const totalSets = te.warmup_sets + te.default_sets;
+            const tags: SetTag[] = [
+              ...Array(te.warmup_sets).fill('warmup' as SetTag),
+              ...Array(te.default_sets).fill('working' as SetTag),
+            ];
+            const block = await buildExerciseBlock(workout.id, te.exercise!, totalSets, te.rest_seconds, tags);
+            block.originalWarmupSets = te.warmup_sets;
+            block.originalWorkingSets = te.default_sets;
+            return block;
+          })
+      );
 
       activateWorkout(workout, blocks, template.name);
     } catch (e: unknown) {
@@ -520,15 +538,16 @@ export default function WorkoutScreen() {
       setLoading(true);
       await historyPulledRef.current;  // Wait for PREV data to be available
       const workout = await startWorkout(upcomingWorkout.workout.template_id, upcomingWorkout.workout.id);
-      const blocks: ExerciseBlock[] = [];
-
-      for (const upEx of upcomingWorkout.exercises) {
-        if (!upEx.exercise) continue;
-        const sets = upEx.sets ?? [];
-        const setCount = Math.max(sets.length, 1);
-        const tagOverrides: SetTag[] = sets.map(s => s.tag ?? 'working');
-        blocks.push(await buildExerciseBlock(workout.id, upEx.exercise, setCount, upEx.rest_seconds, tagOverrides));
-      }
+      const blocks = await Promise.all(
+        upcomingWorkout.exercises
+          .filter(upEx => upEx.exercise)
+          .map(async (upEx) => {
+            const sets = upEx.sets ?? [];
+            const setCount = Math.max(sets.length, 1);
+            const tagOverrides: SetTag[] = sets.map(s => s.tag ?? 'working');
+            return buildExerciseBlock(workout.id, upEx.exercise!, setCount, upEx.rest_seconds, tagOverrides);
+          })
+      );
 
       // Stamp original template set counts for F3 diff tracking
       if (upcomingWorkout.workout.template_id) {
@@ -549,20 +568,22 @@ export default function WorkoutScreen() {
 
       // Persist target values from upcoming plan to workout sets (best-effort)
       try {
+        const targetUpdates: Promise<void>[] = [];
         for (const block of blocks) {
           const upEx = upcomingWorkout.exercises.find(e => e.exercise_id === block.exercise.id);
           if (!upEx?.sets) continue;
           for (const set of block.sets) {
             const target = upEx.sets.find(s => s.set_number === set.set_number);
             if (target) {
-              await updateWorkoutSet(set.id, {
+              targetUpdates.push(updateWorkoutSet(set.id, {
                 target_weight: target.target_weight,
                 target_reps: target.target_reps,
                 target_rpe: target.target_rpe ?? null,
-              });
+              }));
             }
           }
         }
+        await Promise.all(targetUpdates);
       } catch (targetErr) {
         if (__DEV__) console.warn('Failed to persist target values:', targetErr);
       }
@@ -1310,6 +1331,11 @@ export default function WorkoutScreen() {
     totalSetsCount: exerciseBlocks.reduce((sum, b) => sum + b.sets.length, 0),
   }), [exerciseBlocks]);
 
+  const filteredExercises = useMemo(
+    () => filterExercises(availableExercises, exerciseSearch),
+    [availableExercises, exerciseSearch],
+  );
+
   // ─── Render ───
 
   if (loading) {
@@ -1445,7 +1471,7 @@ export default function WorkoutScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow1}>
-          <TouchableOpacity onPress={handleCancelWorkout} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }} testID="cancel-workout-btn">
+          <TouchableOpacity onPress={handleCancelWorkout} hitSlop={HIT_SLOP_10} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }} testID="cancel-workout-btn">
             <Ionicons name="close" size={24} color={colors.textMuted} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -1522,34 +1548,14 @@ export default function WorkoutScreen() {
       </ScrollView>
 
       {/* Rest timer bar */}
-      {restSeconds > 0 && (
-        <View style={styles.restBar}>
-          <View style={styles.restBarHeader}>
-            <Text style={styles.restBarLabel}>Rest — {restExerciseName}</Text>
-            <Text style={styles.restBarTime}>
-              {Math.floor(restSeconds / 60)}:{String(restSeconds % 60).padStart(2, '0')}
-            </Text>
-          </View>
-          <View style={styles.restBarInner}>
-            <View
-              style={[
-                styles.restBarFill,
-                { width: `${(restSeconds / restTotal) * 100}%` },
-              ]}
-            />
-          </View>
-          <View style={styles.restBarActions}>
-            <TouchableOpacity style={styles.restAdjustBtn} onPress={() => adjustRestTimer(-15)}>
-              <Text style={styles.restAdjustText}>-15s</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.restAdjustBtn} onPress={() => adjustRestTimer(15)}>
-              <Text style={styles.restAdjustText}>+15s</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.restSkipBtn} onPress={dismissRest}>
-              <Text style={styles.restSkipText}>Skip</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+      {isResting && currentEndTime > 0 && (
+        <RestTimerBar
+          endTime={currentEndTime}
+          totalSeconds={restTotal}
+          exerciseName={restExerciseName}
+          onAdjust={adjustRestTimer}
+          onDismiss={dismissRest}
+        />
       )}
 
       {/* Add exercise modal */}
@@ -1643,7 +1649,7 @@ export default function WorkoutScreen() {
           )}
 
           <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-            {filterExercises(availableExercises, exerciseSearch)
+            {filteredExercises
               .map(e => (
                 <TouchableOpacity
                   key={e.id}
@@ -1833,6 +1839,65 @@ const SummaryStat = React.memo(function SummaryStat({ label, value, icon }: { la
         <Text style={styles.summaryStatLabel}>{label}</Text>
       </View>
       <Text style={styles.summaryStatValue}>{value}</Text>
+    </View>
+  );
+});
+
+// ─── RestTimerBar (self-contained countdown, avoids parent re-renders every second) ───
+
+const RestTimerBar = React.memo(function RestTimerBar({
+  endTime,
+  totalSeconds,
+  exerciseName,
+  onAdjust,
+  onDismiss,
+}: {
+  endTime: number;
+  totalSeconds: number;
+  exerciseName: string;
+  onAdjust: (delta: number) => void;
+  onDismiss: () => void;
+}) {
+  const [remaining, setRemaining] = useState(() =>
+    Math.max(0, Math.round((endTime - Date.now()) / 1000))
+  );
+
+  useEffect(() => {
+    const update = () => {
+      setRemaining(Math.max(0, Math.round((endTime - Date.now()) / 1000)));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [endTime]);
+
+  return (
+    <View style={styles.restBar}>
+      <View style={styles.restBarHeader}>
+        <Text style={styles.restBarLabel}>Rest — {exerciseName}</Text>
+        <Text style={styles.restBarTime}>
+          {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
+        </Text>
+      </View>
+      <View style={styles.restBarInner}>
+        <View
+          style={[
+            styles.restBarFill,
+            { width: `${totalSeconds > 0 ? (remaining / totalSeconds) * 100 : 0}%` },
+          ]}
+        />
+      </View>
+      <View style={styles.restBarActions}>
+        <TouchableOpacity style={styles.restAdjustBtn} onPress={() => onAdjust(-15)}>
+          <Text style={styles.restAdjustText}>-15s</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.restAdjustBtn} onPress={() => onAdjust(15)}>
+          <Text style={styles.restAdjustText}>+15s</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.restSkipBtn} onPress={onDismiss}>
+          <Text style={styles.restSkipText}>Skip</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 });
@@ -2056,7 +2121,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                 style={styles.setNumCol}
                 onPress={() => onCycleTag(blockIdx, setIdx)}
                 onLongPress={() => onDeleteSet(blockIdx, setIdx)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                hitSlop={HIT_SLOP_8}
                 testID={`set-tag-${blockIdx}-${setIdx}`}
               >
                 {tagLabel ? (
@@ -2100,7 +2165,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                   testID={`rpe-${blockIdx}-${setIdx}`}
                 />
               )}
-              <View style={[styles.checkCol, { position: 'relative' }]}>
+              <View style={[styles.checkCol, CHECK_COL_STYLE]}>
                 <TouchableOpacity
                   style={[styles.checkBox, set.is_completed && styles.checkBoxDone]}
                   onPress={() => onToggleComplete(blockIdx, setIdx)}
@@ -2149,14 +2214,14 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
         <TouchableOpacity
           style={styles.headerRestBtn}
           onPress={() => onAdjustRest(blockIdx, -15)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          hitSlop={HIT_SLOP_8}
         >
           <Text style={styles.headerRestBtnText}>−</Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => onToggleRestTimer(blockIdx)}
           testID={`rest-timer-toggle-${blockIdx}`}
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          hitSlop={HIT_SLOP_4}
         >
           <Text style={[styles.headerRestDisplay, !block.restEnabled && styles.headerRestDisplayOff]}>
             {block.restEnabled
@@ -2167,7 +2232,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
         <TouchableOpacity
           style={styles.headerRestBtn}
           onPress={() => onAdjustRest(blockIdx, 15)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          hitSlop={HIT_SLOP_8}
         >
           <Text style={styles.headerRestBtnText}>+</Text>
         </TouchableOpacity>
@@ -2186,6 +2251,18 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
       )}
     </View>
   );
+}, (prev, next) => {
+  // Custom areEqual: skip comparing stable callbacks, deep-check only what matters
+  if (prev.block !== next.block) return false;
+  if (prev.blockIdx !== next.blockIdx) return false;
+  if (prev.upcomingTargets !== next.upcomingTargets) return false;
+  // Only re-render for validation errors affecting this block
+  const prefix = `${prev.blockIdx}-`;
+  const prevHasError = Object.keys(prev.validationErrors).some(k => k.startsWith(prefix));
+  const nextHasError = Object.keys(next.validationErrors).some(k => k.startsWith(prefix));
+  if (prevHasError !== nextHasError) return false;
+  // All callbacks (isPRSet, onToggleRestTimer, etc.) are stable via useCallback([])
+  return true;
 });
 
 // ─── Styles ───
