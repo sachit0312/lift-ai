@@ -103,7 +103,6 @@ export default function WorkoutScreen() {
 
   // Active workout state
   const [exerciseBlocks, setExerciseBlocks] = useState<ExerciseBlock[]>([]);
-  const [elapsed, setElapsed] = useState('00:00');
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryStats, setSummaryStats] = useState({ exercises: 0, sets: 0, duration: '' });
@@ -126,7 +125,6 @@ export default function WorkoutScreen() {
   const [previewExercises, setPreviewExercises] = useState<TemplateExercise[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [lastPerformed, setLastPerformed] = useState<Record<string, string>>({});
-  const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
   const prSetIdsRef = useRef<Set<string>>(new Set());
   const confettiRef = useRef<ConfettiCannon | null>(null);
   const [reorderToast, setReorderToast] = useState<string | null>(null);
@@ -135,9 +133,9 @@ export default function WorkoutScreen() {
   const sessionNotesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasLoadedOnce = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const workoutRef = useRef<Workout | null>(null);
   const blocksRef = useRef<ExerciseBlock[]>([]);
+  const originalBestE1RMRef = useRef<Map<string, number | undefined>>(new Map());
 
   // Promise ref for background history pull (so workout start can await it)
   const historyPulledRef = useRef<Promise<void>>(Promise.resolve());
@@ -162,9 +160,11 @@ export default function WorkoutScreen() {
 
   // Keep refs in sync for stable callbacks
   blocksRef.current = exerciseBlocks;
-  prSetIdsRef.current = prSetIds;
   const upcomingTargetsRef = useRef<typeof upcomingTargets>(null);
   upcomingTargetsRef.current = upcomingTargets;
+
+  // Stable callback for PR badge checks (avoids passing Set as prop)
+  const isPRSet = useCallback((setId: string) => prSetIdsRef.current.has(setId), []);
 
   // Widget bridge hook (extracted from inline functions)
   const {
@@ -227,7 +227,6 @@ export default function WorkoutScreen() {
         workoutRef.current = active;
         setTemplateName(active.template_name ?? null);
         setExerciseBlocks([]);
-        startElapsedTimer(active.started_at);
         Alert.alert('Error', 'Failed to load workout exercises. You can cancel this workout or try again.');
       }
       hasLoadedOnce.current = true;
@@ -300,6 +299,7 @@ export default function WorkoutScreen() {
 
       const { lastTime, previousSets } = await getExerciseHistoryData(exId);
       const bestE1RM = await getBestE1RM(exId) ?? undefined;
+      originalBestE1RMRef.current.set(exId, bestE1RM);
       const setNotes = wSets[0]?.notes;
       const restoredNotes = setNotes || exercise.notes || '';
 
@@ -365,7 +365,6 @@ export default function WorkoutScreen() {
 
     setExerciseBlocks(blocks);
     setWorkoutNotes(workout.session_notes ?? '');
-    startElapsedTimer(workout.started_at);
 
     // Resume persistent Live Activity and widget sync
     const firstIncomplete = blocks.find(b => b.sets.some(s => !s.is_completed));
@@ -396,23 +395,6 @@ export default function WorkoutScreen() {
     } catch {
       return { previousSets: [], lastTime: null };
     }
-  }
-
-  function startElapsedTimer(startedAt: string) {
-    if (timerRef.current) clearInterval(timerRef.current);
-    const update = () => {
-      const diff = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
-      const h = Math.floor(diff / 3600);
-      const m = Math.floor((diff % 3600) / 60);
-      const s = diff % 60;
-      if (h > 0) {
-        setElapsed(`${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
-      } else {
-        setElapsed(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
-      }
-    };
-    update();
-    timerRef.current = setInterval(update, 1000);
   }
 
   // ─── Build exercise blocks helper ───
@@ -451,6 +433,7 @@ export default function WorkoutScreen() {
     }));
     const stickyNotes = exercise.notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
+    originalBestE1RMRef.current.set(exercise.id, bestE1RM);
     return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
   }
 
@@ -460,7 +443,6 @@ export default function WorkoutScreen() {
     workoutRef.current = workout;
     setExerciseBlocks(blocks);
     setWorkoutNotes(workout.session_notes ?? '');
-    startElapsedTimer(workout.started_at);
 
     // Start persistent Live Activity and widget sync
     const firstBlock = blocks[0];
@@ -624,6 +606,7 @@ export default function WorkoutScreen() {
     });
     const stickyNotes = exercise.notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
+    originalBestE1RMRef.current.set(exercise.id, bestE1RM);
     const newBlock: ExerciseBlock = {
       exercise,
       sets: [{
@@ -768,18 +751,6 @@ export default function WorkoutScreen() {
       }
 
       if (weightFilled !== set.weight || repsFilled !== set.reps || rpeFilled !== set.rpe) {
-        setExerciseBlocks(prev => {
-          const next = [...prev];
-          const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-          updatedBlock.sets[setIdx] = {
-            ...updatedBlock.sets[setIdx],
-            weight: weightFilled,
-            reps: repsFilled,
-            rpe: rpeFilled,
-          };
-          next[blockIdx] = updatedBlock;
-          return next;
-        });
         set = { ...set, weight: weightFilled, reps: repsFilled, rpe: rpeFilled };
       }
     }
@@ -800,10 +771,17 @@ export default function WorkoutScreen() {
 
     const newCompleted = !set.is_completed;
 
+    // Batch auto-fill + completion toggle into a single state update
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      updatedBlock.sets[setIdx] = { ...updatedBlock.sets[setIdx], is_completed: newCompleted };
+      updatedBlock.sets[setIdx] = {
+        ...updatedBlock.sets[setIdx],
+        weight: set.weight,
+        reps: set.reps,
+        rpe: set.rpe,
+        is_completed: newCompleted,
+      };
       next[blockIdx] = updatedBlock;
       return next;
     });
@@ -873,7 +851,6 @@ export default function WorkoutScreen() {
         if (bestE1RM != null && result.value > threshold) {
           const updated = new Set(prSetIdsRef.current).add(set.id);
           prSetIdsRef.current = updated;
-          setPrSetIds(updated);
           setExerciseBlocks(prev => {
             const next = [...prev];
             const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
@@ -901,16 +878,14 @@ export default function WorkoutScreen() {
         const updated = new Set(prSetIdsRef.current);
         updated.delete(set.id);
         prSetIdsRef.current = updated;
-        setPrSetIds(updated);
-        // Re-fetch true historical best (only queries finished workouts)
-        getBestE1RM(block.exercise.id).then(best => {
-          setExerciseBlocks(prev => {
-            const next = [...prev];
-            const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
-            if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: best ?? undefined };
-            return next;
-          });
-        }).catch(() => {});
+        // Synchronously revert bestE1RM from cached original (avoids race condition)
+        const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
+        setExerciseBlocks(prev => {
+          const next = [...prev];
+          const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
+          if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
+          return next;
+        });
       }
       syncWidgetState();
     }
@@ -971,15 +946,14 @@ export default function WorkoutScreen() {
       const updated = new Set(prSetIdsRef.current);
       updated.delete(set.id);
       prSetIdsRef.current = updated;
-      setPrSetIds(updated);
-      getBestE1RM(block.exercise.id).then(best => {
-        setExerciseBlocks(prev => {
-          const next = [...prev];
-          const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
-          if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: best ?? undefined };
-          return next;
-        });
-      }).catch(() => {});
+      // Synchronously revert bestE1RM from cached original
+      const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
+      setExerciseBlocks(prev => {
+        const next = [...prev];
+        const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
+        if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
+        return next;
+      });
     }
 
     Vibration.vibrate(10);
@@ -1039,7 +1013,6 @@ export default function WorkoutScreen() {
               const updated = new Set(prSetIdsRef.current);
               prIdsToRemove.forEach(s => updated.delete(s.id));
               prSetIdsRef.current = updated;
-              setPrSetIds(updated);
             }
             for (const set of setsToDelete) {
               await deleteWorkoutSet(set.id);
@@ -1125,7 +1098,6 @@ export default function WorkoutScreen() {
             if (workout) {
               await deleteWorkout(workout.id);
             }
-            if (timerRef.current) clearInterval(timerRef.current);
             clearPendingNotes();
             dismissRest();
             stopWorkoutActivity();
@@ -1136,8 +1108,8 @@ export default function WorkoutScreen() {
             setExerciseBlocks([]);
             setUpcomingTargets(null);
             setWorkoutNotes('');
-            setPrSetIds(new Set());
             prSetIdsRef.current = new Set();
+            originalBestE1RMRef.current.clear();
             loadState();
           },
         },
@@ -1208,7 +1180,6 @@ export default function WorkoutScreen() {
 
     fireAndForgetSync();
 
-    if (timerRef.current) clearInterval(timerRef.current);
     dismissRest();
     stopWorkoutActivity();
     clearWidgetState();
@@ -1293,8 +1264,8 @@ export default function WorkoutScreen() {
       setExerciseBlocks([]);
       setUpcomingTargets(null);
       setWorkoutNotes('');
-      setPrSetIds(new Set());
       prSetIdsRef.current = new Set();
+      originalBestE1RMRef.current.clear();
       setTemplateUpdatePlan(null);
       setTemplateChangeDescriptions([]);
       loadState();
@@ -1327,7 +1298,6 @@ export default function WorkoutScreen() {
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
       if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
       flushPendingNotes();
     };
@@ -1489,7 +1459,7 @@ export default function WorkoutScreen() {
         <View style={styles.headerRow2}>
           <View style={styles.timerRow}>
             <Ionicons name="time-outline" size={16} color={colors.primary} style={{ marginRight: 4 }} />
-            <Text style={styles.headerTimer}>{elapsed}</Text>
+            {activeWorkout?.started_at && <ElapsedTimer startedAt={activeWorkout.started_at} />}
           </View>
           <Text style={styles.headerProgress} testID="sets-progress">{completedSetsCount}/{totalSetsCount} sets</Text>
         </View>
@@ -1510,7 +1480,7 @@ export default function WorkoutScreen() {
             blockIdx={blockIdx}
             upcomingTargets={upcomingTargets}
             validationErrors={validationErrors}
-            prSetIds={prSetIds}
+            isPRSet={isPRSet}
             onToggleRestTimer={handleToggleRestTimer}
             onAdjustRest={handleAdjustExerciseRest}
             onCycleTag={handleCycleTag}
@@ -1867,6 +1837,29 @@ const SummaryStat = React.memo(function SummaryStat({ label, value, icon }: { la
   );
 });
 
+// ─── ElapsedTimer (self-contained, avoids parent re-renders) ───
+
+const ElapsedTimer = React.memo(function ElapsedTimer({ startedAt }: { startedAt: string }) {
+  const [elapsed, setElapsed] = useState('00:00');
+  useEffect(() => {
+    const update = () => {
+      const diff = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      if (h > 0) {
+        setElapsed(`${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+      } else {
+        setElapsed(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+      }
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return <Text style={styles.headerTimer}>{elapsed}</Text>;
+});
+
 interface SwipeableSetRowProps {
   set: LocalSet;
   setIdx: number;
@@ -1957,7 +1950,7 @@ interface ExerciseBlockItemProps {
   blockIdx: number;
   upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null;
   validationErrors: Record<string, boolean>;
-  prSetIds: Set<string>;
+  isPRSet: (setId: string) => boolean;
   onToggleRestTimer: (blockIdx: number) => void;
   onAdjustRest: (blockIdx: number, delta: number) => void;
   onCycleTag: (blockIdx: number, setIdx: number) => void;
@@ -1976,7 +1969,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   blockIdx,
   upcomingTargets,
   validationErrors,
-  prSetIds,
+  isPRSet,
   onToggleRestTimer,
   onAdjustRest,
   onCycleTag,
@@ -2119,7 +2112,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
                     <Ionicons name="checkmark" size={18} color={colors.white} />
                   )}
                 </TouchableOpacity>
-                {prSetIds.has(set.id) && (
+                {isPRSet(set.id) && (
                   <View style={styles.prBadge}>
                     <Text style={styles.prBadgeText}>PR</Text>
                   </View>
