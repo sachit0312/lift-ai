@@ -683,7 +683,7 @@ export default function WorkoutScreen() {
 
   // ─── Set manipulation helpers ───
 
-  const handleSetChange = useCallback(async (
+  const handleSetChange = useCallback((
     blockIdx: number,
     setIdx: number,
     field: 'weight' | 'reps' | 'rpe',
@@ -706,10 +706,10 @@ export default function WorkoutScreen() {
     });
 
     const numVal = value === '' ? null : Number(value);
-    await updateWorkoutSet(set.id, { [field]: numVal });
+    updateWorkoutSet(set.id, { [field]: numVal });
   }, []);
 
-  const handleCycleTag = useCallback(async (blockIdx: number, setIdx: number) => {
+  const handleCycleTag = useCallback((blockIdx: number, setIdx: number) => {
     const block = blocksRef.current[blockIdx];
     const set = block?.sets[setIdx];
     if (!set) return;
@@ -737,10 +737,10 @@ export default function WorkoutScreen() {
       return next;
     });
 
-    await updateWorkoutSet(set.id, dbUpdate);
+    updateWorkoutSet(set.id, dbUpdate);
   }, []);
 
-  const handleToggleComplete = useCallback(async (blockIdx: number, setIdx: number) => {
+  const handleToggleComplete = useCallback((blockIdx: number, setIdx: number) => {
     const block = blocksRef.current[blockIdx];
     let set = block?.sets[setIdx];
     if (!set || !block) return;
@@ -807,7 +807,7 @@ export default function WorkoutScreen() {
       return next;
     });
 
-    await updateWorkoutSet(set.id, {
+    updateWorkoutSet(set.id, {
       is_completed: newCompleted,
       weight: set.weight === '' ? null : Number(set.weight),
       reps: set.reps === '' ? null : Number(set.reps),
