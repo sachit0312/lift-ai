@@ -142,6 +142,11 @@ export default function WorkoutScreen() {
   const workoutRef = useRef<Workout | null>(null);
   const blocksRef = useRef<ExerciseBlock[]>([]);
   const originalBestE1RMRef = useRef<Map<string, number | undefined>>(new Map());
+  // Tracks the current (possibly PR-updated) bestE1RM per exercise — always in sync, unlike blocksRef
+  const currentBestE1RMRef = useRef<Map<string, number | undefined>>(new Map());
+
+  // Debounced DB writes for set input changes (weight/reps/RPE)
+  const pendingSetWritesRef = useRef<Map<string, { timer: ReturnType<typeof setTimeout>; data: Record<string, unknown> }>>(new Map());
 
   // Promise ref for background history pull (so workout start can await it)
   const historyPulledRef = useRef<Promise<void>>(Promise.resolve());
@@ -312,6 +317,7 @@ export default function WorkoutScreen() {
       const { lastTime, previousSets } = historyResults[i];
       const bestE1RM = e1rmResults[i] ?? undefined;
       originalBestE1RMRef.current.set(exId, bestE1RM);
+      currentBestE1RMRef.current.set(exId, bestE1RM);
       const setNotes = wSets[0]?.notes;
       const restoredNotes = setNotes || exercise.notes || '';
 
@@ -438,6 +444,7 @@ export default function WorkoutScreen() {
     ]);
     const bestE1RM = bestE1RMRaw ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
+    currentBestE1RMRef.current.set(exercise.id, bestE1RM);
     const sets: LocalSet[] = inserted.map((ws, i) => ({
       id: ws.id,
       exercise_id: exercise.id,
@@ -628,6 +635,7 @@ export default function WorkoutScreen() {
     const stickyNotes = exercise.notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
+    currentBestE1RMRef.current.set(exercise.id, bestE1RM);
     const newBlock: ExerciseBlock = {
       exercise,
       sets: [{
@@ -683,6 +691,21 @@ export default function WorkoutScreen() {
 
   // ─── Set manipulation helpers ───
 
+  const flushPendingSetWrites = useCallback(() => {
+    for (const [setId, entry] of pendingSetWritesRef.current) {
+      clearTimeout(entry.timer);
+      updateWorkoutSet(setId, entry.data);
+    }
+    pendingSetWritesRef.current.clear();
+  }, []);
+
+  const clearPendingSetWrites = useCallback(() => {
+    for (const entry of pendingSetWritesRef.current.values()) {
+      clearTimeout(entry.timer);
+    }
+    pendingSetWritesRef.current.clear();
+  }, []);
+
   const handleSetChange = useCallback((
     blockIdx: number,
     setIdx: number,
@@ -697,6 +720,7 @@ export default function WorkoutScreen() {
     // Guard: RPE is not editable for warmup or failure sets
     if (field === 'rpe' && (set.tag === 'warmup' || set.tag === 'failure')) return;
 
+    // Immediate state update for responsive UI
     setExerciseBlocks((prev) => {
       const next = [...prev];
       const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
@@ -705,8 +729,24 @@ export default function WorkoutScreen() {
       return next;
     });
 
+    // Debounced DB write (300ms) — coalesces rapid keystrokes
     const numVal = value === '' ? null : Number(value);
-    updateWorkoutSet(set.id, { [field]: numVal });
+    const pending = pendingSetWritesRef.current.get(set.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending.data[field] = numVal;
+      pending.timer = setTimeout(() => {
+        updateWorkoutSet(set.id, pending.data);
+        pendingSetWritesRef.current.delete(set.id);
+      }, 300);
+    } else {
+      const data: Record<string, unknown> = { [field]: numVal };
+      const timer = setTimeout(() => {
+        updateWorkoutSet(set.id, data);
+        pendingSetWritesRef.current.delete(set.id);
+      }, 300);
+      pendingSetWritesRef.current.set(set.id, { timer, data });
+    }
   }, []);
 
   const handleCycleTag = useCallback((blockIdx: number, setIdx: number) => {
@@ -792,9 +832,56 @@ export default function WorkoutScreen() {
 
     const newCompleted = !set.is_completed;
 
-    // Batch auto-fill + completion toggle into a single state update
+    // Pre-compute reorder decision using blocksRef (safe: hasn't re-rendered yet)
+    let shouldReorder = false;
+    let reorderInsertIdx = 0;
+    if (newCompleted) {
+      const prevCompletedCount = block.sets.filter(s => s.is_completed).length;
+      if (prevCompletedCount === 0) {
+        const blocks = blocksRef.current;
+        let preCheckCompleted = 0;
+        for (const b of blocks) {
+          if (b.sets.every(s => s.is_completed)) preCheckCompleted++;
+          else break;
+        }
+        const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
+        if (preCheckIdx > preCheckCompleted) {
+          shouldReorder = true;
+          reorderInsertIdx = preCheckCompleted;
+        }
+      }
+    }
+
+    // Pre-compute PR result (pure CPU, ~0.1ms)
+    // Read bestE1RM from ref (always in sync) rather than blocksRef (may lag behind render)
+    let isPR = false;
+    let newBestE1RM: number | undefined;
+    if (newCompleted) {
+      const w = Number(set.weight), r = Number(set.reps);
+      const rpe = set.tag === 'failure' ? 10 : (set.rpe ? Number(set.rpe) : null);
+      if (w > 0 && r > 0) {
+        const result = calculateE1RM(w, r, rpe);
+        const bestE1RM = currentBestE1RMRef.current.get(block.exercise.id);
+        const gatingMargin = getPRGatingMargin(result.confidence);
+        const threshold = bestE1RM != null ? bestE1RM * (1 + gatingMargin) : 0;
+        if (bestE1RM != null && result.value > threshold) {
+          isPR = true;
+          newBestE1RM = result.value;
+        }
+      }
+    }
+
+    // Single coalesced state update: completion + auto-fill + reorder + PR bestE1RM
+    if (shouldReorder) {
+      LayoutAnimation.configureNext({
+        duration: 250,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+      });
+    }
+
     setExerciseBlocks((prev) => {
       const next = [...prev];
+      // 1. Apply completion + auto-fill
       const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
       updatedBlock.sets[setIdx] = {
         ...updatedBlock.sets[setIdx],
@@ -804,9 +891,33 @@ export default function WorkoutScreen() {
         is_completed: newCompleted,
       };
       next[blockIdx] = updatedBlock;
+
+      // 2. Apply reorder (if needed) — use pre-computed insert index (computed before completion mutation)
+      if (shouldReorder) {
+        const currentIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
+        if (currentIdx > reorderInsertIdx) {
+          const [moved] = next.splice(currentIdx, 1);
+          next.splice(reorderInsertIdx, 0, moved);
+        }
+      }
+
+      // 3. Apply PR bestE1RM update (if needed)
+      if (isPR && newBestE1RM != null) {
+        const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
+        if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: newBestE1RM };
+      }
+
+      // 4. Un-complete: revert bestE1RM if this was a PR set
+      if (!newCompleted && prSetIdsRef.current.has(set.id)) {
+        const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
+        const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
+        if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
+      }
+
       return next;
     });
 
+    // DB write (fire-and-forget)
     updateWorkoutSet(set.id, {
       is_completed: newCompleted,
       weight: set.weight === '' ? null : Number(set.weight),
@@ -814,99 +925,41 @@ export default function WorkoutScreen() {
       rpe: set.rpe === '' ? null : Number(set.rpe),
     });
 
+    // Side effects after single state update
     if (newCompleted) {
-      // Default: track this block as active
-      lastActiveBlockRef.current = blockIdx;
+      lastActiveBlockRef.current = shouldReorder ? reorderInsertIdx : blockIdx;
 
-      // Auto-reorder: move exercise to top of incomplete on first set completion
-      const prevCompletedCount = block.sets.filter(s => s.is_completed).length;
-      if (prevCompletedCount === 0) {
-        // Pre-check using blocksRef (safe: hasn't re-rendered yet)
-        const blocks = blocksRef.current;
-        let preCheckCompleted = 0;
-        for (const b of blocks) {
-          if (b.sets.every(s => s.is_completed)) preCheckCompleted++;
-          else break;
-        }
-        const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
-        if (preCheckIdx > preCheckCompleted) {
-          let didReorder = false;
-          setExerciseBlocks((prev) => {
-            let completedBlockCount = 0;
-            for (const b of prev) {
-              if (b.sets.every(s => s.is_completed)) completedBlockCount++;
-              else break;
-            }
-            const currentIdx = prev.findIndex(b => b.exercise.id === block.exercise.id);
-            if (currentIdx > completedBlockCount) {
-              didReorder = true;
-              LayoutAnimation.configureNext({
-                duration: 250,
-                update: { type: LayoutAnimation.Types.easeInEaseOut },
-              });
-              const next = [...prev];
-              const [moved] = next.splice(currentIdx, 1);
-              next.splice(completedBlockCount, 0, moved);
-              return next;
-            }
-            return prev;
-          });
-          if (didReorder) {
-            lastActiveBlockRef.current = preCheckCompleted;
-            // Show reorder feedback toast (no extra vibrate — set completion haptic fires below)
-            if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
-            setReorderToast(block.exercise.name);
-            reorderToastTimer.current = setTimeout(() => setReorderToast(null), 2000);
-          }
-        }
+      // Reorder toast
+      if (shouldReorder) {
+        if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+        setReorderToast(block.exercise.name);
+        reorderToastTimer.current = setTimeout(() => setReorderToast(null), 2000);
       }
 
-      // PR check — compare estimated 1RM against cached best (confidence-gated)
-      const w = Number(set.weight), r = Number(set.reps);
-      const rpe = set.tag === 'failure' ? 10 : (set.rpe ? Number(set.rpe) : null);
-      if (w > 0 && r > 0) {
-        const result = calculateE1RM(w, r, rpe);
-        const bestE1RM = block.bestE1RM;
-        const gatingMargin = getPRGatingMargin(result.confidence);
-        const threshold = bestE1RM != null ? bestE1RM * (1 + gatingMargin) : 0;
-        if (bestE1RM != null && result.value > threshold) {
-          const updated = new Set(prSetIdsRef.current).add(set.id);
-          prSetIdsRef.current = updated;
-          setExerciseBlocks(prev => {
-            const next = [...prev];
-            const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
-            if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: result.value };
-            return next;
-          });
-          try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
-          try { confettiRef.current?.start(); } catch {}
-        } else {
-          try { Vibration.vibrate(50); } catch {}
-        }
+      // PR ref tracking + haptics
+      if (isPR && newBestE1RM != null) {
+        prSetIdsRef.current = new Set(prSetIdsRef.current).add(set.id);
+        currentBestE1RMRef.current.set(block.exercise.id, newBestE1RM);
+        try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
+        try { confettiRef.current?.start(); } catch {}
       } else {
         try { Vibration.vibrate(50); } catch {}
       }
-      // Use captured values, not stale state
+
+      // Rest timer or widget sync
       if (restEnabled) {
         startRestTimer(blockRestSeconds, exerciseName);
       } else {
-        // Sync widget to show next set
         syncWidgetState();
       }
     } else {
-      // Un-completing a set: clear PR badge if present and revert bestE1RM
+      // Un-completing: clear PR badge if present and revert bestE1RM ref
       if (prSetIdsRef.current.has(set.id)) {
         const updated = new Set(prSetIdsRef.current);
         updated.delete(set.id);
         prSetIdsRef.current = updated;
-        // Synchronously revert bestE1RM from cached original (avoids race condition)
         const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
-        setExerciseBlocks(prev => {
-          const next = [...prev];
-          const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
-          if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
-          return next;
-        });
+        currentBestE1RMRef.current.set(block.exercise.id, originalBest);
       }
       syncWidgetState();
     }
@@ -962,6 +1015,13 @@ export default function WorkoutScreen() {
     // Don't allow deleting the last set
     if (block.sets.length <= 1) return;
 
+    // Cancel any pending debounced write for this set
+    const pending = pendingSetWritesRef.current.get(set.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingSetWritesRef.current.delete(set.id);
+    }
+
     // Clear PR badge if deleting a PR set and revert bestE1RM
     if (prSetIdsRef.current.has(set.id)) {
       const updated = new Set(prSetIdsRef.current);
@@ -969,6 +1029,7 @@ export default function WorkoutScreen() {
       prSetIdsRef.current = updated;
       // Synchronously revert bestE1RM from cached original
       const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
+      currentBestE1RMRef.current.set(block.exercise.id, originalBest);
       setExerciseBlocks(prev => {
         const next = [...prev];
         const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
@@ -1119,6 +1180,7 @@ export default function WorkoutScreen() {
             if (workout) {
               await deleteWorkout(workout.id);
             }
+            clearPendingSetWrites();
             clearPendingNotes();
             dismissRest();
             stopWorkoutActivity();
@@ -1131,6 +1193,7 @@ export default function WorkoutScreen() {
             setWorkoutNotes('');
             prSetIdsRef.current = new Set();
             originalBestE1RMRef.current.clear();
+            currentBestE1RMRef.current.clear();
             loadState();
           },
         },
@@ -1157,7 +1220,8 @@ export default function WorkoutScreen() {
     const workout = workoutRef.current;
     if (!workout) return;
 
-    // Flush any pending debounced notes before finishing
+    // Flush any pending debounced writes before finishing
+    flushPendingSetWrites();
     flushPendingNotes();
 
     // Stamp exercise order based on block positions for history sequence tracking
@@ -1320,6 +1384,7 @@ export default function WorkoutScreen() {
   useEffect(() => {
     return () => {
       if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+      flushPendingSetWrites();
       flushPendingNotes();
     };
   }, []);
@@ -1335,6 +1400,20 @@ export default function WorkoutScreen() {
     () => filterExercises(availableExercises, exerciseSearch),
     [availableExercises, exerciseSearch],
   );
+
+  // Pre-compute per-block validation error keys for O(1) areEqual comparison
+  const blockErrorKeys = useMemo(() => {
+    const lists: Record<number, string[]> = {};
+    for (const key of Object.keys(validationErrors)) {
+      const bi = parseInt(key.split('-')[0], 10);
+      (lists[bi] ??= []).push(key);
+    }
+    const map: Record<number, string> = {};
+    for (const [bi, keys] of Object.entries(lists)) {
+      map[Number(bi)] = keys.sort().join(',');
+    }
+    return map;
+  }, [validationErrors]);
 
   // ─── Render ───
 
@@ -1505,7 +1584,7 @@ export default function WorkoutScreen() {
             block={block}
             blockIdx={blockIdx}
             upcomingTargets={upcomingTargets}
-            validationErrors={validationErrors}
+            blockErrorKey={blockErrorKeys[blockIdx] ?? ''}
             isPRSet={isPRSet}
             onToggleRestTimer={handleToggleRestTimer}
             onAdjustRest={handleAdjustExerciseRest}
@@ -1558,101 +1637,104 @@ export default function WorkoutScreen() {
         />
       )}
 
-      {/* Add exercise modal */}
-      <Modal visible={showAddExercise} transparent animationType="slide" onRequestClose={() => setShowAddExercise(false)}>
-        <View style={styles.addExerciseModal}>
-          <View style={styles.addExerciseModalHeader}>
-            <Text style={styles.addExerciseModalTitle}>Add Exercise</Text>
-            <TouchableOpacity onPress={() => setShowAddExercise(false)} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="close" size={24} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.addExerciseSearchContainer}>
-            <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
-            <TextInput
-              style={styles.addExerciseSearchInput}
-              value={exerciseSearch}
-              onChangeText={setExerciseSearch}
-              placeholder="Search exercises..."
-              placeholderTextColor={colors.textMuted}
-              autoFocus
-              testID="exercise-search"
-            />
-          </View>
-          <TouchableOpacity
-            style={styles.createToggleInModal}
-            onPress={() => setShowCreateInWorkout(!showCreateInWorkout)}
-          >
-            <Ionicons name={showCreateInWorkout ? 'chevron-up' : 'add-circle-outline'} size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
-            <Text style={styles.createToggleText}>
-              {showCreateInWorkout ? 'Hide Form' : 'Create New Exercise'}
-            </Text>
-          </TouchableOpacity>
-
-          {showCreateInWorkout && (
-            <ScrollView style={styles.createFormInModal} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-              <Text style={styles.createLabel}>Name</Text>
-              <TextInput
-                style={[styles.createInput, newExValidation ? { borderColor: colors.error } : null]}
-                value={newExName}
-                onChangeText={(v) => { setNewExName(v); setNewExValidation(''); }}
-                placeholder='e.g. "Incline Dumbbell Press"'
-                placeholderTextColor={colors.textMuted}
-                testID="workout-exercise-name-input"
-              />
-              {newExValidation ? <Text style={styles.createErrorText}>{newExValidation}</Text> : null}
-
-              <Text style={styles.createLabel}>Type</Text>
-              <View style={styles.createChipRow}>
-                {EXERCISE_TYPE_OPTIONS_WITH_ICONS.map((t) => (
-                  <TouchableOpacity
-                    key={t.value}
-                    style={[styles.createChip, newExType === t.value && styles.createChipSelected]}
-                    onPress={() => setNewExType(t.value)}
-                  >
-                    <Text style={[styles.createChipText, newExType === t.value && styles.createChipTextSelected]}>{t.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.createLabel}>Muscle Groups</Text>
-              <View style={styles.createChipRow}>
-                {MUSCLE_GROUPS.map((mg) => {
-                  const sel = newExMuscles.includes(mg);
-                  return (
-                    <TouchableOpacity
-                      key={mg}
-                      style={[styles.createChip, sel && styles.createChipSelected]}
-                      onPress={() => setNewExMuscles((prev) => sel ? prev.filter(m => m !== mg) : [...prev, mg])}
-                    >
-                      <Text style={[styles.createChipText, sel && styles.createChipTextSelected]}>{mg}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <Text style={styles.createLabel}>Description (optional)</Text>
-              <TextInput
-                style={[styles.createInput, { minHeight: 50, textAlignVertical: 'top' }]}
-                value={newExDescription}
-                onChangeText={setNewExDescription}
-                placeholder="Form cues, setup notes..."
-                placeholderTextColor={colors.textMuted}
-                multiline
-              />
-
-              <TouchableOpacity style={styles.createSaveBtn} onPress={handleCreateAndAddExercise}>
-                <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
-                <Text style={styles.createSaveBtnText}>Save & Add to Workout</Text>
+      {/* Add exercise modal — lazy-mounted */}
+      {showAddExercise && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setShowAddExercise(false)}>
+          <View style={styles.addExerciseModal}>
+            <View style={styles.addExerciseModalHeader}>
+              <Text style={styles.addExerciseModalTitle}>Add Exercise</Text>
+              <TouchableOpacity onPress={() => setShowAddExercise(false)} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
-            </ScrollView>
-          )}
+            </View>
+            <View style={styles.addExerciseSearchContainer}>
+              <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
+              <TextInput
+                style={styles.addExerciseSearchInput}
+                value={exerciseSearch}
+                onChangeText={setExerciseSearch}
+                placeholder="Search exercises..."
+                placeholderTextColor={colors.textMuted}
+                autoFocus
+                testID="exercise-search"
+              />
+            </View>
+            <TouchableOpacity
+              style={styles.createToggleInModal}
+              onPress={() => setShowCreateInWorkout(!showCreateInWorkout)}
+            >
+              <Ionicons name={showCreateInWorkout ? 'chevron-up' : 'add-circle-outline'} size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
+              <Text style={styles.createToggleText}>
+                {showCreateInWorkout ? 'Hide Form' : 'Create New Exercise'}
+              </Text>
+            </TouchableOpacity>
 
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-            {filteredExercises
-              .map(e => (
+            {showCreateInWorkout && (
+              <ScrollView style={styles.createFormInModal} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                <Text style={styles.createLabel}>Name</Text>
+                <TextInput
+                  style={[styles.createInput, newExValidation ? { borderColor: colors.error } : null]}
+                  value={newExName}
+                  onChangeText={(v) => { setNewExName(v); setNewExValidation(''); }}
+                  placeholder='e.g. "Incline Dumbbell Press"'
+                  placeholderTextColor={colors.textMuted}
+                  testID="workout-exercise-name-input"
+                />
+                {newExValidation ? <Text style={styles.createErrorText}>{newExValidation}</Text> : null}
+
+                <Text style={styles.createLabel}>Type</Text>
+                <View style={styles.createChipRow}>
+                  {EXERCISE_TYPE_OPTIONS_WITH_ICONS.map((t) => (
+                    <TouchableOpacity
+                      key={t.value}
+                      style={[styles.createChip, newExType === t.value && styles.createChipSelected]}
+                      onPress={() => setNewExType(t.value)}
+                    >
+                      <Text style={[styles.createChipText, newExType === t.value && styles.createChipTextSelected]}>{t.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.createLabel}>Muscle Groups</Text>
+                <View style={styles.createChipRow}>
+                  {MUSCLE_GROUPS.map((mg) => {
+                    const sel = newExMuscles.includes(mg);
+                    return (
+                      <TouchableOpacity
+                        key={mg}
+                        style={[styles.createChip, sel && styles.createChipSelected]}
+                        onPress={() => setNewExMuscles((prev) => sel ? prev.filter(m => m !== mg) : [...prev, mg])}
+                      >
+                        <Text style={[styles.createChipText, sel && styles.createChipTextSelected]}>{mg}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.createLabel}>Description (optional)</Text>
+                <TextInput
+                  style={[styles.createInput, { minHeight: 50, textAlignVertical: 'top' }]}
+                  value={newExDescription}
+                  onChangeText={setNewExDescription}
+                  placeholder="Form cues, setup notes..."
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                />
+
+                <TouchableOpacity style={styles.createSaveBtn} onPress={handleCreateAndAddExercise}>
+                  <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
+                  <Text style={styles.createSaveBtnText}>Save & Add to Workout</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            )}
+
+            <FlatList
+              data={filteredExercises}
+              keyExtractor={(item) => item.id}
+              style={{ flex: 1 }}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item: e }) => (
                 <TouchableOpacity
-                  key={e.id}
                   style={styles.addExerciseItem}
                   onPress={() => handleAddExerciseToWorkout(e)}
                   activeOpacity={0.7}
@@ -1663,36 +1745,42 @@ export default function WorkoutScreen() {
                     {e.type} · {e.muscle_groups.join(', ') || 'No muscles set'}
                   </Text>
                 </TouchableOpacity>
-              ))}
-          </ScrollView>
-        </View>
-      </Modal>
+              )}
+            />
+          </View>
+        </Modal>
+      )}
 
-      {/* Finish confirmation modal */}
-      <Modal visible={showFinishModal} transparent animationType="fade" onRequestClose={() => setShowFinishModal(false)}>
-        <TouchableOpacity style={modalStyles.overlay} activeOpacity={1} onPress={() => setShowFinishModal(false)}>
-          <TouchableOpacity activeOpacity={1} style={modalStyles.card}>
-            <Text style={modalStyles.title}>Finish Workout</Text>
-            <Text style={modalStyles.subtitle}>
-              {completedSetsCount} of {totalSetsCount} sets completed. Finish this workout?
-            </Text>
-            <View style={[modalStyles.actions, { marginTop: 0 }]}>
-              <TouchableOpacity onPress={() => setShowFinishModal(false)} style={modalStyles.cancelBtn}>
-                <Text style={modalStyles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={confirmFinish} style={[modalStyles.confirmBtn, { backgroundColor: colors.error }]}>
-                <Text style={modalStyles.confirmText}>Finish</Text>
-              </TouchableOpacity>
-            </View>
+      {/* Finish confirmation modal — lazy-mounted */}
+      {showFinishModal && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setShowFinishModal(false)}>
+          <TouchableOpacity style={modalStyles.overlay} activeOpacity={1} onPress={() => setShowFinishModal(false)}>
+            <TouchableOpacity activeOpacity={1} style={modalStyles.card}>
+              <Text style={modalStyles.title}>Finish Workout</Text>
+              <Text style={modalStyles.subtitle}>
+                {completedSetsCount} of {totalSetsCount} sets completed. Finish this workout?
+              </Text>
+              <View style={[modalStyles.actions, { marginTop: 0 }]}>
+                <TouchableOpacity onPress={() => setShowFinishModal(false)} style={modalStyles.cancelBtn}>
+                  <Text style={modalStyles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmFinish} style={[modalStyles.confirmBtn, { backgroundColor: colors.error }]}>
+                  <Text style={modalStyles.confirmText}>Finish</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </Modal>
+      )}
 
-      <ExerciseHistoryModal
-        visible={!!historyExercise}
-        exercise={historyExercise}
-        onClose={handleCloseHistoryModal}
-      />
+      {/* Exercise history modal — lazy-mounted */}
+      {historyExercise && (
+        <ExerciseHistoryModal
+          visible
+          exercise={historyExercise}
+          onClose={handleCloseHistoryModal}
+        />
+      )}
 
       <ConfettiCannon
         ref={confettiRef}
@@ -2014,7 +2102,7 @@ interface ExerciseBlockItemProps {
   block: ExerciseBlock;
   blockIdx: number;
   upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null;
-  validationErrors: Record<string, boolean>;
+  blockErrorKey: string;
   isPRSet: (setId: string) => boolean;
   onToggleRestTimer: (blockIdx: number) => void;
   onAdjustRest: (blockIdx: number, delta: number) => void;
@@ -2033,7 +2121,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   block,
   blockIdx,
   upcomingTargets,
-  validationErrors,
+  blockErrorKey,
   isPRSet,
   onToggleRestTimer,
   onAdjustRest,
@@ -2048,6 +2136,23 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   onExercisePress,
 }: ExerciseBlockItemProps) {
   const coachTip = upcomingTargets?.find(e => e.exercise_id === block.exercise.id)?.notes;
+
+  // Pre-compute per-block error set for O(1) lookup per set row
+  const errorSet = useMemo(() => {
+    if (!blockErrorKey) return null;
+    const s = new Set<string>();
+    for (const k of blockErrorKey.split(',')) s.add(k);
+    return s;
+  }, [blockErrorKey]);
+
+  // Pre-compute upcomingTargets lookup: Map<set_number, target> for O(1) per set
+  const targetMap = useMemo(() => {
+    const upEx = upcomingTargets?.find(e => e.exercise_id === block.exercise.id);
+    if (!upEx?.sets?.length) return null;
+    const m = new Map<number, (typeof upEx.sets)[number]>();
+    for (const s of upEx.sets) m.set(s.set_number, s);
+    return m;
+  }, [upcomingTargets, block.exercise.id]);
   const [coachTipExpanded, setCoachTipExpanded] = React.useState(false);
 
   return (
@@ -2094,10 +2199,8 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
       {block.sets.map((set, setIdx) => {
         const tagLabel = getSetTagLabel(set.tag);
         const tagColor = getSetTagColor(set.tag);
-        const hasError = validationErrors[`${blockIdx}-${setIdx}`];
-        const target = upcomingTargets
-          ?.find(e => e.exercise_id === block.exercise.id)
-          ?.sets?.find(s => s.set_number === set.set_number);
+        const hasError = errorSet?.has(`${blockIdx}-${setIdx}`) ?? false;
+        const target = targetMap?.get(set.set_number);
         const weightPlaceholder = target ? String(target.target_weight) : (set.previous ? String(set.previous.weight) : '');
         const repsPlaceholder = target ? String(target.target_reps) : (set.previous ? String(set.previous.reps) : '');
         const placeholderColor = target ? colors.primaryPlaceholder : 'rgba(107, 107, 114, 0.5)';
@@ -2256,11 +2359,8 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   if (prev.block !== next.block) return false;
   if (prev.blockIdx !== next.blockIdx) return false;
   if (prev.upcomingTargets !== next.upcomingTargets) return false;
-  // Only re-render for validation errors affecting this block
-  const prefix = `${prev.blockIdx}-`;
-  const prevKeys = Object.keys(prev.validationErrors).filter(k => k.startsWith(prefix)).join(',');
-  const nextKeys = Object.keys(next.validationErrors).filter(k => k.startsWith(prefix)).join(',');
-  if (prevKeys !== nextKeys) return false;
+  // O(1) string comparison for validation errors (pre-computed in parent)
+  if (prev.blockErrorKey !== next.blockErrorKey) return false;
   // All callbacks (isPRSet, onToggleRestTimer, etc.) are stable via useCallback([])
   return true;
 });

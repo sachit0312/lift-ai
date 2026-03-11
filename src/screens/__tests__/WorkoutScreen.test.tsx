@@ -1323,7 +1323,10 @@ describe('WorkoutScreen', () => {
         fireEvent.changeText(result.getByTestId('rpe-0-0'), '8');
       });
 
-      expect(updateWorkoutSet).toHaveBeenCalledWith('ws-1', { rpe: 8 });
+      // DB write is debounced (300ms) — wait for it to fire
+      await waitFor(() => {
+        expect(updateWorkoutSet).toHaveBeenCalledWith('ws-1', { rpe: 8 });
+      });
     });
 
     it('RPE input shows placeholder dash', async () => {
