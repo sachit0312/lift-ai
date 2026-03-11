@@ -178,6 +178,54 @@ function parseExercise(r: ExerciseRow): Exercise {
   };
 }
 
+/** Map a raw WorkoutSetRow to a typed WorkoutSet (tag cast, boolean conversion, order default) */
+function mapWorkoutSetRow(r: WorkoutSetRow): WorkoutSet {
+  return {
+    ...r,
+    tag: r.tag as SetTag,
+    is_completed: !!r.is_completed,
+    exercise_order: r.exercise_order ?? 0,
+  };
+}
+
+/** Build a typed Exercise from join-row columns with e_ prefix */
+function parseExerciseFromJoin(r: { e_id: string; e_user_id: string; e_name: string; e_type: string; e_muscle_groups: string; e_training_goal: string; e_description: string; e_created_at: string; e_notes: string | null }): Exercise {
+  return {
+    id: r.e_id,
+    user_id: r.e_user_id,
+    name: r.e_name,
+    type: r.e_type as ExerciseType,
+    muscle_groups: safeJsonParse(r.e_muscle_groups, []),
+    training_goal: r.e_training_goal as TrainingGoal,
+    description: r.e_description,
+    created_at: r.e_created_at,
+    notes: r.e_notes ?? null,
+  };
+}
+
+/** Map a raw UpcomingWorkoutSetRow to a typed UpcomingWorkoutSet (tag default + cast) */
+function mapUpcomingWorkoutSetRow(r: UpcomingWorkoutSetRow): UpcomingWorkoutSet {
+  return {
+    ...r,
+    tag: (r.tag ?? 'working') as SetTag,
+  };
+}
+
+/** Build a typed Exercise from template-exercise join-row columns with exercise_ prefix */
+function parseExerciseFromTemplateJoin(r: TemplateExerciseJoinRow): Exercise {
+  return {
+    id: r.exercise_id,
+    user_id: 'local',
+    name: r.exercise_name,
+    type: r.exercise_type as ExerciseType,
+    muscle_groups: safeJsonParse(r.exercise_muscle_groups, []),
+    training_goal: r.exercise_training_goal as TrainingGoal,
+    description: r.exercise_description,
+    created_at: r.exercise_created_at,
+    notes: r.exercise_notes ?? null,
+  };
+}
+
 let db: SQLite.SQLiteDatabase;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -450,17 +498,7 @@ export function getTemplateExercises(templateId: string): Promise<TemplateExerci
       default_sets: r.default_sets,
       warmup_sets: r.warmup_sets ?? 0,
       rest_seconds: r.rest_seconds ?? 150,
-      exercise: {
-        id: r.exercise_id,
-        user_id: 'local',
-        name: r.exercise_name,
-        type: r.exercise_type as ExerciseType,
-        muscle_groups: safeJsonParse(r.exercise_muscle_groups, []),
-        training_goal: r.exercise_training_goal as TrainingGoal,
-        description: r.exercise_description,
-        created_at: r.exercise_created_at,
-        notes: r.exercise_notes ?? null,
-      },
+      exercise: parseExerciseFromTemplateJoin(r),
     }));
   });
 }
@@ -585,7 +623,7 @@ export function getWorkoutSets(workoutId: string): Promise<WorkoutSet[]> {
       'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_order, rowid, set_number',
       workoutId,
     );
-    return rows.map((r: WorkoutSetRow) => ({ ...r, is_completed: !!r.is_completed, tag: r.tag as SetTag, exercise_order: r.exercise_order ?? 0 }));
+    return rows.map(mapWorkoutSetRow);
   });
 }
 
@@ -753,18 +791,22 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
         });
       }
 
-      workoutMap.get(r.w_id)!.sets.push({
+      workoutMap.get(r.w_id)!.sets.push(mapWorkoutSetRow({
         id: r.s_id,
         workout_id: r.s_workout_id,
         exercise_id: r.s_exercise_id,
         set_number: r.s_set_number,
         reps: r.s_reps,
         weight: r.s_weight,
-        tag: r.s_tag as SetTag,
+        tag: r.s_tag,
         rpe: r.s_rpe,
-        is_completed: !!r.s_is_completed,
+        is_completed: r.s_is_completed,
         notes: r.s_notes,
-      });
+        target_weight: null,
+        target_reps: null,
+        target_rpe: null,
+        exercise_order: 0,
+      }));
     }
 
     // Return in same order as workout IDs (most recent first)
@@ -870,10 +912,7 @@ async function buildUpcomingExercises(
       'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
       r.id,
     );
-    const sets: UpcomingWorkoutSet[] = rawSets.map(s => ({
-      ...s,
-      tag: (s.tag ?? 'working') as SetTag,
-    }));
+    const sets: UpcomingWorkoutSet[] = rawSets.map(mapUpcomingWorkoutSetRow);
 
     exercises.push({
       id: r.id,
@@ -882,17 +921,7 @@ async function buildUpcomingExercises(
       order: r.sort_order,
       rest_seconds: r.rest_seconds,
       notes: r.notes,
-      exercise: {
-        id: r.e_id,
-        user_id: r.e_user_id,
-        name: r.e_name,
-        type: r.e_type as ExerciseType,
-        muscle_groups: safeJsonParse(r.e_muscle_groups, []),
-        training_goal: r.e_training_goal as TrainingGoal,
-        description: r.e_description,
-        created_at: r.e_created_at,
-        notes: r.e_notes ?? null,
-      },
+      exercise: parseExerciseFromJoin(r),
       sets,
     });
   }
