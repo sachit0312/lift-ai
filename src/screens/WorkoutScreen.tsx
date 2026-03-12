@@ -86,7 +86,8 @@ export default function WorkoutScreen() {
   // Exercise blocks hook (state + mutation handlers)
   const {
     exerciseBlocks, setExerciseBlocks,
-    originalBestE1RMRef, prSetIdsRef,
+    originalBestE1RMRef, currentBestE1RMRef, prSetIdsRef,
+    flushPendingSetWrites, clearPendingSetWrites,
     handleSetChange, handleCycleTag, handleAddSet, handleDeleteSet,
     handleToggleNotes, handleToggleRestTimer, handleAdjustExerciseRest,
     handleNotesChange, handleRemoveExercise,
@@ -104,6 +105,7 @@ export default function WorkoutScreen() {
     exerciseBlocks,
     blocksRef,
     originalBestE1RMRef,
+    currentBestE1RMRef,
     prSetIdsRef,
     lastActiveBlockRef,
     syncWidgetState,
@@ -111,6 +113,8 @@ export default function WorkoutScreen() {
     debouncedSaveNotes,
     flushPendingNotes,
     clearPendingNotes,
+    flushPendingSetWrites,
+    clearPendingSetWrites,
     startWorkoutActivity,
   });
 
@@ -125,6 +129,7 @@ export default function WorkoutScreen() {
     upcomingTargetsRef: lifecycle.upcomingTargetsRef,
     prSetIdsRef,
     originalBestE1RMRef,
+    currentBestE1RMRef,
     lastActiveBlockRef,
     startRestTimer,
     syncWidgetState,
@@ -134,10 +139,12 @@ export default function WorkoutScreen() {
   // Stable callback for PR badge checks (avoids passing Set as prop)
   const isPRSet = useCallback((setId: string) => prSetIdsRef.current.has(setId), []);
 
-  // Cleanup reorder toast timer on unmount
+  // Cleanup on unmount: flush pending writes, clear timers
   useEffect(() => {
     return () => {
       if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+      flushPendingSetWrites();
+      flushPendingNotes();
     };
   }, []);
 
@@ -152,6 +159,20 @@ export default function WorkoutScreen() {
     () => filterExercises(lifecycle.availableExercises, lifecycle.exerciseSearch),
     [lifecycle.availableExercises, lifecycle.exerciseSearch],
   );
+
+  // Pre-compute per-block validation error keys for O(1) areEqual comparison
+  const blockErrorKeys = useMemo(() => {
+    const lists: Record<number, string[]> = {};
+    for (const key of Object.keys(validationErrors)) {
+      const bi = parseInt(key.split('-')[0], 10);
+      (lists[bi] ??= []).push(key);
+    }
+    const map: Record<number, string> = {};
+    for (const [bi, keys] of Object.entries(lists)) {
+      map[Number(bi)] = keys.sort().join(',');
+    }
+    return map;
+  }, [validationErrors]);
 
   // ─── Render ───
 
@@ -293,7 +314,7 @@ export default function WorkoutScreen() {
             block={block}
             blockIdx={blockIdx}
             upcomingTargets={lifecycle.upcomingTargets}
-            validationErrors={validationErrors}
+            blockErrorKey={blockErrorKeys[blockIdx] ?? ''}
             isPRSet={isPRSet}
             onToggleRestTimer={handleToggleRestTimer}
             onAdjustRest={handleAdjustExerciseRest}
@@ -346,8 +367,9 @@ export default function WorkoutScreen() {
         />
       )}
 
-      {/* Add exercise modal */}
-      <Modal visible={lifecycle.showAddExercise} transparent animationType="slide" onRequestClose={() => lifecycle.setShowAddExercise(false)}>
+      {/* Add exercise modal — lazy-mounted */}
+      {lifecycle.showAddExercise && (
+      <Modal visible transparent animationType="slide" onRequestClose={() => lifecycle.setShowAddExercise(false)}>
         <View style={styles.addExerciseModal}>
           <View style={styles.addExerciseModalHeader}>
             <Text style={styles.addExerciseModalTitle}>Add Exercise</Text>
@@ -436,28 +458,32 @@ export default function WorkoutScreen() {
             </ScrollView>
           )}
 
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-            {filteredExercises
-              .map(e => (
-                <TouchableOpacity
-                  key={e.id}
-                  style={styles.addExerciseItem}
-                  onPress={() => lifecycle.handleAddExerciseToWorkout(e)}
-                  activeOpacity={0.7}
-                  testID={`exercise-item-${e.name.replace(/\s+/g, '-')}`}
-                >
-                  <Text style={styles.addExerciseItemName}>{e.name}</Text>
-                  <Text style={styles.addExerciseItemMeta}>
-                    {e.type} · {e.muscle_groups.join(', ') || 'No muscles set'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-          </ScrollView>
+          <FlatList
+            data={filteredExercises}
+            keyExtractor={(item) => item.id}
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item: e }) => (
+              <TouchableOpacity
+                style={styles.addExerciseItem}
+                onPress={() => lifecycle.handleAddExerciseToWorkout(e)}
+                activeOpacity={0.7}
+                testID={`exercise-item-${e.name.replace(/\s+/g, '-')}`}
+              >
+                <Text style={styles.addExerciseItemName}>{e.name}</Text>
+                <Text style={styles.addExerciseItemMeta}>
+                  {e.type} · {e.muscle_groups.join(', ') || 'No muscles set'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
         </View>
       </Modal>
+      )}
 
-      {/* Finish confirmation modal */}
-      <Modal visible={lifecycle.showFinishModal} transparent animationType="fade" onRequestClose={() => lifecycle.setShowFinishModal(false)}>
+      {/* Finish confirmation modal — lazy-mounted */}
+      {lifecycle.showFinishModal && (
+      <Modal visible transparent animationType="fade" onRequestClose={() => lifecycle.setShowFinishModal(false)}>
         <TouchableOpacity style={modalStyles.overlay} activeOpacity={1} onPress={() => lifecycle.setShowFinishModal(false)}>
           <TouchableOpacity activeOpacity={1} style={modalStyles.card}>
             <Text style={modalStyles.title}>Finish Workout</Text>
@@ -475,12 +501,16 @@ export default function WorkoutScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+      )}
 
+      {/* Exercise history modal — lazy-mounted */}
+      {lifecycle.historyExercise && (
       <ExerciseHistoryModal
-        visible={!!lifecycle.historyExercise}
+        visible
         exercise={lifecycle.historyExercise}
         onClose={lifecycle.handleCloseHistoryModal}
       />
+      )}
 
       <ConfettiCannon
         ref={confettiRef}

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -109,7 +109,7 @@ export interface ExerciseBlockItemProps {
   block: ExerciseBlock;
   blockIdx: number;
   upcomingTargets: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null;
-  validationErrors: Record<string, boolean>;
+  blockErrorKey: string;
   isPRSet: (setId: string) => boolean;
   onToggleRestTimer: (blockIdx: number) => void;
   onAdjustRest: (blockIdx: number, delta: number) => void;
@@ -128,7 +128,7 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   block,
   blockIdx,
   upcomingTargets,
-  validationErrors,
+  blockErrorKey,
   isPRSet,
   onToggleRestTimer,
   onAdjustRest,
@@ -143,6 +143,23 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   onExercisePress,
 }: ExerciseBlockItemProps) {
   const coachTip = upcomingTargets?.find(e => e.exercise_id === block.exercise.id)?.notes;
+
+  // Pre-compute per-block error set for O(1) lookup per set row
+  const errorSet = useMemo(() => {
+    if (!blockErrorKey) return null;
+    const s = new Set<string>();
+    for (const k of blockErrorKey.split(',')) s.add(k);
+    return s;
+  }, [blockErrorKey]);
+
+  // Pre-compute upcomingTargets lookup: Map<set_number, target> for O(1) per set
+  const targetMap = useMemo(() => {
+    const upEx = upcomingTargets?.find(e => e.exercise_id === block.exercise.id);
+    if (!upEx?.sets?.length) return null;
+    const m = new Map<number, (typeof upEx.sets)[number]>();
+    for (const s of upEx.sets) m.set(s.set_number, s);
+    return m;
+  }, [upcomingTargets, block.exercise.id]);
   const [coachTipExpanded, setCoachTipExpanded] = React.useState(false);
 
   return (
@@ -189,10 +206,8 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
       {block.sets.map((set, setIdx) => {
         const tagLabel = getSetTagLabel(set.tag);
         const tagColor = getSetTagColor(set.tag);
-        const hasError = validationErrors[`${blockIdx}-${setIdx}`];
-        const target = upcomingTargets
-          ?.find(e => e.exercise_id === block.exercise.id)
-          ?.sets?.find(s => s.set_number === set.set_number);
+        const hasError = errorSet?.has(`${blockIdx}-${setIdx}`) ?? false;
+        const target = targetMap?.get(set.set_number);
         const weightPlaceholder = target ? String(target.target_weight) : (set.previous ? String(set.previous.weight) : '');
         const repsPlaceholder = target ? String(target.target_reps) : (set.previous ? String(set.previous.reps) : '');
         const placeholderColor = target ? colors.primaryPlaceholder : 'rgba(107, 107, 114, 0.5)';
@@ -351,11 +366,8 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   if (prev.block !== next.block) return false;
   if (prev.blockIdx !== next.blockIdx) return false;
   if (prev.upcomingTargets !== next.upcomingTargets) return false;
-  // Only re-render for validation errors affecting this block
-  const prefix = `${prev.blockIdx}-`;
-  const prevKeys = Object.keys(prev.validationErrors).filter(k => k.startsWith(prefix)).join(',');
-  const nextKeys = Object.keys(next.validationErrors).filter(k => k.startsWith(prefix)).join(',');
-  if (prevKeys !== nextKeys) return false;
+  // O(1) string comparison for validation errors (pre-computed in parent)
+  if (prev.blockErrorKey !== next.blockErrorKey) return false;
   // All callbacks (isPRSet, onToggleRestTimer, etc.) are stable via useCallback([])
   return true;
 });

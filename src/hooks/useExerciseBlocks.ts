@@ -23,7 +23,10 @@ export interface UseExerciseBlocksReturn {
   exerciseBlocks: ExerciseBlock[];
   setExerciseBlocks: React.Dispatch<React.SetStateAction<ExerciseBlock[]>>;
   originalBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
+  currentBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
   prSetIdsRef: React.MutableRefObject<Set<string>>;
+  flushPendingSetWrites: () => void;
+  clearPendingSetWrites: () => void;
   handleSetChange: (blockIdx: number, setIdx: number, field: 'weight' | 'reps' | 'rpe', value: string) => void;
   handleCycleTag: (blockIdx: number, setIdx: number) => void;
   handleAddSet: (blockIdx: number) => Promise<void>;
@@ -42,7 +45,12 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
 
   const [exerciseBlocks, setExerciseBlocks] = useState<ExerciseBlock[]>([]);
   const originalBestE1RMRef = useRef<Map<string, number | undefined>>(new Map());
+  // Tracks the current (possibly PR-updated) bestE1RM per exercise — always in sync, unlike blocksRef
+  const currentBestE1RMRef = useRef<Map<string, number | undefined>>(new Map());
   const prSetIdsRef = useRef<Set<string>>(new Set());
+
+  // Debounced DB writes for set input changes (weight/reps/RPE)
+  const pendingSetWritesRef = useRef<Map<string, { timer: ReturnType<typeof setTimeout>; data: Record<string, unknown> }>>(new Map());
 
   // Keep ref in sync
   blocksRef.current = exerciseBlocks;
@@ -65,6 +73,23 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     });
   }, []);
 
+  // ─── Debounced DB write helpers ───
+
+  const flushPendingSetWrites = useCallback(() => {
+    for (const [setId, entry] of pendingSetWritesRef.current) {
+      clearTimeout(entry.timer);
+      updateWorkoutSet(setId, entry.data);
+    }
+    pendingSetWritesRef.current.clear();
+  }, []);
+
+  const clearPendingSetWrites = useCallback(() => {
+    for (const entry of pendingSetWritesRef.current.values()) {
+      clearTimeout(entry.timer);
+    }
+    pendingSetWritesRef.current.clear();
+  }, []);
+
   // ─── Handlers ───
 
   const handleSetChange = useCallback((
@@ -81,13 +106,30 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     // Guard: RPE is not editable for warmup or failure sets
     if (field === 'rpe' && (set.tag === 'warmup' || set.tag === 'failure')) return;
 
+    // Immediate state update for responsive UI
     updateBlockSets(blockIdx, (sets) => {
       sets[setIdx] = { ...sets[setIdx], [field]: value };
       return sets;
     });
 
+    // Debounced DB write (300ms) — coalesces rapid keystrokes
     const numVal = value === '' ? null : Number(value);
-    updateWorkoutSet(set.id, { [field]: numVal });
+    const pending = pendingSetWritesRef.current.get(set.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending.data[field] = numVal;
+      pending.timer = setTimeout(() => {
+        updateWorkoutSet(set.id, pending.data);
+        pendingSetWritesRef.current.delete(set.id);
+      }, 300);
+    } else {
+      const data: Record<string, unknown> = { [field]: numVal };
+      const timer = setTimeout(() => {
+        updateWorkoutSet(set.id, data);
+        pendingSetWritesRef.current.delete(set.id);
+      }, 300);
+      pendingSetWritesRef.current.set(set.id, { timer, data });
+    }
   }, [lastActiveBlockRef, updateBlockSets]);
 
   const handleCycleTag = useCallback((blockIdx: number, setIdx: number) => {
@@ -165,6 +207,13 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     // Don't allow deleting the last set
     if (block.sets.length <= 1) return;
 
+    // Cancel any pending debounced write for this set
+    const pendingWrite = pendingSetWritesRef.current.get(set.id);
+    if (pendingWrite) {
+      clearTimeout(pendingWrite.timer);
+      pendingSetWritesRef.current.delete(set.id);
+    }
+
     // Clear PR badge if deleting a PR set and revert bestE1RM
     if (prSetIdsRef.current.has(set.id)) {
       const updated = new Set(prSetIdsRef.current);
@@ -172,6 +221,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       prSetIdsRef.current = updated;
       // Synchronously revert bestE1RM from cached original
       const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
+      currentBestE1RMRef.current.set(block.exercise.id, originalBest);
       setExerciseBlocks(prev => {
         const next = [...prev];
         const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
@@ -254,6 +304,9 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
               prIdsToRemove.forEach(s => updated.delete(s.id));
               prSetIdsRef.current = updated;
             }
+            // Clean up e1RM caches for the removed exercise
+            originalBestE1RMRef.current.delete(block.exercise.id);
+            currentBestE1RMRef.current.delete(block.exercise.id);
             for (const set of setsToDelete) {
               await deleteWorkoutSet(set.id);
             }
@@ -273,7 +326,10 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     exerciseBlocks,
     setExerciseBlocks,
     originalBestE1RMRef,
+    currentBestE1RMRef,
     prSetIdsRef,
+    flushPendingSetWrites,
+    clearPendingSetWrites,
     handleSetChange,
     handleCycleTag,
     handleAddSet,

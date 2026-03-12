@@ -65,6 +65,7 @@ export interface UseWorkoutLifecycleOptions {
   exerciseBlocks: ExerciseBlock[];
   blocksRef: React.MutableRefObject<ExerciseBlock[]>;
   originalBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
+  currentBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
   prSetIdsRef: React.MutableRefObject<Set<string>>;
   lastActiveBlockRef: React.MutableRefObject<number>;
   syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void;
@@ -72,6 +73,8 @@ export interface UseWorkoutLifecycleOptions {
   debouncedSaveNotes: (exerciseId: string, notes: string, setId: string | null) => void;
   flushPendingNotes: () => Promise<void>;
   clearPendingNotes: () => void;
+  flushPendingSetWrites: () => void;
+  clearPendingSetWrites: () => void;
   startWorkoutActivity: (exerciseName: string, subtitle: string) => void;
 }
 
@@ -141,6 +144,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     exerciseBlocks,
     blocksRef,
     originalBestE1RMRef,
+    currentBestE1RMRef,
     prSetIdsRef,
     lastActiveBlockRef,
     syncWidgetState,
@@ -148,6 +152,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     debouncedSaveNotes,
     flushPendingNotes,
     clearPendingNotes,
+    flushPendingSetWrites,
+    clearPendingSetWrites,
     startWorkoutActivity: startWorkoutActivityProp,
   } = options;
 
@@ -215,6 +221,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     ]);
     const bestE1RM = bestE1RMRaw ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
+    currentBestE1RMRef.current.set(exercise.id, bestE1RM);
     const sets: LocalSet[] = inserted.map((ws, i) => ({
       id: ws.id,
       exercise_id: exercise.id,
@@ -359,6 +366,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       const { lastTime, previousSets } = historyResults[i];
       const bestE1RM = e1rmResults[i] ?? undefined;
       originalBestE1RMRef.current.set(exId, bestE1RM);
+      currentBestE1RMRef.current.set(exId, bestE1RM);
       const setNotes = wSets[0]?.notes;
       const restoredNotes = setNotes || exercise.notes || '';
 
@@ -589,6 +597,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     const stickyNotes = exercise.notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
+    currentBestE1RMRef.current.set(exercise.id, bestE1RM);
     const newBlock: ExerciseBlock = {
       exercise,
       sets: [{
@@ -679,6 +688,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
             if (workout) {
               await deleteWorkout(workout.id);
             }
+            clearPendingSetWrites();
             clearPendingNotes();
             dismissRest();
             stopWorkoutActivity();
@@ -691,6 +701,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
             setWorkoutNotes('');
             prSetIdsRef.current = new Set();
             originalBestE1RMRef.current.clear();
+            currentBestE1RMRef.current.clear();
             loadState();
           },
         },
@@ -716,6 +727,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     const workout = workoutRef.current;
     if (!workout) return;
 
+    // Flush any pending debounced writes before finishing
+    flushPendingSetWrites();
     flushPendingNotes();
 
     const setOrderEntries: Array<{ id: string; order: number }> = [];
@@ -840,6 +853,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       setWorkoutNotes('');
       prSetIdsRef.current = new Set();
       originalBestE1RMRef.current.clear();
+      currentBestE1RMRef.current.clear();
       setTemplateUpdatePlan(null);
       setTemplateChangeDescriptions([]);
       loadState();

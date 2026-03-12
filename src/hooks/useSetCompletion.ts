@@ -14,6 +14,7 @@ export interface UseSetCompletionOptions {
   upcomingTargetsRef: React.MutableRefObject<(UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] | null>;
   prSetIdsRef: React.MutableRefObject<Set<string>>;
   originalBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
+  currentBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
   lastActiveBlockRef: React.MutableRefObject<number>;
   startRestTimer: (seconds: number, exerciseName: string) => void;
   syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void;
@@ -36,6 +37,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
     upcomingTargetsRef,
     prSetIdsRef,
     originalBestE1RMRef,
+    currentBestE1RMRef,
     lastActiveBlockRef,
     startRestTimer,
     syncWidgetState,
@@ -98,9 +100,56 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
 
     const newCompleted = !set.is_completed;
 
-    // Batch auto-fill + completion toggle into a single state update
+    // Pre-compute reorder decision using blocksRef (safe: hasn't re-rendered yet)
+    let shouldReorder = false;
+    let reorderInsertIdx = 0;
+    if (newCompleted) {
+      const prevCompletedCount = block.sets.filter(s => s.is_completed).length;
+      if (prevCompletedCount === 0) {
+        const blocks = blocksRef.current;
+        let preCheckCompleted = 0;
+        for (const b of blocks) {
+          if (b.sets.every(s => s.is_completed)) preCheckCompleted++;
+          else break;
+        }
+        const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
+        if (preCheckIdx > preCheckCompleted) {
+          shouldReorder = true;
+          reorderInsertIdx = preCheckCompleted;
+        }
+      }
+    }
+
+    // Pre-compute PR result (pure CPU, ~0.1ms)
+    // Read bestE1RM from ref (always in sync) rather than blocksRef (may lag behind render)
+    let isPR = false;
+    let newBestE1RM: number | undefined;
+    if (newCompleted) {
+      const w = Number(set.weight), r = Number(set.reps);
+      const rpe = set.tag === 'failure' ? 10 : (set.rpe ? Number(set.rpe) : null);
+      if (w > 0 && r > 0) {
+        const result = calculateE1RM(w, r, rpe);
+        const bestE1RM = currentBestE1RMRef.current.get(block.exercise.id);
+        const gatingMargin = getPRGatingMargin(result.confidence);
+        const threshold = bestE1RM != null ? bestE1RM * (1 + gatingMargin) : 0;
+        if (bestE1RM != null && result.value > threshold) {
+          isPR = true;
+          newBestE1RM = result.value;
+        }
+      }
+    }
+
+    // Single coalesced state update: completion + auto-fill + reorder + PR bestE1RM
+    if (shouldReorder) {
+      LayoutAnimation.configureNext({
+        duration: 250,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+      });
+    }
+
     setExerciseBlocks((prev) => {
       const next = [...prev];
+      // 1. Apply completion + auto-fill
       const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
       updatedBlock.sets[setIdx] = {
         ...updatedBlock.sets[setIdx],
@@ -110,9 +159,33 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
         is_completed: newCompleted,
       };
       next[blockIdx] = updatedBlock;
+
+      // 2. Apply reorder (if needed)
+      if (shouldReorder) {
+        const currentIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
+        if (currentIdx > reorderInsertIdx) {
+          const [moved] = next.splice(currentIdx, 1);
+          next.splice(reorderInsertIdx, 0, moved);
+        }
+      }
+
+      // 3. Apply PR bestE1RM update (if needed)
+      if (isPR && newBestE1RM != null) {
+        const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
+        if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: newBestE1RM };
+      }
+
+      // 4. Un-complete: revert bestE1RM if this was a PR set
+      if (!newCompleted && prSetIdsRef.current.has(set.id)) {
+        const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
+        const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
+        if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
+      }
+
       return next;
     });
 
+    // DB write (fire-and-forget)
     updateWorkoutSet(set.id, {
       is_completed: newCompleted,
       weight: set.weight === '' ? null : Number(set.weight),
@@ -120,103 +193,45 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       rpe: set.rpe === '' ? null : Number(set.rpe),
     });
 
+    // Side effects after single state update
     if (newCompleted) {
-      // Default: track this block as active
-      lastActiveBlockRef.current = blockIdx;
+      lastActiveBlockRef.current = shouldReorder ? reorderInsertIdx : blockIdx;
 
-      // Auto-reorder: move exercise to top of incomplete on first set completion
-      const prevCompletedCount = block.sets.filter(s => s.is_completed).length;
-      if (prevCompletedCount === 0) {
-        // Pre-check using blocksRef (safe: hasn't re-rendered yet)
-        const blocks = blocksRef.current;
-        let preCheckCompleted = 0;
-        for (const b of blocks) {
-          if (b.sets.every(s => s.is_completed)) preCheckCompleted++;
-          else break;
-        }
-        const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
-        if (preCheckIdx > preCheckCompleted) {
-          let didReorder = false;
-          setExerciseBlocks((prev) => {
-            let completedBlockCount = 0;
-            for (const b of prev) {
-              if (b.sets.every(s => s.is_completed)) completedBlockCount++;
-              else break;
-            }
-            const currentIdx = prev.findIndex(b => b.exercise.id === block.exercise.id);
-            if (currentIdx > completedBlockCount) {
-              didReorder = true;
-              LayoutAnimation.configureNext({
-                duration: 250,
-                update: { type: LayoutAnimation.Types.easeInEaseOut },
-              });
-              const next = [...prev];
-              const [moved] = next.splice(currentIdx, 1);
-              next.splice(completedBlockCount, 0, moved);
-              return next;
-            }
-            return prev;
-          });
-          if (didReorder) {
-            lastActiveBlockRef.current = preCheckCompleted;
-            // Show reorder feedback toast (no extra vibrate — set completion haptic fires below)
-            if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
-            setReorderToast(block.exercise.name);
-            reorderToastTimer.current = setTimeout(() => setReorderToast(null), 2000);
-          }
-        }
+      // Reorder toast
+      if (shouldReorder) {
+        if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+        setReorderToast(block.exercise.name);
+        reorderToastTimer.current = setTimeout(() => setReorderToast(null), 2000);
       }
 
-      // PR check — compare estimated 1RM against cached best (confidence-gated)
-      const w = Number(set.weight), r = Number(set.reps);
-      const rpe = set.tag === 'failure' ? 10 : (set.rpe ? Number(set.rpe) : null);
-      if (w > 0 && r > 0) {
-        const result = calculateE1RM(w, r, rpe);
-        const bestE1RM = block.bestE1RM;
-        const gatingMargin = getPRGatingMargin(result.confidence);
-        const threshold = bestE1RM != null ? bestE1RM * (1 + gatingMargin) : 0;
-        if (bestE1RM != null && result.value > threshold) {
-          const updated = new Set(prSetIdsRef.current).add(set.id);
-          prSetIdsRef.current = updated;
-          setExerciseBlocks(prev => {
-            const next = [...prev];
-            const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
-            if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: result.value };
-            return next;
-          });
-          try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
-          try { confettiRef.current?.start(); } catch {}
-        } else {
-          try { Vibration.vibrate(50); } catch {}
-        }
+      // PR ref tracking + haptics
+      if (isPR && newBestE1RM != null) {
+        prSetIdsRef.current = new Set(prSetIdsRef.current).add(set.id);
+        currentBestE1RMRef.current.set(block.exercise.id, newBestE1RM);
+        try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
+        try { confettiRef.current?.start(); } catch {}
       } else {
         try { Vibration.vibrate(50); } catch {}
       }
-      // Use captured values, not stale state
+
+      // Rest timer or widget sync
       if (restEnabled) {
         startRestTimer(blockRestSeconds, exerciseName);
       } else {
-        // Sync widget to show next set
         syncWidgetState();
       }
     } else {
-      // Un-completing a set: clear PR badge if present and revert bestE1RM
+      // Un-completing: clear PR badge if present and revert bestE1RM ref
       if (prSetIdsRef.current.has(set.id)) {
         const updated = new Set(prSetIdsRef.current);
         updated.delete(set.id);
         prSetIdsRef.current = updated;
-        // Synchronously revert bestE1RM from cached original (avoids race condition)
         const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
-        setExerciseBlocks(prev => {
-          const next = [...prev];
-          const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
-          if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
-          return next;
-        });
+        currentBestE1RMRef.current.set(block.exercise.id, originalBest);
       }
       syncWidgetState();
     }
-  }, [blocksRef, setExerciseBlocks, upcomingTargetsRef, prSetIdsRef, originalBestE1RMRef, lastActiveBlockRef, startRestTimer, syncWidgetState, confettiRef]);
+  }, [blocksRef, setExerciseBlocks, upcomingTargetsRef, prSetIdsRef, originalBestE1RMRef, currentBestE1RMRef, lastActiveBlockRef, startRestTimer, syncWidgetState, confettiRef]);
 
   return {
     validationErrors,
