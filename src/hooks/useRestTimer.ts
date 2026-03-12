@@ -85,7 +85,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       setRestSeconds(remaining);
 
       if (remaining <= 0) {
-        endRest(!isRestNotificationScheduled()); // vibrate only if notification wasn't scheduled
+        endRest(true); // always vibrate — don't rely on iOS notification vibration
       }
     }, 1000);
   }, [endRest]);

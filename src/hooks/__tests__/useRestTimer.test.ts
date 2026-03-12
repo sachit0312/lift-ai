@@ -122,8 +122,8 @@ describe('useRestTimer', () => {
 
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(stopRestTimerActivity).toHaveBeenCalledTimes(1);
-    // No in-app vibration — notification already alerted user
-    expect(Vibration.vibrate).not.toHaveBeenCalled();
+    // Always vibrate in foreground — don't rely on iOS notification vibration
+    expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
   });
 
   it('endRest re-entrancy guard prevents multiple vibrations', () => {
@@ -139,8 +139,8 @@ describe('useRestTimer', () => {
     });
 
     expect(onRestEnd).toHaveBeenCalledTimes(1);
-    // No in-app vibration — notification handles it
-    expect(Vibration.vibrate).not.toHaveBeenCalled();
+    // Always vibrate in foreground — don't rely on iOS notification vibration
+    expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
 
     // Simulate foreground resync also trying to call endRest
     jest.clearAllMocks();
