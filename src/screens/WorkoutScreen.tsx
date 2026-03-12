@@ -1,5 +1,5 @@
 // WorkoutScreen - handles both idle and active workout states
-import React, { useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -49,7 +49,7 @@ const HIT_SLOP_10 = { top: 10, bottom: 10, left: 10, right: 10 };
 
 export default function WorkoutScreen() {
   // Shared refs (created at component level to avoid circular hook deps)
-  const confettiRef = useRef<ConfettiCannon | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
   const blocksRef = useRef<ExerciseBlock[]>([]);
   const workoutRef = useRef<Workout | null>(null);
 
@@ -133,7 +133,7 @@ export default function WorkoutScreen() {
     lastActiveBlockRef,
     startRestTimer,
     syncWidgetState,
-    confettiRef,
+    onConfetti: useCallback(() => setShowConfetti(true), []),
   });
 
   // Stable callback for PR badge checks (avoids passing Set as prop)
@@ -512,18 +512,20 @@ export default function WorkoutScreen() {
       />
       )}
 
-      <View style={styles.confettiContainer} pointerEvents="none">
-        <ConfettiCannon
-          ref={confettiRef}
-          count={150}
-          origin={{ x: -10, y: 0 }}
-          autoStart={false}
-          fadeOut
-          colors={[colors.primary, colors.success, '#FFD700', colors.accent, '#FF6B6B']}
-          explosionSpeed={350}
-          fallSpeed={3000}
-        />
-      </View>
+      {showConfetti && (
+        <View style={styles.confettiContainer} pointerEvents="none">
+          <ConfettiCannon
+            count={150}
+            origin={{ x: -10, y: 0 }}
+            autoStart
+            fadeOut
+            onAnimationEnd={() => setShowConfetti(false)}
+            colors={[colors.primary, colors.success, '#FFD700', colors.accent, '#FF6B6B']}
+            explosionSpeed={350}
+            fallSpeed={3000}
+          />
+        </View>
+      )}
     </SafeAreaView>
   );
 }

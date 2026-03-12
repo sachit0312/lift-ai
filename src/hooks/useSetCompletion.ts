@@ -4,8 +4,6 @@ import type { ExerciseBlock } from '../types/workout';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet, Exercise } from '../types/database';
 import { updateWorkoutSet } from '../services/database';
 import { calculateE1RM, getPRGatingMargin } from '../utils/oneRepMax';
-import type ConfettiCannon from 'react-native-confetti-cannon';
-
 // ─── Types ───
 
 export interface UseSetCompletionOptions {
@@ -18,7 +16,7 @@ export interface UseSetCompletionOptions {
   lastActiveBlockRef: React.MutableRefObject<number>;
   startRestTimer: (seconds: number, exerciseName: string) => void;
   syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void;
-  confettiRef: React.MutableRefObject<ConfettiCannon | null>;
+  onConfetti: () => void;
 }
 
 export interface UseSetCompletionReturn {
@@ -41,7 +39,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
     lastActiveBlockRef,
     startRestTimer,
     syncWidgetState,
-    confettiRef,
+    onConfetti,
   } = options;
 
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
@@ -209,7 +207,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
         prSetIdsRef.current = new Set(prSetIdsRef.current).add(set.id);
         currentBestE1RMRef.current.set(block.exercise.id, newBestE1RM);
         try { Vibration.vibrate([0, 80, 40, 80]); } catch {}
-        try { confettiRef.current?.start(); } catch {}
+        try { onConfetti(); } catch {}
       } else {
         try { Vibration.vibrate(50); } catch {}
       }
@@ -231,7 +229,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       }
       syncWidgetState();
     }
-  }, [blocksRef, setExerciseBlocks, upcomingTargetsRef, prSetIdsRef, originalBestE1RMRef, currentBestE1RMRef, lastActiveBlockRef, startRestTimer, syncWidgetState, confettiRef]);
+  }, [blocksRef, setExerciseBlocks, upcomingTargetsRef, prSetIdsRef, originalBestE1RMRef, currentBestE1RMRef, lastActiveBlockRef, startRestTimer, syncWidgetState, onConfetti]);
 
   return {
     validationErrors,

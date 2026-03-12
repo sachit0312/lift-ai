@@ -67,11 +67,18 @@ jest.mock('../../services/workoutBridge', () => ({
   clearWidgetState: jest.fn(),
 }));
 
-const mockConfettiStart = jest.fn();
+const mockConfettiRender = jest.fn();
 jest.mock('react-native-confetti-cannon', () => {
   const React = require('react');
-  return React.forwardRef((_props: any, ref: any) => {
-    React.useImperativeHandle(ref, () => ({ start: mockConfettiStart }));
+  return React.forwardRef((props: any, _ref: any) => {
+    mockConfettiRender();
+    // Call onAnimationEnd after a tick to auto-unmount
+    React.useEffect(() => {
+      if (props.onAnimationEnd) {
+        const t = setTimeout(props.onAnimationEnd, 50);
+        return () => clearTimeout(t);
+      }
+    }, []);
     return null;
   });
 });
@@ -1770,7 +1777,7 @@ describe('WorkoutScreen', () => {
     beforeEach(() => {
       // Set up getBestE1RM to return a beatable value
       (getBestE1RM as jest.Mock).mockResolvedValue(100);
-      mockConfettiStart.mockClear();
+      mockConfettiRender.mockClear();
     });
 
     afterEach(() => {
@@ -1790,7 +1797,7 @@ describe('WorkoutScreen', () => {
       await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
 
       await waitFor(() => {
-        expect(mockConfettiStart).toHaveBeenCalled();
+        expect(mockConfettiRender).toHaveBeenCalled();
       });
     });
 
@@ -1834,7 +1841,7 @@ describe('WorkoutScreen', () => {
       await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
 
       await waitFor(() => {
-        expect(mockConfettiStart).toHaveBeenCalledTimes(1);
+        expect(mockConfettiRender).toHaveBeenCalledTimes(1);
       });
 
       // Reset getBestE1RM for the revert call
@@ -1848,13 +1855,13 @@ describe('WorkoutScreen', () => {
         expect(result.queryByText('PR')).toBeNull();
       });
 
-      mockConfettiStart.mockClear();
+      mockConfettiRender.mockClear();
 
       // Re-check — should trigger PR again since bestE1RM was reverted
       await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
 
       await waitFor(() => {
-        expect(mockConfettiStart).toHaveBeenCalled();
+        expect(mockConfettiRender).toHaveBeenCalled();
         expect(result.queryByText('PR')).toBeTruthy();
       });
     });
