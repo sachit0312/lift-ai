@@ -49,7 +49,8 @@ const HIT_SLOP_10 = { top: 10, bottom: 10, left: 10, right: 10 };
 
 export default function WorkoutScreen() {
   // Shared refs (created at component level to avoid circular hook deps)
-  const [showConfetti, setShowConfetti] = useState(false);
+  const [confettiKey, setConfettiKey] = useState(0);
+  const onConfetti = useCallback(() => setConfettiKey(k => k + 1), []);
   const blocksRef = useRef<ExerciseBlock[]>([]);
   const workoutRef = useRef<Workout | null>(null);
 
@@ -133,7 +134,7 @@ export default function WorkoutScreen() {
     lastActiveBlockRef,
     startRestTimer,
     syncWidgetState,
-    onConfetti: useCallback(() => setShowConfetti(true), []),
+    onConfetti,
   });
 
   // Stable callback for PR badge checks (avoids passing Set as prop)
@@ -512,14 +513,15 @@ export default function WorkoutScreen() {
       />
       )}
 
-      {showConfetti && (
+      {confettiKey > 0 && (
         <View style={styles.confettiContainer} pointerEvents="none">
           <ConfettiCannon
+            key={confettiKey}
             count={150}
             origin={{ x: -10, y: 0 }}
             autoStart
             fadeOut
-            onAnimationEnd={() => setShowConfetti(false)}
+            onAnimationEnd={() => setConfettiKey(0)}
             colors={[colors.primary, colors.success, '#FFD700', colors.accent, '#FF6B6B']}
             explosionSpeed={350}
             fallSpeed={3000}
