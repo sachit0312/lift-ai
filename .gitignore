@@ -47,3 +47,7 @@ yarn-error.*
 
 # git worktrees
 .worktrees/
+.claude/worktrees/
+
+# temp query scripts
+query_*.mjs

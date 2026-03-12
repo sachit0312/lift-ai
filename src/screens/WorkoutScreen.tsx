@@ -512,16 +512,18 @@ export default function WorkoutScreen() {
       />
       )}
 
-      <ConfettiCannon
-        ref={confettiRef}
-        count={150}
-        origin={{ x: -10, y: 0 }}
-        autoStart={false}
-        fadeOut
-        colors={[colors.primary, colors.success, '#FFD700', colors.accent, '#FF6B6B']}
-        explosionSpeed={350}
-        fallSpeed={3000}
-      />
+      <View style={styles.confettiContainer} pointerEvents="none">
+        <ConfettiCannon
+          ref={confettiRef}
+          count={150}
+          origin={{ x: -10, y: 0 }}
+          autoStart={false}
+          fadeOut
+          colors={[colors.primary, colors.success, '#FFD700', colors.accent, '#FF6B6B']}
+          explosionSpeed={350}
+          fallSpeed={3000}
+        />
+      </View>
     </SafeAreaView>
   );
 }
