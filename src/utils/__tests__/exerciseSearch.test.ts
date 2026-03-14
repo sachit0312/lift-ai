@@ -3,16 +3,13 @@ import type { Exercise } from '../../types/database';
 
 const createExercise = (overrides: Partial<Exercise> = {}): Exercise => ({
   id: '1',
-  user_id: 'user-1',
+  user_id: null,
   name: 'Bench Press',
   type: 'weighted',
   muscle_groups: ['Chest', 'Triceps'],
   training_goal: 'hypertrophy',
   description: '',
   created_at: '2024-01-01',
-  notes: null,
-  form_notes: null,
-  machine_notes: null,
   ...overrides,
 });
 

@@ -167,8 +167,8 @@ describe('clearAllLocalData', () => {
         return match ? match[1] : null;
       });
 
-    // Verify all 8 tables are cleared
-    expect(deleteCalls).toHaveLength(8);
+    // Verify all 9 tables are cleared
+    expect(deleteCalls).toHaveLength(9);
 
     // Verify dependency order:
     // 1. upcoming_workout_sets before upcoming_workout_exercises before upcoming_workouts
@@ -188,8 +188,12 @@ describe('clearAllLocalData', () => {
     const tIdx = deleteCalls.indexOf('templates');
     expect(teIdx).toBeLessThan(tIdx);
 
-    // 4. exercises is last (everything depends on it)
+    // 4. user_exercise_notes before exercises (notes depend on exercises)
+    const unIdx = deleteCalls.indexOf('user_exercise_notes');
     const eIdx = deleteCalls.indexOf('exercises');
+    expect(unIdx).toBeLessThan(eIdx);
+
+    // 5. exercises is last (everything depends on it)
     expect(eIdx).toBe(deleteCalls.length - 1);
 
     // Verify the exact order matches the implementation
@@ -201,6 +205,7 @@ describe('clearAllLocalData', () => {
       'workouts',
       'template_exercises',
       'templates',
+      'user_exercise_notes',
       'exercises',
     ]);
   });

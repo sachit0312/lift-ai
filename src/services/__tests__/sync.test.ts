@@ -19,6 +19,13 @@ jest.mock('../supabase', () => ({
   },
 }));
 
+// Partially mock database module — only mock getCurrentUserId (called by syncToSupabase)
+// while preserving the real getDb and clearLocalUpcomingWorkout implementations
+jest.mock('../database', () => ({
+  ...jest.requireActual('../database'),
+  getCurrentUserId: jest.fn().mockReturnValue('local'),
+}));
+
 // Import after mocks are set up
 import { syncToSupabase, deleteTemplateFromSupabase, deleteTemplateExerciseFromSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../sync';
 import { supabase } from '../supabase';
@@ -101,7 +108,8 @@ describe('syncToSupabase', () => {
       { id: 'ex-2', name: 'Squat', type: 'weighted', muscle_groups: '["Quads","Glutes"]', training_goal: 'strength', description: '' },
     ];
 
-    __mockDb.getAllAsync.mockResolvedValueOnce(mockExercises);
+    __mockDb.getAllAsync.mockResolvedValueOnce(mockExercises); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -130,6 +138,7 @@ describe('syncToSupabase', () => {
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce(mockTemplates);
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -157,6 +166,7 @@ describe('syncToSupabase', () => {
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce(mockTemplateExercises);
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -181,6 +191,7 @@ describe('syncToSupabase', () => {
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce(mockWorkouts);
@@ -206,6 +217,7 @@ describe('syncToSupabase', () => {
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -229,6 +241,7 @@ describe('syncToSupabase', () => {
     setSessionAuthenticated();
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -247,6 +260,7 @@ describe('syncToSupabase', () => {
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce(mockExercises);
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -290,6 +304,7 @@ describe('syncToSupabase', () => {
     const supabaseError = { message: 'Template sync failed', code: '500' };
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises (empty, skipped)
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes (empty, skipped)
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { id: 'tpl-1', name: 'Push' },
     ]);
@@ -301,7 +316,7 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(2);
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(3);
   });
 
   it('stops syncing and reports to Sentry when template_exercises upsert fails', async () => {
@@ -310,6 +325,7 @@ describe('syncToSupabase', () => {
     const supabaseError = { message: 'template_exercises sync failed' };
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 },
@@ -322,7 +338,7 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(3);
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(4);
   });
 
   it('stops syncing and reports to Sentry when workouts upsert fails', async () => {
@@ -331,6 +347,7 @@ describe('syncToSupabase', () => {
     const supabaseError = { message: 'workouts sync failed' };
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([
@@ -344,7 +361,7 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(4);
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(5);
   });
 
   it('stops syncing and reports to Sentry when workout_sets upsert fails', async () => {
@@ -353,6 +370,7 @@ describe('syncToSupabase', () => {
     const supabaseError = { message: 'workout_sets sync failed' };
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -382,6 +400,7 @@ describe('syncToSupabase', () => {
     setSessionAuthenticated();
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
@@ -401,6 +420,7 @@ describe('syncToSupabase', () => {
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { id: 'ex-1', name: 'Bench Press', type: 'weighted', muscle_groups: '["Chest"]', training_goal: 'hypertrophy', description: '' },
     ]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'tpl-1', name: 'Push Day' }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null }]);
@@ -433,15 +453,21 @@ describe('syncToSupabase', () => {
     __mockDb.getAllAsync.mockResolvedValueOnce([
       { id: 'ex-1', name: 'Bench', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
     ]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', notes: null, form_notes: 'keep back straight', machine_notes: null },
+    ]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'tpl-1', name: 'Push' }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'ws-1', workout_id: 'w-1', exercise_id: 'ex-1', set_number: 1, reps: 10, weight: 135, tag: 'working', is_completed: 1 }]);
 
+    const notesBuilder = mockQueryBuilder();
+    mockFromHandlers['user_exercise_notes'] = notesBuilder;
+
     await syncToSupabase();
 
     const fromCalls = mockFrom.mock.calls.map((c: any[]) => c[0]);
-    expect(fromCalls).toEqual(['exercises', 'templates', 'template_exercises', 'workouts', 'workout_sets']);
+    expect(fromCalls).toEqual(['exercises', 'user_exercise_notes', 'templates', 'template_exercises', 'workouts', 'workout_sets']);
   });
 });
 
@@ -992,6 +1018,10 @@ describe('pullExercisesAndTemplates', () => {
     const exerciseBuilder = mockQueryBuilder(mockExercises, null);
     mockFromHandlers['exercises'] = exerciseBuilder;
 
+    // Mock user_exercise_notes (queried during pullExercises)
+    const notesBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['user_exercise_notes'] = notesBuilder;
+
     // No templates
     const templateBuilder = mockQueryBuilder([], null);
     mockFromHandlers['templates'] = templateBuilder;
@@ -999,8 +1029,9 @@ describe('pullExercisesAndTemplates', () => {
     await pullExercisesAndTemplates();
 
     expect(mockFrom).toHaveBeenCalledWith('exercises');
-    expect(exerciseBuilder.select).toHaveBeenCalledWith('*');
-    expect(exerciseBuilder.eq).toHaveBeenCalledWith('user_id', 'user-123');
+    expect(exerciseBuilder.select).toHaveBeenCalledWith('id, user_id, name, type, muscle_groups, training_goal, description, created_at');
+    // exercises query no longer filters by user_id (pulls all exercises — global + custom)
+    expect(exerciseBuilder.eq).not.toHaveBeenCalledWith('user_id', 'user-123');
 
     const insertCall = __mockDb.runAsync.mock.calls.find(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
@@ -1012,30 +1043,37 @@ describe('pullExercisesAndTemplates', () => {
     expect(insertCall![5]).toBe('["Chest","Triceps"]'); // JSON.stringify
   });
 
-  it('uses Supabase notes during upsert (last-write-wins)', async () => {
+  it('pulls user_exercise_notes and upserts into local SQLite (last-write-wins)', async () => {
     setSessionAuthenticated();
 
     const mockExercises = [
-      { id: 'ex-1', user_id: 'user-123', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', created_at: '2026-01-01T00:00:00Z', notes: 'Use seat 3' },
+      { id: 'ex-1', user_id: 'user-123', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', created_at: '2026-01-01T00:00:00Z' },
+    ];
+
+    const mockNotes = [
+      { exercise_id: 'ex-1', notes: null, form_notes: 'keep back straight', machine_notes: 'Use seat 3' },
     ];
 
     const exerciseBuilder = mockQueryBuilder(mockExercises, null);
     mockFromHandlers['exercises'] = exerciseBuilder;
+
+    const notesBuilder = mockQueryBuilder(mockNotes, null);
+    mockFromHandlers['user_exercise_notes'] = notesBuilder;
 
     const templateBuilder = mockQueryBuilder([], null);
     mockFromHandlers['templates'] = templateBuilder;
 
     await pullExercisesAndTemplates();
 
-    const insertCall = __mockDb.runAsync.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO exercises'),
+    // Notes should be stored in user_exercise_notes, not exercises
+    const notesInsertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO user_exercise_notes'),
     );
-    // Should NOT use subquery — uses Supabase value directly
-    expect(insertCall![0]).not.toContain('SELECT notes FROM exercises WHERE id');
-    // ON CONFLICT should update notes
-    expect(insertCall![0]).toMatch(/ON CONFLICT.*notes=excluded\.notes/s);
-    // Notes param should be the Supabase value
-    expect(insertCall![9]).toBe('Use seat 3');
+    expect(notesInsertCall).toBeDefined();
+    expect(notesInsertCall![0]).toMatch(/ON CONFLICT.*notes=excluded\.notes/s);
+    expect(notesInsertCall![2]).toBe('ex-1'); // exercise_id param
+    expect(notesInsertCall![4]).toBe('keep back straight'); // form_notes
+    expect(notesInsertCall![5]).toBe('Use seat 3'); // machine_notes
   });
 
   it('converts muscle_groups JSONB array to JSON string', async () => {
@@ -1047,6 +1085,8 @@ describe('pullExercisesAndTemplates', () => {
 
     const exerciseBuilder = mockQueryBuilder(mockExercises, null);
     mockFromHandlers['exercises'] = exerciseBuilder;
+
+    mockFromHandlers['user_exercise_notes'] = mockQueryBuilder([], null);
 
     const templateBuilder = mockQueryBuilder([], null);
     mockFromHandlers['templates'] = templateBuilder;
@@ -1068,6 +1108,8 @@ describe('pullExercisesAndTemplates', () => {
 
     const exerciseBuilder = mockQueryBuilder(mockExercises, null);
     mockFromHandlers['exercises'] = exerciseBuilder;
+
+    mockFromHandlers['user_exercise_notes'] = mockQueryBuilder([], null);
 
     const templateBuilder = mockQueryBuilder([], null);
     mockFromHandlers['templates'] = templateBuilder;

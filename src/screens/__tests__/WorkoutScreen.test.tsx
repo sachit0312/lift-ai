@@ -28,11 +28,13 @@ jest.mock('../../services/database', () => ({
   getExerciseHistory: jest.fn().mockResolvedValue([]),
   getExerciseById: jest.fn().mockResolvedValue(null),
   getAllExercises: jest.fn().mockResolvedValue([
-    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, form_notes: null, machine_notes: null },
+    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '' },
   ]),
   getBulkExercises: jest.fn().mockResolvedValue([]),
   getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
-  createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '', notes: null, form_notes: null, machine_notes: null }),
+  createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '' }),
+  getUserExerciseNotes: jest.fn().mockResolvedValue(null),
+  getUserExerciseNotesBatch: jest.fn().mockResolvedValue(new Map()),
   updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
   getLastPerformedByTemplate: jest.fn().mockResolvedValue({}),
   getBestE1RM: jest.fn().mockResolvedValue(null),
@@ -887,10 +889,9 @@ describe('WorkoutScreen', () => {
     });
 
     it('pre-expands notes when exercise has sticky notes', async () => {
-      // Override getAllExercises to return exercise with existing notes
-      (getAllExercises as jest.Mock).mockResolvedValueOnce([
-        { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, form_notes: null, machine_notes: 'Existing note' },
-      ]);
+      // Override getUserExerciseNotes to return existing machine notes
+      const { getUserExerciseNotes } = require('../../services/database');
+      (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ notes: null, form_notes: null, machine_notes: 'Existing note' });
 
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
