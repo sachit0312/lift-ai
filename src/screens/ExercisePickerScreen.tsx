@@ -191,7 +191,7 @@ export default function ExercisePickerScreen() {
             })}
           </View>
 
-          <Text style={styles.label}>Notes (optional)</Text>
+          <Text style={styles.label}>Form Notes (optional)</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={newExNotes}

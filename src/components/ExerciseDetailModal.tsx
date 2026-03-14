@@ -125,7 +125,7 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
   const handleClose = useCallback(async () => {
     await flushPending();
     onClose();
-  }, [exercise, onClose]);
+  }, [onClose]);
 
   if (!exercise) return null;
 

@@ -402,7 +402,7 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
       machine_notes TEXT,
       PRIMARY KEY (user_id, exercise_id)
     )
-  `).catch(() => {});
+  `);
 }
 
 // ─── Exercises ───
@@ -448,10 +448,11 @@ export function getBulkExercises(ids: string[]): Promise<Exercise[]> {
 // ─── User Exercise Notes ───
 
 export function getUserExerciseNotes(exerciseId: string): Promise<ExerciseNotes | null> {
+  const userId = currentUserId;
   return withDb('getUserExerciseNotes', async (database) => {
     const rows = await database.getAllAsync<ExerciseNotesRow>(
       'SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id = ?',
-      currentUserId, exerciseId,
+      userId, exerciseId,
     );
     if (rows.length === 0) return null;
     return { notes: rows[0].notes, form_notes: rows[0].form_notes, machine_notes: rows[0].machine_notes };
@@ -460,11 +461,12 @@ export function getUserExerciseNotes(exerciseId: string): Promise<ExerciseNotes 
 
 export function getUserExerciseNotesBatch(exerciseIds: string[]): Promise<Map<string, ExerciseNotes>> {
   if (exerciseIds.length === 0) return Promise.resolve(new Map());
+  const userId = currentUserId;
   return withDb('getUserExerciseNotesBatch', async (database) => {
     const placeholders = exerciseIds.map(() => '?').join(',');
     const rows = await database.getAllAsync<ExerciseNotesRow>(
       `SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id IN (${placeholders})`,
-      currentUserId, ...exerciseIds,
+      userId, ...exerciseIds,
     );
     const map = new Map<string, ExerciseNotes>();
     for (const r of rows) {
@@ -478,12 +480,13 @@ const VALID_NOTE_FIELDS = new Set(['notes', 'form_notes', 'machine_notes'] as co
 
 export function upsertExerciseNote(exerciseId: string, field: 'notes' | 'form_notes' | 'machine_notes', value: string | null): Promise<void> {
   if (!VALID_NOTE_FIELDS.has(field)) throw new Error(`Invalid note field: ${field}`);
+  const userId = currentUserId;
   return withDb('upsertExerciseNote', async (database) => {
     await database.runAsync(
       `INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
        VALUES (?, ?, NULL, NULL, NULL)
        ON CONFLICT(user_id, exercise_id) DO UPDATE SET ${field} = ?`,
-      currentUserId, exerciseId, value,
+      userId, exerciseId, value,
     );
   });
 }
