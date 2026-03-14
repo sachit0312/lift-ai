@@ -1177,3 +1177,17 @@ export function clearAllLocalData(): Promise<void> {
     await database.runAsync('DELETE FROM exercises');
   });
 }
+
+// ─── Migration: Exercise Notes to User Table ───
+
+/** One-time migration: copy notes from legacy exercises columns to user_exercise_notes.
+ *  Must be called after auth provides a real userId. Idempotent via INSERT OR IGNORE. */
+export function migrateExerciseNotesToUserTable(userId: string): Promise<void> {
+  return withDb('migrateExerciseNotesToUserTable', async (database) => {
+    await database.runAsync(`
+      INSERT OR IGNORE INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
+      SELECT ?, id, notes, form_notes, machine_notes FROM exercises
+      WHERE (notes IS NOT NULL OR form_notes IS NOT NULL OR machine_notes IS NOT NULL)
+    `, [userId]);
+  });
+}

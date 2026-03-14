@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from '
 import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../services/supabase';
-import { clearAllLocalData } from '../services/database';
+import { clearAllLocalData, setCurrentUserId, migrateExerciseNotesToUserTable } from '../services/database';
 import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 
 const SYNC_TIMEOUT_MS = 30000;
@@ -51,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           if (newUserId !== prevUserId) {
             setSyncing(true);
+            setCurrentUserId(newSession!.user.id);
             try {
               await Promise.race([
                 (async () => {
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     pullExercisesAndTemplates(),
                     pullWorkoutHistory(),
                   ]);
+                  await migrateExerciseNotesToUserTable(newSession!.user.id);
                   await pullUpcomingWorkout();
                 })(),
                 new Promise<void>((_, reject) =>
@@ -74,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else if (event === 'SIGNED_OUT') {
           Sentry.setUser(null);
+          setCurrentUserId('local');
         }
 
         previousUserIdRef.current = newUserId;
