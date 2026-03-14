@@ -4,17 +4,22 @@ export type SetTag = 'working' | 'warmup' | 'failure' | 'drop';
 
 export interface Exercise {
   id: string;
-  user_id: string;
+  user_id: string | null;
   name: string;
   type: ExerciseType;
   muscle_groups: string[];
   training_goal: TrainingGoal;
   description: string;
   created_at: string;
-  notes: string | null;
-  form_notes: string | null;     // form/technique tips
-  machine_notes: string | null;  // machine settings (user-only)
 }
+
+export interface ExerciseNotes {
+  notes: string | null;
+  form_notes: string | null;
+  machine_notes: string | null;
+}
+
+export type ExerciseWithNotes = Exercise & ExerciseNotes;
 
 export interface Template {
   id: string;
