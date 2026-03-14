@@ -33,6 +33,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentEndTimeRef = useRef(0);
   const endingRef = useRef(false);
+  const wasBackgroundedRef = useRef(false);
 
   // Keep callback refs stable so the interval closure always calls the latest version
   const onRestEndRef = useRef(onRestEnd);
@@ -62,6 +63,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   // ─── Start rest timer ───
   const startRestTimer = useCallback((seconds: number, exerciseName: string) => {
     endingRef.current = false; // reset for new timer
+    wasBackgroundedRef.current = false; // fresh timer is always foreground
     if (restRef.current) clearInterval(restRef.current);
     const total = seconds;
     setRestTotal(total);
@@ -85,7 +87,11 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       setRestSeconds(remaining);
 
       if (remaining <= 0) {
-        endRest(true); // always vibrate — don't rely on iOS notification vibration
+        // Don't vibrate if this tick fired because iOS unfroze the interval on
+        // foreground return — the notification already alerted the user.
+        // Only vibrate when the timer naturally expires while the app is in
+        // the foreground (wasBackgroundedRef is false).
+        endRest(!wasBackgroundedRef.current);
       }
     }, 1000);
   }, [endRest]);
@@ -114,15 +120,29 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     endRest(false);
   }, [endRest]);
 
-  // ─── Resync rest timer on foreground return ───
+  // ─── Track background state ───
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && restRef.current !== null) {
-        const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
-        if (remaining <= 0) {
-          endRest(false); // no vibrate — notification already fired
+      if (nextState === 'background') {
+        // Only set on confirmed background — not 'inactive' (brief interruptions
+        // like phone calls shouldn't suppress vibration)
+        wasBackgroundedRef.current = true;
+      } else if (nextState === 'active') {
+        // ─── Resync rest timer on foreground return ───
+        if (restRef.current !== null) {
+          const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
+          if (remaining <= 0) {
+            endRest(false); // no vibrate — notification already fired
+            // wasBackgroundedRef stays true — endingRef guards any lagging interval tick
+          } else {
+            setRestSeconds(remaining);
+            // Timer still running — clear flag after a short delay so unfrozen
+            // interval ticks also see it, but any subsequent natural expiry vibrates
+            setTimeout(() => { wasBackgroundedRef.current = false; }, 500);
+          }
         } else {
-          setRestSeconds(remaining);
+          // No active timer — nothing to protect against
+          wasBackgroundedRef.current = false;
         }
       }
     });
