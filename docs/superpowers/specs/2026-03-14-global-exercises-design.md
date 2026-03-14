@@ -41,6 +41,19 @@ CREATE TABLE user_exercise_notes (
   updated_at  TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (user_id, exercise_id)
 );
+
+-- Auto-update updated_at on row modification
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_user_exercise_notes_updated_at
+  BEFORE UPDATE ON user_exercise_notes
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 ```
 
 #### RLS Policies
@@ -95,6 +108,19 @@ CREATE POLICY "Users manage own exercise notes"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+-- Auto-update updated_at trigger
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_user_exercise_notes_updated_at
+  BEFORE UPDATE ON user_exercise_notes
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- 2. Migrate existing notes from exercises to user_exercise_notes
 INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
 SELECT user_id, id, notes, form_notes, machine_notes
@@ -135,8 +161,10 @@ CREATE POLICY "Delete own custom exercises"
 
 #### SQLite Migration (in `database.ts` `initializeDatabase()`)
 
+The SQLite migration runs as a numbered schema migration (like existing migrations). The note-data migration is a **one-time deferred step** that runs after auth is confirmed, gated by a flag in a `migrations_applied` table or AsyncStorage key.
+
+**Step 1 — Schema migration (runs at app startup, no auth needed):**
 ```sql
--- New table
 CREATE TABLE IF NOT EXISTS user_exercise_notes (
   user_id     TEXT NOT NULL,
   exercise_id TEXT NOT NULL,
@@ -145,17 +173,20 @@ CREATE TABLE IF NOT EXISTS user_exercise_notes (
   machine_notes TEXT,
   PRIMARY KEY (user_id, exercise_id)
 );
+```
 
--- Migrate existing notes (user_id comes from auth session)
-INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
-SELECT '<current_user_id>', id, notes, form_notes, machine_notes
+**Step 2 — Data migration (runs once after auth session confirmed):**
+```sql
+-- Only runs if migration flag not set
+INSERT OR IGNORE INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
+SELECT :userId, id, notes, form_notes, machine_notes
 FROM exercises
 WHERE notes IS NOT NULL OR form_notes IS NOT NULL OR machine_notes IS NOT NULL;
-
--- Note: SQLite doesn't support DROP COLUMN easily.
--- Leave columns on exercises table but stop reading/writing them.
--- They become dead columns (harmless).
 ```
+
+Where `:userId` is `session.user.id` from the authenticated session. After successful execution, set a migration flag (e.g., `AsyncStorage.setItem('migration_011_notes_complete', 'true')`) to prevent re-running.
+
+**Dead columns:** SQLite doesn't support DROP COLUMN easily. The `notes`, `form_notes`, `machine_notes` columns remain on the `exercises` table but are no longer read or written. They become inert dead columns (harmless).
 
 ### Changes by Layer
 
@@ -195,7 +226,7 @@ export type ExerciseWithNotes = Exercise & {
 - `upsertUserExerciseNotes(userId: string, exerciseId: string, field: 'notes' | 'form_notes' | 'machine_notes', value: string | null): Promise<void>` — replaces `updateExerciseNotes()`, `updateExerciseFormNotes()`, `updateExerciseMachineNotes()`
 
 **Modified functions:**
-- `createExercise()` — remove `notes` param. If creating a custom exercise, set `user_id`. If notes needed at creation time, follow with `upsertUserExerciseNotes()`.
+- `createExercise()` — remove `notes` param. For custom exercises, set `user_id` to the authenticated user. If notes needed at creation time, follow with `upsertUserExerciseNotes()`.
 - `updateExercise()` — stop writing note columns
 - Remove: `updateExerciseNotes()`, `updateExerciseFormNotes()`, `updateExerciseMachineNotes()` (replaced by `upsertUserExerciseNotes()`)
 
@@ -204,14 +235,16 @@ export type ExerciseWithNotes = Exercise & {
 #### 3. Sync Service (`src/services/sync.ts`)
 
 **Push (`syncToSupabase()`):**
-- Exercise push: stop including note columns. Add `user_id` only for custom exercises (where `user_id IS NOT NULL` locally).
+- Exercise push: stop including note columns. Only push exercises where `user_id IS NOT NULL` in local SQLite (custom exercises only). Post-migration, all pre-existing exercises have `user_id = NULL` (global) and are read-only — never pushed. New custom exercises created after migration will have `user_id` set and will be pushed.
 - New: push `user_exercise_notes` table separately. Upsert on `(user_id, exercise_id)`.
 
-**Pull (`pullExercises()` → rename to `pullExercisesAndNotes()`):**
+**Pull (`pullExercises()`):**
+- Keep function name `pullExercises()` — it internally also pulls notes as a second step. This way `pullExercisesAndTemplates()` stays unchanged.
 - Pull exercises: fetch where `user_id IS NULL OR user_id = eq(session.user.id)`. No note columns.
 - Pull notes: fetch `user_exercise_notes` where `user_id = session.user.id`. Upsert into local SQLite.
+- Sync strategy for notes: Supabase always wins on pull (last-write-wins, consistent with current behavior).
 
-**Important:** Global exercises are read-only from the app's perspective (no push). Only custom exercises push.
+**Important:** Global exercises are read-only from the app's perspective (no push). Only custom exercises and user_exercise_notes push.
 
 #### 4. Notes Debounce Hook (`src/hooks/useNotesDebounce.ts`)
 
@@ -221,23 +254,30 @@ export type ExerciseWithNotes = Exercise & {
 #### 5. ExerciseDetailModal (`src/components/ExerciseDetailModal.tsx`)
 
 - Props: receive `ExerciseWithNotes` instead of `Exercise` (or load notes separately).
+- `onExerciseUpdated` callback signature changes from `(exercise: Exercise) => void` to `(exercise: ExerciseWithNotes) => void`.
 - Replace `updateExerciseFormNotes()` / `updateExerciseMachineNotes()` calls with `upsertUserExerciseNotes()`.
 - UI unchanged — same form_notes and machine_notes fields.
 
 #### 6. ExercisesScreen (`src/screens/ExercisesScreen.tsx`)
 
 - Exercise list: loads all exercises (global + custom). No note columns.
-- When opening ExerciseDetailModal: fetch notes for that exercise via `getUserExerciseNotes()`.
+- When opening ExerciseDetailModal: fetch notes for that exercise via `getUserExerciseNotes()`, construct `ExerciseWithNotes` to pass as prop.
+- `handleExerciseUpdated` handler: receives `ExerciseWithNotes` (updated callback signature).
 - Edit modal: unchanged (only edits name/type/muscles, which are definition-level).
-- **New distinction in UI (optional/future):** Could show a badge for "custom" exercises, but not required now.
 
-#### 7. WorkoutScreen (`src/screens/WorkoutScreen.tsx`)
+#### 7. ExercisePickerScreen (`src/screens/ExercisePickerScreen.tsx`)
 
-- `ExerciseBlock` type: notes become optional/loaded separately.
-- `handleExerciseUpdated()`: update notes in the notes data structure, not on the exercise itself.
-- `useExerciseBlocks`: when building blocks, load notes for each exercise via `getBulkUserExerciseNotes()`.
+- When a user creates a new exercise via the picker (during workout or template editing), `createExercise()` must set `user_id = session.user.id` (custom exercise).
+- Exercise search/display: unchanged — operates on definition fields.
 
-#### 8. MCP Server (`/Users/sachitgoyal/code/lift-ai-mcp/`)
+#### 8. WorkoutScreen (`src/screens/WorkoutScreen.tsx`), `useWorkoutLifecycle`, & `useExerciseBlocks`
+
+- `ExerciseBlock` has a `machineNotes: string` field (in `src/types/workout.ts`). This field is populated during block construction from the exercise's notes. Post-migration, populate it from `getBulkUserExerciseNotes()` result instead of `exercise.machine_notes`.
+- Block construction happens in `useWorkoutLifecycle.ts` (three sites: template start, upcoming workout start, and workout resume). At each site, after building the initial blocks, call `getBulkUserExerciseNotes(userId, exerciseIds)` and map `machineNotes` onto each block from the result.
+- `handleExerciseUpdated()`: the callback now receives `ExerciseWithNotes` (not `Exercise`). Update the block's `machineNotes` from `updated.machine_notes` on the callback argument.
+- `useWorkoutLifecycle` and `useExerciseBlocks` hooks need `userId` param (from auth context).
+
+#### 9. MCP Server (`/Users/sachitgoyal/code/lift-ai-mcp/`)
 
 **Read tools:**
 - `get_exercise_list`: join `user_exercise_notes` to include `notes`, `form_notes` (never `machine_notes`). Show global + user's custom exercises.
@@ -246,12 +286,12 @@ export type ExerciseWithNotes = Exercise & {
 
 **Write tools:**
 - `create_exercise`:
-  - Regular user: creates custom exercise (`user_id` = their ID). Optionally writes notes to `user_exercise_notes`.
-  - Admin: creates global exercise (`user_id` = NULL). Can set `notes`/`form_notes` on the exercise-level (admin notes are global? or per-admin?).
+  - Regular user: creates custom exercise (`user_id` = their ID). Optionally writes notes to `user_exercise_notes` in a second step.
+  - Admin: creates global exercise (`user_id` = NULL). Definition only — no notes.
 - `update_exercise`:
-  - Regular user: can only update own custom exercises (definition). Can update own notes on any exercise via `user_exercise_notes`.
+  - Regular user: can only update own custom exercises (definition fields). Notes are updated separately via `user_exercise_notes`.
   - Admin: can update global exercise definitions. Cannot touch user notes.
-- `assertExerciseOwnership()`: adapt to handle `user_id IS NULL` (global) — reject regular user edits to global exercises.
+- `assertExerciseOwnership()`: adapt to handle `user_id IS NULL` (global) — reject regular user edits to global exercise definitions. Allow regular users to write their own `user_exercise_notes` for any exercise (global or custom).
 
 **New MCP tool (optional):**
 - `update_exercise_notes`: Dedicated tool for regular user MCP to write `notes`/`form_notes` to `user_exercise_notes` for a given exercise (regardless of whether it's global or custom). Cleaner separation from `update_exercise`.
@@ -272,24 +312,27 @@ export type ExerciseWithNotes = Exercise & {
 ### Implementation Order
 
 1. **Supabase migration** — run on both dev and prod
-2. **SQLite migration** — new table + stop writing note columns on exercises
-3. **Types** — new interfaces
-4. **Database service** — new note functions, modify exercise functions
-5. **Sync service** — split exercise and notes sync
-6. **Hooks** — update useNotesDebounce
-7. **Components** — ExerciseDetailModal, ExercisesScreen, WorkoutScreen
-8. **MCP server** — read/write tools, admin mode
-9. **Verify** — type-check, unit tests, manual test on device
+2. **SQLite migration** — schema migration (new table) + deferred data migration (after auth)
+3. **Types** — new interfaces (`UserExerciseNotes`, `ExerciseWithNotes`), update `Exercise`
+4. **Database service** — new note functions, modify exercise functions, update row parsers
+5. **Sync service** — split exercise and notes sync, custom-only exercise push
+6. **Hooks** — update `useNotesDebounce` (pass userId)
+7. **Components** — ExerciseDetailModal, ExercisesScreen, ExercisePickerScreen, WorkoutScreen/useExerciseBlocks
+8. **MCP server** — read/write tools, admin mode, `assertExerciseOwnership()` update
+9. **Tests** — update test files: `useNotesDebounce.test.ts`, `ExerciseDetailModal.test.tsx`, `WorkoutScreen.test.tsx`, `database.test.ts`, `useExerciseBlocks.test.ts`, `useSetCompletion.test.ts`, `sync.test.ts` (if exists), and any other test files referencing `updateExerciseFormNotes`/`updateExerciseMachineNotes`/`exercise.notes`/`exercise.form_notes`/`exercise.machine_notes`
+10. **Verify** — type-check (`npx tsc --noEmit`), unit tests (`npm test`), manual test on device
 
 ### Risks & Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| Notes lost during migration | Migration copies notes before dropping columns. Single user = easy to verify. |
+| Notes lost during migration | Migration copies notes before dropping columns (Supabase) / before stopping reads (SQLite). Single user = easy to verify. |
 | SQLite can't DROP COLUMN | Leave dead columns. Stop reading/writing them. Harmless. |
+| SQLite data migration needs auth | Deferred migration gated on auth session + one-time flag. Schema migration runs independently at startup. |
 | Join performance for notes | `user_exercise_notes` PK is `(user_id, exercise_id)` — lookups are O(1). Batch function for bulk loads. |
 | MCP admin accidentally modifying user data | Admin mode only touches `exercises` table definition fields. RLS + code guards. |
-| Sync race between exercise pull and notes pull | Pull exercises first, then notes. Notes reference exercise IDs that must exist. |
+| Sync race between exercise pull and notes pull | Pull exercises first, then notes (inside `pullExercises()`). Notes reference exercise IDs that must exist. |
+| Post-migration exercise identity | All pre-existing local exercises have `user_id = NULL` (global, read-only). New custom exercises get `user_id = session.user.id`. Sync push only pushes `user_id IS NOT NULL` rows. |
 
 ### Resolved Decisions
 
