@@ -76,7 +76,7 @@ describe('malformed data handling', () => {
         id: '1', name: 'Curl', type: 'weighted',
         muscle_groups: '{not valid json!!!',
         training_goal: 'hypertrophy', description: '',
-        created_at: '2026-01-01', user_id: 'local', notes: null,
+        created_at: '2026-01-01', user_id: null,
       },
     ]);
 
@@ -91,7 +91,7 @@ describe('malformed data handling', () => {
         id: '2', name: 'Pullup', type: 'bodyweight',
         muscle_groups: null,
         training_goal: 'hypertrophy', description: '',
-        created_at: '2026-01-01', user_id: 'local', notes: null,
+        created_at: '2026-01-01', user_id: null,
       },
     ]);
 
@@ -106,7 +106,7 @@ describe('malformed data handling', () => {
         id: '3', name: 'Dip', type: 'bodyweight',
         muscle_groups: '',
         training_goal: 'hypertrophy', description: '',
-        created_at: '2026-01-01', user_id: 'local', notes: null,
+        created_at: '2026-01-01', user_id: null,
       },
     ]);
 

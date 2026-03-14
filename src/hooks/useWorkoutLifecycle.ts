@@ -216,10 +216,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       is_completed: false,
       notes: null,
     }));
-    const [{ previousSets, lastTime }, bestE1RMRaw, inserted] = await Promise.all([
+    const [{ previousSets, lastTime }, bestE1RMRaw, inserted, userNotes] = await Promise.all([
       getExerciseHistoryData(exercise.id),
       getBestE1RM(exercise.id),
       addWorkoutSetsBatch(setsToInsert),
+      getUserExerciseNotes(exercise.id),
     ]);
     const bestE1RM = bestE1RMRaw ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
@@ -235,7 +236,6 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       is_completed: false,
       previous: previousSets[i] ?? null,
     }));
-    const userNotes = await getUserExerciseNotes(exercise.id);
     const stickyNotes = userNotes?.machine_notes ?? '';
     return { exercise, sets, lastTime, machineNotesExpanded: stickyNotes.length > 0, machineNotes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
   }
@@ -598,9 +598,12 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       is_completed: false,
       notes: null,
     });
-    const userNotes = await getUserExerciseNotes(exercise.id);
+    const [userNotes, bestE1RMRaw] = await Promise.all([
+      getUserExerciseNotes(exercise.id),
+      getBestE1RM(exercise.id),
+    ]);
     const stickyNotes = userNotes?.machine_notes ?? '';
-    const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
+    const bestE1RM = bestE1RMRaw ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
     currentBestE1RMRef.current.set(exercise.id, bestE1RM);
     const newBlock: ExerciseBlock = {

@@ -265,7 +265,7 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 
     CREATE TABLE IF NOT EXISTS exercises (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT 'local',
+      user_id TEXT DEFAULT NULL,
       name TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'weighted',
       muscle_groups TEXT NOT NULL DEFAULT '[]',
@@ -474,11 +474,15 @@ export function getUserExerciseNotesBatch(exerciseIds: string[]): Promise<Map<st
   });
 }
 
+const VALID_NOTE_FIELDS = new Set(['notes', 'form_notes', 'machine_notes'] as const);
+
 export function upsertExerciseNote(exerciseId: string, field: 'notes' | 'form_notes' | 'machine_notes', value: string | null): Promise<void> {
+  if (!VALID_NOTE_FIELDS.has(field)) throw new Error(`Invalid note field: ${field}`);
   return withDb('upsertExerciseNote', async (database) => {
     await database.runAsync(
-      `INSERT INTO user_exercise_notes (user_id, exercise_id, ${field}) VALUES (?, ?, ?)
-       ON CONFLICT(user_id, exercise_id) DO UPDATE SET ${field} = excluded.${field}`,
+      `INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
+       VALUES (?, ?, NULL, NULL, NULL)
+       ON CONFLICT(user_id, exercise_id) DO UPDATE SET ${field} = ?`,
       currentUserId, exerciseId, value,
     );
   });
@@ -1188,6 +1192,6 @@ export function migrateExerciseNotesToUserTable(userId: string): Promise<void> {
       INSERT OR IGNORE INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
       SELECT ?, id, notes, form_notes, machine_notes FROM exercises
       WHERE (notes IS NOT NULL OR form_notes IS NOT NULL OR machine_notes IS NOT NULL)
-    `, [userId]);
+    `, userId);
   });
 }

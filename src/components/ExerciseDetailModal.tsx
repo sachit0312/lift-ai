@@ -37,6 +37,11 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
   const machineNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingFormNotesRef = useRef<string | null>(null);
   const pendingMachineNotesRef = useRef<string | null>(null);
+  // Refs to avoid stale closures in flush/debounce callbacks
+  const exerciseRef = useRef(exercise);
+  exerciseRef.current = exercise;
+  const loadedNotesRef = useRef(loadedNotes);
+  loadedNotesRef.current = loadedNotes;
 
   useEffect(() => {
     if (!visible || !exercise) return;
@@ -65,13 +70,14 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
       clearTimeout(machineNotesTimerRef.current);
       machineNotesTimerRef.current = null;
     }
+    const currentExercise = exerciseRef.current;
     const promises: Promise<void>[] = [];
-    if (pendingFormNotesRef.current !== null && exercise) {
-      promises.push(updateExerciseFormNotes(exercise.id, pendingFormNotesRef.current || null));
+    if (pendingFormNotesRef.current !== null && currentExercise) {
+      promises.push(updateExerciseFormNotes(currentExercise.id, pendingFormNotesRef.current || null));
       pendingFormNotesRef.current = null;
     }
-    if (pendingMachineNotesRef.current !== null && exercise) {
-      promises.push(updateExerciseMachineNotes(exercise.id, pendingMachineNotesRef.current || null));
+    if (pendingMachineNotesRef.current !== null && currentExercise) {
+      promises.push(updateExerciseMachineNotes(currentExercise.id, pendingMachineNotesRef.current || null));
       pendingMachineNotesRef.current = null;
     }
     if (promises.length > 0) {
@@ -85,34 +91,36 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
     pendingFormNotesRef.current = text;
     if (formNotesTimerRef.current) clearTimeout(formNotesTimerRef.current);
     formNotesTimerRef.current = setTimeout(() => {
-      if (!exercise) return;
-      updateExerciseFormNotes(exercise.id, text || null);
+      const ex = exerciseRef.current;
+      if (!ex) return;
+      updateExerciseFormNotes(ex.id, text || null);
       fireAndForgetSync();
       pendingFormNotesRef.current = null;
       if (onExerciseUpdated) {
-        const updatedNotes = { ...loadedNotes, form_notes: text || null };
+        const updatedNotes = { ...loadedNotesRef.current, form_notes: text || null };
         setLoadedNotes(updatedNotes);
-        onExerciseUpdated({ ...exercise, ...updatedNotes });
+        onExerciseUpdated({ ...ex, ...updatedNotes });
       }
     }, 500);
-  }, [exercise, onExerciseUpdated]);
+  }, [onExerciseUpdated]);
 
   const handleMachineNotesChange = useCallback((text: string) => {
     setMachineNotes(text);
     pendingMachineNotesRef.current = text;
     if (machineNotesTimerRef.current) clearTimeout(machineNotesTimerRef.current);
     machineNotesTimerRef.current = setTimeout(() => {
-      if (!exercise) return;
-      updateExerciseMachineNotes(exercise.id, text || null);
+      const ex = exerciseRef.current;
+      if (!ex) return;
+      updateExerciseMachineNotes(ex.id, text || null);
       fireAndForgetSync();
       pendingMachineNotesRef.current = null;
       if (onExerciseUpdated) {
-        const updatedNotes = { ...loadedNotes, machine_notes: text || null };
+        const updatedNotes = { ...loadedNotesRef.current, machine_notes: text || null };
         setLoadedNotes(updatedNotes);
-        onExerciseUpdated({ ...exercise, ...updatedNotes });
+        onExerciseUpdated({ ...ex, ...updatedNotes });
       }
     }, 500);
-  }, [exercise, onExerciseUpdated]);
+  }, [onExerciseUpdated]);
 
   const handleClose = useCallback(async () => {
     await flushPending();

@@ -108,10 +108,10 @@ export async function syncToSupabase(): Promise<void> {
       if (error) { handleSyncError('exercises', error); return; }
     }
 
-    // User exercise notes — push all
+    // User exercise notes — push all (use session.user.id, not getCurrentUserId(), to avoid stale 'local' on token refresh)
     const noteRows = await db.getAllAsync<SyncExerciseNotesRow>(
       'SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ?',
-      getCurrentUserId(),
+      session.user.id,
     );
     if (noteRows.length > 0) {
       const mappedNotes = noteRows.map(n => ({

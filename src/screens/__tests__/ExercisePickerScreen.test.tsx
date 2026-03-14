@@ -144,6 +144,6 @@ describe('ExercisePickerScreen', () => {
     expect(createExercise).toHaveBeenCalledWith(
       expect.not.objectContaining({ notes: expect.anything() })
     );
-    expect(upsertExerciseNote).toHaveBeenCalledWith(expect.any(String), 'notes', 'Keep elbows tucked');
+    expect(upsertExerciseNote).toHaveBeenCalledWith(expect.any(String), 'form_notes', 'Keep elbows tucked');
   });
 });

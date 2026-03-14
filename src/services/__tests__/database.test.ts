@@ -180,6 +180,11 @@ describe('getUserExerciseNotes', () => {
 
     const result = await getUserExerciseNotes('ex-1');
     expect(result).toBeNull();
+
+    // Verify query filters by user_id
+    const call = __mockDb.getAllAsync.mock.calls[0];
+    expect(call[0]).toContain('WHERE user_id = ?');
+    expect(call[1]).toBe('local');
   });
 
   it('returns notes when they exist', async () => {

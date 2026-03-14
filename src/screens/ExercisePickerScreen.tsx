@@ -86,7 +86,7 @@ export default function ExercisePickerScreen() {
         description: '',
       });
       if (newExNotes.trim()) {
-        await upsertExerciseNote(exercise.id, 'notes', newExNotes.trim());
+        await upsertExerciseNote(exercise.id, 'form_notes', newExNotes.trim());
       }
       await addExerciseToTemplate(templateId, exercise.id);
       setShowCreateModal(false);

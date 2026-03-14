@@ -301,6 +301,7 @@ describe('AuthContext', () => {
     });
 
     expect(Sentry.setUser).toHaveBeenCalledWith(null);
+    expect(setCurrentUserId).toHaveBeenCalledWith('local');
   });
 
   // ---------------------------------------------------------------
@@ -324,9 +325,12 @@ describe('AuthContext', () => {
       await authStateCallback!('SIGNED_IN', newSession);
     });
 
+    expect(setCurrentUserId).toHaveBeenCalledWith('user-new');
     expect(clearAllLocalData).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
     expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
+    expect(migrateExerciseNotesToUserTable).toHaveBeenCalledTimes(1);
+    expect(migrateExerciseNotesToUserTable).toHaveBeenCalledWith('user-new');
     expect(pullUpcomingWorkout).toHaveBeenCalledTimes(1);
   });
 
@@ -491,9 +495,11 @@ describe('AuthContext', () => {
     });
 
     // Should call clearAllLocalData again because user changed (null -> user-B)
+    expect(setCurrentUserId).toHaveBeenCalledWith('user-B');
     expect(clearAllLocalData).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
     expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
+    expect(migrateExerciseNotesToUserTable).toHaveBeenCalledWith('user-B');
     expect(pullUpcomingWorkout).toHaveBeenCalledTimes(1);
   });
 
