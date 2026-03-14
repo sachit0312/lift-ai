@@ -14,22 +14,24 @@ import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
   updateExerciseFormNotes,
   updateExerciseMachineNotes,
+  getUserExerciseNotes,
 } from '../services/database';
 import { fireAndForgetSync } from '../services/sync';
 import ExerciseHistoryContent from './ExerciseHistoryContent';
-import type { Exercise } from '../types/database';
+import type { Exercise, ExerciseNotes, ExerciseWithNotes } from '../types/database';
 
 interface Props {
   visible: boolean;
   exercise: Exercise | null;
   onClose: () => void;
-  onExerciseUpdated?: (exercise: Exercise) => void;
+  onExerciseUpdated?: (exercise: ExerciseWithNotes) => void;
 }
 
 export default function ExerciseDetailModal({ visible, exercise, onClose, onExerciseUpdated }: Props) {
   const [formNotes, setFormNotes] = useState('');
   const [machineNotes, setMachineNotes] = useState('');
   const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
+  const [loadedNotes, setLoadedNotes] = useState<ExerciseNotes>({ notes: null, form_notes: null, machine_notes: null });
 
   const formNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const machineNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -38,9 +40,13 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
 
   useEffect(() => {
     if (!visible || !exercise) return;
-    setFormNotes(exercise.form_notes ?? '');
-    setMachineNotes(exercise.machine_notes ?? '');
     setActiveTab('details');
+    getUserExerciseNotes(exercise.id).then(n => {
+      const notes = n ?? { notes: null, form_notes: null, machine_notes: null };
+      setLoadedNotes(notes);
+      setFormNotes(notes.form_notes ?? '');
+      setMachineNotes(notes.machine_notes ?? '');
+    });
   }, [visible, exercise?.id]);
 
   // Flush pending writes on unmount or close
@@ -84,7 +90,9 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
       fireAndForgetSync();
       pendingFormNotesRef.current = null;
       if (onExerciseUpdated) {
-        onExerciseUpdated({ ...exercise, form_notes: text || null });
+        const updatedNotes = { ...loadedNotes, form_notes: text || null };
+        setLoadedNotes(updatedNotes);
+        onExerciseUpdated({ ...exercise, ...updatedNotes });
       }
     }, 500);
   }, [exercise, onExerciseUpdated]);
@@ -99,7 +107,9 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
       fireAndForgetSync();
       pendingMachineNotesRef.current = null;
       if (onExerciseUpdated) {
-        onExerciseUpdated({ ...exercise, machine_notes: text || null });
+        const updatedNotes = { ...loadedNotes, machine_notes: text || null };
+        setLoadedNotes(updatedNotes);
+        onExerciseUpdated({ ...exercise, ...updatedNotes });
       }
     }, 500);
   }, [exercise, onExerciseUpdated]);

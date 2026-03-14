@@ -22,7 +22,7 @@ import { useExerciseBlocks } from '../hooks/useExerciseBlocks';
 import { useSetCompletion } from '../hooks/useSetCompletion';
 import { useWorkoutLifecycle } from '../hooks/useWorkoutLifecycle';
 import type { ExerciseBlock } from '../types/workout';
-import type { Exercise, Workout } from '../types/database';
+import type { Exercise, Workout, ExerciseWithNotes } from '../types/database';
 import { colors, spacing, fontSize, modalStyles } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import { filterExercises } from '../utils/exerciseSearch';
@@ -141,10 +141,11 @@ export default function WorkoutScreen() {
   const isPRSet = useCallback((setId: string) => prSetIdsRef.current.has(setId), []);
 
   // Update exercise blocks when notes change in detail modal
-  const handleExerciseUpdated = useCallback((updated: Exercise) => {
+  const handleExerciseUpdated = useCallback((updated: ExerciseWithNotes) => {
+    const { notes, form_notes, machine_notes, ...exercise } = updated;
     setExerciseBlocks(prev => prev.map(block =>
       block.exercise.id === updated.id
-        ? { ...block, exercise: updated, machineNotes: updated.machine_notes ?? '' }
+        ? { ...block, exercise, machineNotes: machine_notes ?? '' }
         : block
     ));
   }, [setExerciseBlocks]);

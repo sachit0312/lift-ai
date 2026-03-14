@@ -2,12 +2,13 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { act } from 'react';
 import ExercisePickerScreen from '../ExercisePickerScreen';
-import { getAllExercises, createExercise, addExerciseToTemplate } from '../../services/database';
+import { getAllExercises, createExercise, addExerciseToTemplate, upsertExerciseNote } from '../../services/database';
 
 jest.mock('../../services/database', () => ({
   getAllExercises: jest.fn().mockResolvedValue([]),
   createExercise: jest.fn().mockResolvedValue({ id: 'new-1', name: 'Test' }),
   addExerciseToTemplate: jest.fn().mockResolvedValue(undefined),
+  upsertExerciseNote: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -141,7 +142,8 @@ describe('ExercisePickerScreen', () => {
     await act(async () => { fireEvent.press(getByTestId('save-exercise-btn')); });
 
     expect(createExercise).toHaveBeenCalledWith(
-      expect.objectContaining({ notes: 'Keep elbows tucked' })
+      expect.not.objectContaining({ notes: expect.anything() })
     );
+    expect(upsertExerciseNote).toHaveBeenCalledWith(expect.any(String), 'notes', 'Keep elbows tucked');
   });
 });

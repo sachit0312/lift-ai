@@ -5,6 +5,7 @@ import { createMockExercise } from '../../__tests__/helpers/factories';
 jest.mock('../../services/database', () => ({
   updateExerciseFormNotes: jest.fn().mockResolvedValue(undefined),
   updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
+  getUserExerciseNotes: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -24,6 +25,7 @@ import ExerciseDetailModal from '../ExerciseDetailModal';
 import {
   updateExerciseFormNotes,
   updateExerciseMachineNotes,
+  getUserExerciseNotes,
 } from '../../services/database';
 
 const defaultExercise = createMockExercise({
@@ -61,7 +63,8 @@ describe('ExerciseDetailModal', () => {
   });
 
   it('renders form notes textarea with initial value from exercise', async () => {
-    const exercise = createMockExercise({ form_notes: 'Keep elbows tucked' });
+    const exercise = createMockExercise({});
+    (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ notes: null, form_notes: 'Keep elbows tucked', machine_notes: null });
 
     const { findByTestId } = render(
       <ExerciseDetailModal
@@ -76,7 +79,8 @@ describe('ExerciseDetailModal', () => {
   });
 
   it('renders machine notes textarea with initial value from exercise', async () => {
-    const exercise = createMockExercise({ machine_notes: 'Seat 5' });
+    const exercise = createMockExercise({});
+    (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ notes: null, form_notes: null, machine_notes: 'Seat 5' });
 
     const { findByTestId } = render(
       <ExerciseDetailModal

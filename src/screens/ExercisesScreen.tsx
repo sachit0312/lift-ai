@@ -25,7 +25,7 @@ import { filterExercises } from '../utils/exerciseSearch';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import ExerciseDetailModal from '../components/ExerciseDetailModal';
-import type { Exercise, ExerciseType } from '../types/database';
+import type { Exercise, ExerciseType, ExerciseWithNotes } from '../types/database';
 
 export default function ExercisesScreen() {
   const [loading, setLoading] = useState(true);
@@ -80,9 +80,10 @@ export default function ExercisesScreen() {
     setEditExercise(null);
   }, []);
 
-  const handleExerciseUpdated = useCallback((updated: Exercise) => {
-    setExercises(prev => prev.map(e => e.id === updated.id ? updated : e));
-    setSelectedExercise(updated);
+  const handleExerciseUpdated = useCallback((updated: ExerciseWithNotes) => {
+    const { notes, form_notes, machine_notes, ...exercise } = updated;
+    setExercises(prev => prev.map(e => e.id === exercise.id ? exercise : e));
+    setSelectedExercise(exercise);
   }, []);
 
   const handleSaveEdit = useCallback(async () => {

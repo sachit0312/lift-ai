@@ -12,7 +12,7 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, layout, chipStyles
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { filterExercises } from '../utils/exerciseSearch';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
-import { getAllExercises, createExercise, addExerciseToTemplate } from '../services/database';
+import { getAllExercises, createExercise, addExerciseToTemplate, upsertExerciseNote } from '../services/database';
 import type { Exercise, ExerciseType } from '../types/database';
 import * as Sentry from '@sentry/react-native';
 
@@ -84,8 +84,10 @@ export default function ExercisePickerScreen() {
         muscle_groups: newMuscles,
         training_goal: 'hypertrophy',
         description: '',
-        notes: newExNotes.trim() || null,
       });
+      if (newExNotes.trim()) {
+        await upsertExerciseNote(exercise.id, 'notes', newExNotes.trim());
+      }
       await addExerciseToTemplate(templateId, exercise.id);
       setShowCreateModal(false);
       navigation.goBack();
