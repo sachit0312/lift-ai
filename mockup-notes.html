@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lift.ai Notes Redesign Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; display: flex; justify-content: center; gap: 48px; padding: 48px 24px; flex-wrap: wrap; }
+
+  .phone { width: 390px; height: 780px; background: #0f0f1a; border-radius: 40px; border: 3px solid #2a2a3e; overflow: hidden; display: flex; flex-direction: column; position: relative; flex-shrink: 0; }
+  .phone-label { position: absolute; top: -30px; left: 0; right: 0; text-align: center; color: #7c5cfc; font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+  .status-bar { height: 54px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8px; font-size: 12px; color: #888; }
+  .screen-title { padding: 12px 20px; font-size: 28px; font-weight: 700; color: #fff; }
+  .screen-content { flex: 1; overflow-y: auto; padding: 0 16px 100px; }
+
+  /* ===== WORKOUT SCREEN ===== */
+  .exercise-block { background: #1a1a2e; border-radius: 16px; margin-bottom: 16px; overflow: hidden; }
+  .exercise-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; }
+  .exercise-name { font-size: 17px; font-weight: 600; color: #fff; cursor: pointer; }
+  .exercise-name:hover { color: #7c5cfc; }
+  .exercise-name .tap-hint { font-size: 11px; color: #555; font-weight: 400; margin-left: 6px; }
+  .header-actions { display: flex; gap: 8px; }
+  .icon-btn { width: 36px; height: 36px; border-radius: 10px; border: none; background: #252540; color: #888; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .icon-btn.active { background: rgba(124, 92, 252, 0.2); color: #7c5cfc; }
+
+  /* Coach tip */
+  .coach-tip { margin: 0 16px 8px; background: rgba(124, 92, 252, 0.08); border: 1px solid rgba(124, 92, 252, 0.2); border-radius: 10px; padding: 10px 12px; }
+  .coach-tip-label { font-size: 11px; color: #7c5cfc; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .coach-tip-text { font-size: 13px; color: #a89de8; line-height: 1.4; }
+
+  /* Set rows */
+  .set-header { display: grid; grid-template-columns: 40px 1fr 1fr 60px 44px; padding: 6px 16px; font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+  .set-row { display: grid; grid-template-columns: 40px 1fr 1fr 60px 44px; padding: 4px 16px; align-items: center; }
+  .set-num { font-size: 14px; font-weight: 600; color: #7c5cfc; }
+  .set-num.warmup { color: #f0a830; }
+  .set-input { background: #252540; border: none; border-radius: 8px; padding: 8px; color: #e0e0e0; font-size: 15px; text-align: center; width: 90%; font-family: inherit; }
+  .set-input.placeholder-prev { color: rgba(107, 107, 114, 0.5); }
+  .set-input.placeholder-target { color: rgba(124, 92, 252, 0.45); }
+  .check-btn { width: 36px; height: 36px; border-radius: 10px; border: 2px solid #333; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .check-btn.done { background: #2d8a4e; border-color: #2d8a4e; color: #fff; font-size: 16px; }
+
+  /* Machine notes - BELOW sets */
+  .machine-notes-section { padding: 8px 16px 14px; border-top: 1px solid rgba(255,255,255,0.04); }
+  .machine-notes-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .machine-notes-input { width: 100%; background: #252540; border: 1px solid #333; border-radius: 10px; padding: 10px 12px; color: #e0e0e0; font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 36px; }
+  .machine-notes-input::placeholder { color: #555; }
+  .machine-notes-input:focus { border-color: #7c5cfc; }
+
+  /* ===== EXERCISES SCREEN - Single page modal ===== */
+  .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; z-index: 10; }
+  .modal-sheet { width: 100%; background: #13132a; border-radius: 20px 20px 0 0; max-height: 90%; display: flex; flex-direction: column; }
+  .modal-handle { width: 36px; height: 4px; background: #444; border-radius: 2px; margin: 10px auto 0; }
+  .modal-content { flex: 1; overflow-y: auto; }
+
+  /* Exercise detail header */
+  .detail-header { padding: 16px 20px 20px; display: flex; align-items: flex-start; justify-content: space-between; }
+  .detail-header-left { flex: 1; }
+  .detail-name { font-size: 24px; font-weight: 700; color: #fff; }
+  .detail-meta { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  .detail-type { font-size: 12px; padding: 4px 10px; border-radius: 8px; font-weight: 500; }
+  .detail-type.cable { background: rgba(74, 158, 255, 0.12); color: #4a9eff; }
+  .detail-muscles { font-size: 13px; color: #888; }
+  .detail-edit-btn { color: #7c5cfc; font-size: 14px; font-weight: 500; background: none; border: none; cursor: pointer; padding: 4px 0; }
+
+  /* Section divider */
+  .section-divider { height: 1px; background: #222; margin: 0 20px; }
+
+  /* Note blocks */
+  .note-block { padding: 18px 20px; }
+  .note-block-title { font-size: 12px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+  .note-badge { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 10px; text-transform: none; letter-spacing: 0; }
+  .note-badge.ai { background: rgba(124, 92, 252, 0.12); color: #9b85fc; }
+  .note-badge.private { background: rgba(240, 168, 48, 0.12); color: #d4a034; }
+  .note-input { width: 100%; background: #1a1a30; border: 1px solid #2a2a40; border-radius: 12px; padding: 12px 14px; color: #e0e0e0; font-size: 14px; font-family: inherit; resize: none; outline: none; line-height: 1.5; transition: border-color 0.2s; }
+  .note-input:focus { border-color: rgba(124, 92, 252, 0.4); }
+  .note-input::placeholder { color: #444; }
+  .note-empty { color: #444; font-size: 14px; font-style: italic; }
+
+  /* History preview */
+  .history-preview { padding: 18px 20px; }
+  .history-preview-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .history-preview-title { font-size: 12px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.8px; }
+  .history-see-all { font-size: 13px; color: #7c5cfc; font-weight: 500; cursor: pointer; background: none; border: none; }
+  .history-compact { display: flex; flex-direction: column; gap: 8px; }
+  .history-row { background: #1a1a30; border-radius: 10px; padding: 10px 14px; }
+  .history-row-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .history-row-date { font-size: 13px; color: #888; }
+  .history-row-pr { font-size: 11px; color: #f0a830; font-weight: 600; }
+  .history-row-summary { font-size: 13px; color: #bbb; }
+  .history-row-summary span { color: #7c5cfc; font-weight: 500; }
+
+  /* 1RM banner */
+  .e1rm-banner { margin: 0 20px 4px; background: linear-gradient(135deg, rgba(124,92,252,0.1), rgba(74,158,255,0.08)); border: 1px solid rgba(124,92,252,0.15); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .e1rm-label { font-size: 12px; color: #888; }
+  .e1rm-value { font-size: 22px; font-weight: 700; color: #fff; }
+  .e1rm-unit { font-size: 13px; color: #666; font-weight: 400; }
+  .e1rm-detail { font-size: 11px; color: #555; margin-top: 2px; }
+
+  /* Exercise list */
+  .exercise-card { background: #1a1a2e; border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; border: 1px solid #222; }
+  .exercise-card:hover { border-color: #333; }
+  .exercise-card-name { font-size: 16px; font-weight: 500; color: #fff; }
+  .exercise-card-meta { font-size: 12px; color: #666; margin-top: 2px; }
+  .exercise-card-arrow { color: #444; font-size: 18px; }
+
+  /* Form note popup in workout */
+  .form-popup { background: #1e1e38; border: 1px solid rgba(124,92,252,0.25); border-radius: 14px; padding: 14px 16px; margin: -4px 0 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .form-popup-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .form-popup-title { font-size: 13px; font-weight: 600; color: #7c5cfc; }
+  .form-popup-close { color: #555; font-size: 18px; cursor: pointer; background: none; border: none; line-height: 1; }
+  .form-popup-body { font-size: 14px; color: #bbb; line-height: 1.55; }
+
+  /* Tab bar */
+  .bottom-tab-bar { height: 80px; background: #0f0f1a; border-top: 1px solid #2a2a3e; display: flex; align-items: center; justify-content: space-around; padding-bottom: 16px; }
+  .bottom-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #555; font-size: 10px; cursor: pointer; }
+  .bottom-tab.active { color: #7c5cfc; }
+  .bottom-tab .tab-icon { font-size: 22px; }
+</style>
+</head>
+<body>
+
+<!-- ===== SCREEN 1: WORKOUT (Active) ===== -->
+<div class="phone" style="position: relative;">
+  <div class="phone-label">Workout Screen</div>
+  <div class="status-bar">9:41</div>
+  <div class="screen-title">Workout</div>
+  <div class="screen-content">
+
+    <!-- Exercise 1: Machine notes expanded (below sets) -->
+    <div class="exercise-block">
+      <div class="exercise-header">
+        <div class="exercise-name">Lat Pulldown <span class="tap-hint">tap for form</span></div>
+        <div class="header-actions">
+          <button class="icon-btn active" title="Machine Notes">⚙️</button>
+          <button class="icon-btn" title="Rest Timer">⏱</button>
+        </div>
+      </div>
+
+      <!-- Coach tip -->
+      <div class="coach-tip">
+        <div class="coach-tip-label">Coach Tip</div>
+        <div class="coach-tip-text">Focus on slow eccentric (3s down). Try 8 reps at 135 before increasing.</div>
+      </div>
+
+      <div class="set-header"><span>SET</span><span>LBS</span><span>REPS</span><span>RPE</span><span></span></div>
+      <div class="set-row">
+        <span class="set-num warmup">W</span>
+        <input class="set-input" value="90">
+        <input class="set-input" value="12">
+        <input class="set-input" value="" disabled style="opacity:0.3">
+        <button class="check-btn done">✓</button>
+      </div>
+      <div class="set-row">
+        <span class="set-num">1</span>
+        <input class="set-input placeholder-target" value="135">
+        <input class="set-input placeholder-target" value="8">
+        <input class="set-input placeholder-target" value="8">
+        <button class="check-btn"></button>
+      </div>
+      <div class="set-row">
+        <span class="set-num">2</span>
+        <input class="set-input placeholder-target" value="135">
+        <input class="set-input placeholder-target" value="8">
+        <input class="set-input placeholder-target" value="8">
+        <button class="check-btn"></button>
+      </div>
+
+      <!-- Machine notes BELOW sets -->
+      <div class="machine-notes-section">
+        <div class="machine-notes-label">Machine Settings</div>
+        <textarea class="machine-notes-input" placeholder="e.g., Seat position 4, wide grip bar...">Seat position 4, knee pad at 3, wide grip bar</textarea>
+      </div>
+    </div>
+
+    <!-- Exercise 2: No machine notes -->
+    <div class="exercise-block">
+      <div class="exercise-header">
+        <div class="exercise-name">Barbell Row</div>
+        <div class="header-actions">
+          <button class="icon-btn" title="Machine Notes">⚙️</button>
+          <button class="icon-btn active" title="Rest Timer">⏱</button>
+        </div>
+      </div>
+      <div class="set-header"><span>SET</span><span>LBS</span><span>REPS</span><span>RPE</span><span></span></div>
+      <div class="set-row">
+        <span class="set-num">1</span>
+        <input class="set-input placeholder-prev" value="185">
+        <input class="set-input placeholder-prev" value="6">
+        <input class="set-input" value="">
+        <button class="check-btn"></button>
+      </div>
+      <div class="set-row">
+        <span class="set-num">2</span>
+        <input class="set-input placeholder-prev" value="185">
+        <input class="set-input placeholder-prev" value="6">
+        <input class="set-input" value="">
+        <button class="check-btn"></button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="bottom-tab-bar">
+    <div class="bottom-tab active"><span class="tab-icon">🏋️</span> Workout</div>
+    <div class="bottom-tab"><span class="tab-icon">📋</span> Templates</div>
+    <div class="bottom-tab"><span class="tab-icon">📖</span> History</div>
+    <div class="bottom-tab"><span class="tab-icon">💪</span> Exercises</div>
+    <div class="bottom-tab"><span class="tab-icon">👤</span> Profile</div>
+  </div>
+</div>
+
+<!-- ===== SCREEN 2: EXERCISES TAB - Single Page Detail ===== -->
+<div class="phone" style="position: relative;">
+  <div class="phone-label">Exercises Tab → Tap Exercise</div>
+  <div class="status-bar">9:41</div>
+  <div class="screen-title">Exercises</div>
+  <div class="screen-content">
+    <div class="exercise-card" style="opacity: 0.3;">
+      <div><div class="exercise-card-name">Bench Press</div><div class="exercise-card-meta">Chest · Weighted</div></div>
+      <span class="exercise-card-arrow">›</span>
+    </div>
+    <div class="exercise-card" style="opacity: 0.3;">
+      <div><div class="exercise-card-name">Squat</div><div class="exercise-card-meta">Quads, Glutes · Weighted</div></div>
+      <span class="exercise-card-arrow">›</span>
+    </div>
+  </div>
+
+  <!-- Single-page bottom sheet -->
+  <div class="modal-overlay">
+    <div class="modal-sheet" style="height: 88%;">
+      <div class="modal-handle"></div>
+      <div class="modal-content">
+
+        <!-- Header -->
+        <div class="detail-header">
+          <div class="detail-header-left">
+            <div class="detail-name">Lat Pulldown</div>
+            <div class="detail-meta">
+              <span class="detail-type cable">Cable</span>
+              <span class="detail-muscles">Back, Biceps</span>
+            </div>
+          </div>
+          <button class="detail-edit-btn">Edit</button>
+        </div>
+
+        <!-- e1RM banner -->
+        <div class="e1rm-banner">
+          <div>
+            <div class="e1rm-label">Estimated 1RM</div>
+            <div class="e1rm-detail">All-time best</div>
+          </div>
+          <div style="text-align: right;">
+            <div class="e1rm-value">168 <span class="e1rm-unit">lbs</span></div>
+          </div>
+        </div>
+
+        <div style="height: 16px;"></div>
+        <div class="section-divider"></div>
+
+        <!-- Form Notes -->
+        <div class="note-block">
+          <div class="note-block-title">
+            Form Notes
+            <span class="note-badge ai">Synced with coach</span>
+          </div>
+          <textarea class="note-input" rows="3" placeholder="Technique cues, form tips...">Drive elbows down and back, not just pulling with hands. Full stretch at top — don't shorten ROM. Squeeze shoulder blades at bottom.</textarea>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <!-- Machine Settings -->
+        <div class="note-block">
+          <div class="note-block-title">
+            Machine Settings
+            <span class="note-badge private">Private</span>
+          </div>
+          <textarea class="note-input" rows="2" placeholder="Seat height, pin position, attachment...">Seat position 4, knee pad at 3, wide grip bar</textarea>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <!-- Recent History (compact) -->
+        <div class="history-preview">
+          <div class="history-preview-header">
+            <span class="history-preview-title">Recent History</span>
+            <button class="history-see-all">See all</button>
+          </div>
+          <div class="history-compact">
+            <div class="history-row">
+              <div class="history-row-header">
+                <span class="history-row-date">Mar 11 — Pull Day</span>
+                <span class="history-row-pr">PR</span>
+              </div>
+              <div class="history-row-summary"><span>3 sets</span> · Best: 135 lbs x 8 @RPE 8</div>
+            </div>
+            <div class="history-row">
+              <div class="history-row-header">
+                <span class="history-row-date">Mar 8 — Pull Day</span>
+              </div>
+              <div class="history-row-summary"><span>3 sets</span> · Best: 130 lbs x 8 @RPE 8</div>
+            </div>
+            <div class="history-row">
+              <div class="history-row-header">
+                <span class="history-row-date">Mar 4 — Pull Day</span>
+              </div>
+              <div class="history-row-summary"><span>3 sets</span> · Best: 130 lbs x 7 @RPE 9</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-tab-bar" style="z-index: -1;">
+    <div class="bottom-tab"><span class="tab-icon">🏋️</span> Workout</div>
+    <div class="bottom-tab"><span class="tab-icon">📋</span> Templates</div>
+    <div class="bottom-tab"><span class="tab-icon">📖</span> History</div>
+    <div class="bottom-tab active"><span class="tab-icon">💪</span> Exercises</div>
+    <div class="bottom-tab"><span class="tab-icon">👤</span> Profile</div>
+  </div>
+</div>
+
+<!-- ===== SCREEN 3: WORKOUT - Tap Exercise Name → Same Modal ===== -->
+<div class="phone" style="position: relative;">
+  <div class="phone-label">Workout → Tap Exercise Name</div>
+  <div class="status-bar">9:41</div>
+  <div class="screen-title">Workout</div>
+  <div class="screen-content" style="opacity: 0.15;">
+
+    <div class="exercise-block">
+      <div class="exercise-header">
+        <div class="exercise-name">Lat Pulldown</div>
+      </div>
+      <div class="set-header"><span>SET</span><span>LBS</span><span>REPS</span><span>RPE</span><span></span></div>
+      <div class="set-row">
+        <span class="set-num warmup">W</span>
+        <input class="set-input" value="90">
+        <input class="set-input" value="12">
+        <input class="set-input" value="">
+        <button class="check-btn done">✓</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Same modal as exercises tab -->
+  <div class="modal-overlay">
+    <div class="modal-sheet" style="height: 88%;">
+      <div class="modal-handle"></div>
+      <div class="modal-content">
+
+        <div class="detail-header">
+          <div class="detail-header-left">
+            <div class="detail-name">Lat Pulldown</div>
+            <div class="detail-meta">
+              <span class="detail-type cable">Cable</span>
+              <span class="detail-muscles">Back, Biceps</span>
+            </div>
+          </div>
+          <button class="detail-edit-btn">Edit</button>
+        </div>
+
+        <div class="e1rm-banner">
+          <div>
+            <div class="e1rm-label">Estimated 1RM</div>
+            <div class="e1rm-detail">All-time best</div>
+          </div>
+          <div style="text-align: right;">
+            <div class="e1rm-value">168 <span class="e1rm-unit">lbs</span></div>
+          </div>
+        </div>
+
+        <div style="height: 16px;"></div>
+        <div class="section-divider"></div>
+
+        <div class="note-block">
+          <div class="note-block-title">
+            Form Notes
+            <span class="note-badge ai">Synced with coach</span>
+          </div>
+          <textarea class="note-input" rows="3" placeholder="Technique cues, form tips...">Drive elbows down and back, not just pulling with hands. Full stretch at top — don't shorten ROM. Squeeze shoulder blades at bottom.</textarea>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="note-block">
+          <div class="note-block-title">
+            Machine Settings
+            <span class="note-badge private">Private</span>
+          </div>
+          <textarea class="note-input" rows="2" placeholder="Seat height, pin position, attachment...">Seat position 4, knee pad at 3, wide grip bar</textarea>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="history-preview">
+          <div class="history-preview-header">
+            <span class="history-preview-title">Recent History</span>
+            <button class="history-see-all">See all</button>
+          </div>
+          <div class="history-compact">
+            <div class="history-row">
+              <div class="history-row-header">
+                <span class="history-row-date">Mar 11 — Pull Day</span>
+                <span class="history-row-pr">PR</span>
+              </div>
+              <div class="history-row-summary"><span>3 sets</span> · Best: 135 lbs x 8 @RPE 8</div>
+            </div>
+            <div class="history-row">
+              <div class="history-row-header">
+                <span class="history-row-date">Mar 8 — Pull Day</span>
+              </div>
+              <div class="history-row-summary"><span>3 sets</span> · Best: 130 lbs x 8 @RPE 8</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-tab-bar" style="z-index: -1;">
+    <div class="bottom-tab active"><span class="tab-icon">🏋️</span> Workout</div>
+    <div class="bottom-tab"><span class="tab-icon">📋</span> Templates</div>
+    <div class="bottom-tab"><span class="tab-icon">📖</span> History</div>
+    <div class="bottom-tab"><span class="tab-icon">💪</span> Exercises</div>
+    <div class="bottom-tab"><span class="tab-icon">👤</span> Profile</div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -6,7 +6,6 @@ jest.mock('../../services/database', () => ({
   getWorkoutSets: jest.fn().mockResolvedValue([]),
   getAllExercises: jest.fn().mockResolvedValue([]),
   getBestE1RM: jest.fn().mockResolvedValue(null),
-  getRecentExerciseHistory: jest.fn().mockResolvedValue([]),
   updateExerciseFormNotes: jest.fn().mockResolvedValue(undefined),
   updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
 }));

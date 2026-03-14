@@ -842,36 +842,6 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
   });
 }
 
-export function getRecentExerciseHistory(exerciseId: string, limit = 3): Promise<{ date: string; setCount: number; bestSet: string }[]> {
-  return withDb('getRecentExerciseHistory', async (database) => {
-    const rows = await database.getAllAsync<{ started_at: string; set_count: number; best_weight: number; best_reps: number }>(
-      `SELECT w.started_at, COUNT(ws.id) as set_count,
-              ws_best.weight as best_weight, ws_best.reps as best_reps
-       FROM workouts w
-       INNER JOIN workout_sets ws ON ws.workout_id = w.id AND ws.exercise_id = ? AND ws.is_completed = 1
-       LEFT JOIN (
-         SELECT ws3.workout_id, ws3.weight, ws3.reps
-         FROM workout_sets ws3
-         WHERE ws3.exercise_id = ? AND ws3.is_completed = 1
-           AND ws3.weight = (
-             SELECT MAX(ws4.weight) FROM workout_sets ws4
-             WHERE ws4.workout_id = ws3.workout_id AND ws4.exercise_id = ? AND ws4.is_completed = 1
-           )
-         GROUP BY ws3.workout_id
-       ) ws_best ON ws_best.workout_id = w.id
-       WHERE w.finished_at IS NOT NULL
-       GROUP BY w.id
-       ORDER BY w.started_at DESC
-       LIMIT ?`,
-      exerciseId, exerciseId, exerciseId, limit,
-    );
-    return rows.map(r => ({
-      date: r.started_at,
-      setCount: r.set_count,
-      bestSet: `${r.best_weight ?? 0}lb × ${r.best_reps ?? 0}`,
-    }));
-  });
-}
 
 // ─── PRs This Week ───
 

@@ -4,7 +4,6 @@ import { createMockExercise } from '../../__tests__/helpers/factories';
 
 jest.mock('../../services/database', () => ({
   getBestE1RM: jest.fn().mockResolvedValue(null),
-  getRecentExerciseHistory: jest.fn().mockResolvedValue([]),
   updateExerciseFormNotes: jest.fn().mockResolvedValue(undefined),
   updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
 }));
@@ -13,22 +12,18 @@ jest.mock('../../services/sync', () => ({
   fireAndForgetSync: jest.fn(),
 }));
 
-jest.mock('../ExerciseHistoryModal', () => {
+jest.mock('../ExerciseHistoryContent', () => {
   const React = require('react');
   const { View } = require('react-native');
   return {
     __esModule: true,
-    default: (props: any) =>
-      props.visible
-        ? React.createElement(View, { testID: 'exercise-history-modal' })
-        : null,
+    default: () => React.createElement(View, { testID: 'exercise-history-content' }),
   };
 });
 
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import {
   getBestE1RM,
-  getRecentExerciseHistory,
   updateExerciseFormNotes,
   updateExerciseMachineNotes,
 } from '../../services/database';
@@ -43,7 +38,6 @@ describe('ExerciseDetailModal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (getBestE1RM as jest.Mock).mockResolvedValue(null);
-    (getRecentExerciseHistory as jest.Mock).mockResolvedValue([]);
   });
 
   it('renders nothing when exercise is null', () => {
@@ -71,12 +65,8 @@ describe('ExerciseDetailModal', () => {
 
   it('shows loading indicator then content', async () => {
     let resolveE1RM!: (v: number | null) => void;
-    let resolveHistory!: (v: any[]) => void;
     (getBestE1RM as jest.Mock).mockReturnValue(
       new Promise((r) => (resolveE1RM = r))
-    );
-    (getRecentExerciseHistory as jest.Mock).mockReturnValue(
-      new Promise((r) => (resolveHistory = r))
     );
 
     const { queryByText, UNSAFE_queryByType } = render(
@@ -88,17 +78,13 @@ describe('ExerciseDetailModal', () => {
     );
 
     const { ActivityIndicator } = require('react-native');
-    // Loading state: ActivityIndicator shown, form notes section not yet
     expect(UNSAFE_queryByType(ActivityIndicator)).toBeTruthy();
     expect(queryByText('Form Notes')).toBeNull();
 
-    // Resolve promises
     await act(async () => {
       resolveE1RM(null);
-      resolveHistory([]);
     });
 
-    // Content should now be visible
     await waitFor(() => {
       expect(UNSAFE_queryByType(ActivityIndicator)).toBeNull();
       expect(queryByText('Form Notes')).toBeTruthy();
@@ -130,7 +116,6 @@ describe('ExerciseDetailModal', () => {
       />
     );
 
-    // Wait for loading to finish
     await findByText('Form Notes');
     expect(queryByText(/lb/)).toBeNull();
   });
@@ -189,26 +174,23 @@ describe('ExerciseDetailModal', () => {
     expect(await findByText('Private')).toBeTruthy();
   });
 
-  it('renders recent history entries', async () => {
-    (getRecentExerciseHistory as jest.Mock).mockResolvedValue([
-      { date: '2026-03-01T10:00:00Z', setCount: 4, bestSet: '185 x 5' },
-      { date: '2026-02-25T10:00:00Z', setCount: 3, bestSet: '175 x 8' },
-    ]);
-
-    const { findByText } = render(
-      <ExerciseDetailModal
-        visible={true}
-        exercise={defaultExercise}
-        onClose={jest.fn()}
-      />
+  it('shows Details and History tab buttons', async () => {
+    const { findByTestId } = render(
+      <ExerciseDetailModal visible={true} exercise={defaultExercise} onClose={jest.fn()} />
     );
+    expect(await findByTestId('tab-details')).toBeTruthy();
+    expect(await findByTestId('tab-history')).toBeTruthy();
+  });
 
-    expect(await findByText('Mar 1')).toBeTruthy();
-    expect(await findByText('4 sets')).toBeTruthy();
-    expect(await findByText('185 x 5')).toBeTruthy();
-    expect(await findByText('Feb 25')).toBeTruthy();
-    expect(await findByText('3 sets')).toBeTruthy();
-    expect(await findByText('175 x 8')).toBeTruthy();
+  it('keeps both tabs mounted (no re-fetch on switch)', async () => {
+    const { findByTestId } = render(
+      <ExerciseDetailModal visible={true} exercise={defaultExercise} onClose={jest.fn()} />
+    );
+    // Both tabs always mounted — history content exists in tree even on Details tab
+    expect(await findByTestId('tab-details')).toBeTruthy();
+    expect(await findByTestId('exercise-history-content')).toBeTruthy();
+    // Form notes accessible
+    expect(await findByTestId('form-notes-input')).toBeTruthy();
   });
 
   describe('debounced saves', () => {
@@ -236,10 +218,8 @@ describe('ExerciseDetailModal', () => {
       const input = await findByTestId('form-notes-input');
       fireEvent.changeText(input, 'New form note');
 
-      // Not yet called
       expect(updateExerciseFormNotes).not.toHaveBeenCalled();
 
-      // Advance past debounce
       act(() => {
         jest.advanceTimersByTime(500);
       });
@@ -269,10 +249,8 @@ describe('ExerciseDetailModal', () => {
       const input = await findByTestId('machine-notes-input');
       fireEvent.changeText(input, 'Pin 7');
 
-      // Not yet called
       expect(updateExerciseMachineNotes).not.toHaveBeenCalled();
 
-      // Advance past debounce
       act(() => {
         jest.advanceTimersByTime(500);
       });
@@ -302,18 +280,14 @@ describe('ExerciseDetailModal', () => {
       const formInput = await findByTestId('form-notes-input');
       const machineInput = await findByTestId('machine-notes-input');
 
-      // Type into both without advancing timers
       fireEvent.changeText(formInput, 'Hinge at hips');
       fireEvent.changeText(machineInput, 'Bar pad position 3');
 
-      // Neither should be persisted yet
       expect(updateExerciseFormNotes).not.toHaveBeenCalled();
       expect(updateExerciseMachineNotes).not.toHaveBeenCalled();
 
-      // Unmount triggers cleanup effect which calls flushPending
       unmount();
 
-      // Both should be flushed
       expect(updateExerciseFormNotes).toHaveBeenCalledWith(
         exercise.id,
         'Hinge at hips'
@@ -322,30 +296,6 @@ describe('ExerciseDetailModal', () => {
         exercise.id,
         'Bar pad position 3'
       );
-    });
-  });
-
-  it('opens ExerciseHistoryModal when "See all" is pressed', async () => {
-    (getRecentExerciseHistory as jest.Mock).mockResolvedValue([
-      { date: '2026-03-01T10:00:00Z', setCount: 4, bestSet: '185 x 5' },
-    ]);
-
-    const { findByText, queryByTestId } = render(
-      <ExerciseDetailModal
-        visible={true}
-        exercise={defaultExercise}
-        onClose={jest.fn()}
-      />
-    );
-
-    // "See all" should appear since there's history
-    const seeAllBtn = await findByText('See all');
-    expect(queryByTestId('exercise-history-modal')).toBeNull();
-
-    fireEvent.press(seeAllBtn);
-
-    await waitFor(() => {
-      expect(queryByTestId('exercise-history-modal')).toBeTruthy();
     });
   });
 });

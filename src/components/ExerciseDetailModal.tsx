@@ -14,13 +14,12 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyle
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
   getBestE1RM,
-  getRecentExerciseHistory,
   updateExerciseFormNotes,
   updateExerciseMachineNotes,
 } from '../services/database';
 import { fireAndForgetSync } from '../services/sync';
 import * as Sentry from '@sentry/react-native';
-import ExerciseHistoryModal from './ExerciseHistoryModal';
+import ExerciseHistoryContent from './ExerciseHistoryContent';
 import type { Exercise } from '../types/database';
 
 interface Props {
@@ -30,19 +29,12 @@ interface Props {
   onExerciseUpdated?: (exercise: Exercise) => void;
 }
 
-interface RecentHistoryEntry {
-  date: string;
-  setCount: number;
-  bestSet: string;
-}
-
 export default function ExerciseDetailModal({ visible, exercise, onClose, onExerciseUpdated }: Props) {
   const [loading, setLoading] = useState(false);
   const [bestE1RM, setBestE1RM] = useState<number | null>(null);
-  const [recentHistory, setRecentHistory] = useState<RecentHistoryEntry[]>([]);
   const [formNotes, setFormNotes] = useState('');
   const [machineNotes, setMachineNotes] = useState('');
-  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
 
   const formNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const machineNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,6 +45,7 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
     if (!visible || !exercise) return;
     setFormNotes(exercise.form_notes ?? '');
     setMachineNotes(exercise.machine_notes ?? '');
+    setActiveTab('details');
     loadData(exercise.id);
   }, [visible, exercise?.id]);
 
@@ -66,12 +59,8 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
   async function loadData(exerciseId: string) {
     setLoading(true);
     try {
-      const [e1rm, history] = await Promise.all([
-        getBestE1RM(exerciseId),
-        getRecentExerciseHistory(exerciseId, 3),
-      ]);
+      const e1rm = await getBestE1RM(exerciseId);
       setBestE1RM(e1rm);
-      setRecentHistory(history);
     } catch (e) {
       Sentry.captureException(e);
     } finally {
@@ -143,30 +132,49 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
   const typeColor = exerciseTypeColor(exercise.type);
 
   return (
-    <>
-      <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-        <View style={styles.overlay}>
-          <View style={[modalStyles.card, styles.container]}>
-            {/* Header */}
-            <View style={styles.header}>
-              <View style={styles.headerInfo}>
-                <Text style={styles.exerciseName}>{exercise.name}</Text>
-                <View style={styles.badgeRow}>
-                  <View style={[styles.typeBadge, { backgroundColor: typeColor }]}>
-                    <Text style={styles.typeBadgeText}>{exercise.type}</Text>
-                  </View>
-                  {exercise.muscle_groups.length > 0 && (
-                    <Text style={styles.muscleText}>
-                      {exercise.muscle_groups.join(', ')}
-                    </Text>
-                  )}
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
+      <View style={styles.overlay}>
+        <View style={[modalStyles.card, styles.container]}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerInfo}>
+              <Text style={styles.exerciseName}>{exercise.name}</Text>
+              <View style={styles.badgeRow}>
+                <View style={[styles.typeBadge, { backgroundColor: typeColor }]}>
+                  <Text style={styles.typeBadgeText}>{exercise.type}</Text>
                 </View>
+                {exercise.muscle_groups.length > 0 && (
+                  <Text style={styles.muscleText}>
+                    {exercise.muscle_groups.join(', ')}
+                  </Text>
+                )}
               </View>
-              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
             </View>
+            <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
 
+          {/* Tab bar */}
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'details' && styles.tabActive]}
+              onPress={() => setActiveTab('details')}
+              testID="tab-details"
+            >
+              <Text style={[styles.tabText, activeTab === 'details' && styles.tabTextActive]}>Details</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'history' && styles.tabActive]}
+              onPress={() => setActiveTab('history')}
+              testID="tab-history"
+            >
+              <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>History</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Details tab — always mounted to preserve note editing state */}
+          <View style={activeTab !== 'details' ? styles.hiddenTab : styles.visibleTab}>
             {loading ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
             ) : (
@@ -220,47 +228,18 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
                   />
                 </View>
 
-                {/* Recent History */}
-                {recentHistory.length > 0 && (
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Recent History</Text>
-                    {recentHistory.map((entry, i) => {
-                      const d = new Date(entry.date);
-                      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                      return (
-                        <View key={i} style={styles.historyRow}>
-                          <Text style={styles.historyDate}>{dateStr}</Text>
-                          <Text style={styles.historySets}>{entry.setCount} sets</Text>
-                          <Text style={styles.historyBest}>{entry.bestSet}</Text>
-                        </View>
-                      );
-                    })}
-                    <TouchableOpacity
-                      style={styles.seeAllBtn}
-                      onPress={() => setShowFullHistory(true)}
-                    >
-                      <Text style={styles.seeAllText}>See all</Text>
-                      <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-                    </TouchableOpacity>
-                  </View>
-                )}
-
                 <View style={{ height: spacing.xl }} />
               </ScrollView>
             )}
           </View>
-        </View>
-      </Modal>
 
-      {/* Nested ExerciseHistoryModal */}
-      {showFullHistory && (
-        <ExerciseHistoryModal
-          visible
-          exercise={exercise}
-          onClose={() => setShowFullHistory(false)}
-        />
-      )}
-    </>
+          {/* History tab — always mounted to avoid re-fetch on tab switch */}
+          <View style={activeTab !== 'history' ? styles.hiddenTab : styles.visibleTab}>
+            <ExerciseHistoryContent exercise={exercise} />
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -324,6 +303,37 @@ const styles = StyleSheet.create({
     minHeight: layout.touchMin,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: layout.touchMin,
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: colors.primary,
+  },
+  tabText: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
+  tabTextActive: {
+    color: colors.primary,
+  },
+  visibleTab: {
+    flex: 1,
+  },
+  hiddenTab: {
+    height: 0,
+    overflow: 'hidden',
   },
   body: {
     paddingHorizontal: spacing.lg,
@@ -402,41 +412,5 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     borderWidth: 1,
     borderColor: colors.borderSubtle,
-  },
-  historyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  historyDate: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-    width: 60,
-  },
-  historySets: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
-    flex: 1,
-  },
-  historyBest: {
-    color: colors.text,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  seeAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    gap: spacing.xxs,
-  },
-  seeAllText: {
-    color: colors.primary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
   },
 });

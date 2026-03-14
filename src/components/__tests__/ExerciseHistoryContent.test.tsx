@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 import { createMockExercise, createMockSession } from '../../__tests__/helpers/factories';
 
 jest.mock('../../services/database', () => ({
@@ -14,7 +14,7 @@ jest.mock('react-native-chart-kit', () => {
   };
 });
 
-import ExerciseHistoryModal from '../ExerciseHistoryModal';
+import ExerciseHistoryContent from '../ExerciseHistoryContent';
 import { getExerciseHistory, getCurrentE1RM } from '../../services/database';
 
 const mockExercise = createMockExercise({ name: 'Bench Press' });
@@ -25,23 +25,16 @@ const threeSessions = [
   createMockSession('2026-01-25T10:00:00Z', [{ weight: 150, reps: 6 }]),
 ];
 
-describe('ExerciseHistoryModal', () => {
+describe('ExerciseHistoryContent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-  });
-
-  it('returns null when exercise is null', () => {
-    const { toJSON } = render(
-      <ExerciseHistoryModal visible={true} exercise={null} onClose={jest.fn()} />
-    );
-    expect(toJSON()).toBeNull();
   });
 
   it('shows no data message when no workout history', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([]);
 
     const { findByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     expect(await findByText('No workout data yet')).toBeTruthy();
@@ -53,7 +46,7 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { findByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     expect(await findByText('2 more sessions needed for chart')).toBeTruthy();
@@ -66,7 +59,7 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { findByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     expect(await findByText('1 more session needed for chart')).toBeTruthy();
@@ -79,7 +72,7 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { queryByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     await waitFor(() => {
@@ -92,7 +85,7 @@ describe('ExerciseHistoryModal', () => {
     (getCurrentE1RM as jest.Mock).mockResolvedValue(180);
 
     const { findByText, findAllByText, getAllByTestId } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     expect(await findByText('Estimated 1RM')).toBeTruthy();
@@ -116,10 +109,9 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { findByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
-    // All three sets should be visible, not just the best
     expect(await findByText(/135lb × 10/)).toBeTruthy();
     expect(await findByText(/145lb × 8/)).toBeTruthy();
     expect(await findByText(/150lb × 6/)).toBeTruthy();
@@ -133,10 +125,9 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { findByText, queryByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
-    // RPE shown as badge (just the number), not inline text
     expect(await findByText('8')).toBeTruthy();
     expect(queryByText(/@ RPE/)).toBeNull();
   });
@@ -151,10 +142,9 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { findByText, queryByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
-    // Failure badge visible, warmup filtered out of recent performances
     expect(await findByText('F')).toBeTruthy();
     expect(queryByText('W')).toBeNull();
   });
@@ -170,10 +160,9 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { findByText, queryByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
-    // Working session shows, warmup-only session does not produce an empty card
     expect(await findByText(/135lb × 8/)).toBeTruthy();
     expect(queryByText(/60lb × 10/)).toBeNull();
   });
@@ -182,22 +171,15 @@ describe('ExerciseHistoryModal', () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue(threeSessions);
 
     const { findByText, findAllByTestId } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     expect(await findByText('Volume Progression')).toBeTruthy();
-    // Two charts: 1RM + Volume
     const charts = await findAllByTestId('line-chart');
     expect(charts.length).toBe(2);
   });
 
   it('shows plateau badge when 1RM unchanged for 5 sessions', async () => {
-    // 7 sessions reverse-chrono: oldest two have high 1RM, last 5 don't exceed the 5-ago value
-    // After .reverse() to chronological order and 1RM calc (weight * (1 + reps/30)):
-    // points[0] = 250*(1+1/30) = 258, points[1] = 240*(1+1/30) = 248
-    // points[2..6] = 180*(1+5/30) = 210 each
-    // fiveAgo = points[7-5] = points[2] = 210
-    // recentMax = max(points[2..6]) = 210 <= 210 -> plateaued
     const plateauSessions = [
       createMockSession('2026-01-20T10:00:00Z', [{ weight: 180, reps: 5 }]),
       createMockSession('2026-01-18T10:00:00Z', [{ weight: 180, reps: 5 }]),
@@ -211,7 +193,7 @@ describe('ExerciseHistoryModal', () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue(plateauSessions);
 
     const { findByTestId, findByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     expect(await findByTestId('plateau-badge')).toBeTruthy();
@@ -219,7 +201,6 @@ describe('ExerciseHistoryModal', () => {
   });
 
   it('does not show plateau badge when improving', async () => {
-    // 6 sessions with steady improvement
     const improvingSessions = [
       createMockSession('2026-01-10T10:00:00Z', [{ weight: 135, reps: 5 }]),
       createMockSession('2026-01-12T10:00:00Z', [{ weight: 145, reps: 5 }]),
@@ -232,7 +213,7 @@ describe('ExerciseHistoryModal', () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue(improvingSessions);
 
     const { queryByTestId } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={jest.fn()} />
+      <ExerciseHistoryContent exercise={mockExercise} />
     );
 
     await waitFor(() => {
@@ -240,20 +221,7 @@ describe('ExerciseHistoryModal', () => {
     });
   });
 
-  it('close button calls onClose', async () => {
-    (getExerciseHistory as jest.Mock).mockResolvedValue([]);
-    const onClose = jest.fn();
-
-    const { findByText } = render(
-      <ExerciseHistoryModal visible={true} exercise={mockExercise} onClose={onClose} />
-    );
-
-    const closeIcon = await findByText('close');
-    fireEvent.press(closeIcon);
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it('renders session cards with all sets and dates', async () => {
+  it('renders session cards with dates and testIDs', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue([
       {
         workout: { id: 'w1', started_at: '2024-01-15T10:00:00Z' },
@@ -277,11 +245,7 @@ describe('ExerciseHistoryModal', () => {
     ]);
 
     const { getByTestId } = render(
-      <ExerciseHistoryModal
-        visible={true}
-        exercise={createMockExercise()}
-        onClose={jest.fn()}
-      />
+      <ExerciseHistoryContent exercise={createMockExercise()} />
     );
 
     await waitFor(() => {
