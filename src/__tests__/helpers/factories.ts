@@ -1,19 +1,35 @@
-import type { Exercise, WorkoutSet, Workout, UpcomingWorkout, UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../../types/database';
+import type { Exercise, ExerciseNotes, ExerciseWithNotes, WorkoutSet, Workout, UpcomingWorkout, UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../../types/database';
 
 export function createMockExercise(overrides: Partial<Exercise> = {}): Exercise {
   return {
     id: 'ex-' + Math.random().toString(36).slice(2),
-    user_id: 'local',
+    user_id: null,
     name: 'Test Exercise',
     type: 'weighted',
     muscle_groups: ['Chest'],
     training_goal: 'hypertrophy',
     description: '',
+    created_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+export function createMockExerciseNotes(overrides: Partial<ExerciseNotes> = {}): ExerciseNotes {
+  return {
     notes: null,
     form_notes: null,
     machine_notes: null,
-    created_at: new Date().toISOString(),
     ...overrides,
+  };
+}
+
+export function createMockExerciseWithNotes(
+  exerciseOverrides: Partial<Exercise> = {},
+  notesOverrides: Partial<ExerciseNotes> = {},
+): ExerciseWithNotes {
+  return {
+    ...createMockExercise(exerciseOverrides),
+    ...createMockExerciseNotes(notesOverrides),
   };
 }
 

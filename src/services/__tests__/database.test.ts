@@ -23,6 +23,9 @@ import {
   getE1RMWithConfidence,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
+  upsertExerciseNote,
+  getUserExerciseNotes,
+  getUserExerciseNotesBatch,
 } from '../database';
 import type { TemplateUpdatePlan } from '../../utils/setDiff';
 
@@ -54,7 +57,7 @@ describe('createExercise', () => {
 describe('getAllExercises', () => {
   it('returns parsed exercises with muscle_groups as array', async () => {
     __mockDb.getAllAsync.mockResolvedValueOnce([
-      { id: '1', name: 'Squat', type: 'weighted', muscle_groups: '["quads","glutes"]', training_goal: 'strength', description: '', created_at: '2026-01-01', user_id: 'local' },
+      { id: '1', name: 'Squat', type: 'weighted', muscle_groups: '["quads","glutes"]', training_goal: 'strength', description: '', created_at: '2026-01-01', user_id: null },
     ]);
 
     const result = await getAllExercises();
@@ -134,33 +137,90 @@ describe('getPRsThisWeek', () => {
 });
 
 describe('updateExerciseNotes', () => {
-  it('updates notes with correct SQL', async () => {
+  it('upserts notes via user_exercise_notes table', async () => {
     await updateExerciseNotes('ex-1', 'Focus on form');
 
     const call = __mockDb.runAsync.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE exercises SET notes')
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('user_exercise_notes')
     );
     expect(call).toBeDefined();
-    expect(call![1]).toBe('Focus on form');
-    expect(call![2]).toBe('ex-1');
+    expect(call![0]).toContain('ON CONFLICT');
+    expect(call![0]).toContain('notes');
   });
 
   it('clears notes when passed null', async () => {
     await updateExerciseNotes('ex-1', null);
 
     const call = __mockDb.runAsync.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE exercises SET notes')
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('user_exercise_notes')
     );
     expect(call).toBeDefined();
-    expect(call![1]).toBeNull();
-    expect(call![2]).toBe('ex-1');
+  });
+});
+
+describe('upsertExerciseNote', () => {
+  it('inserts into user_exercise_notes with ON CONFLICT', async () => {
+    const { upsertExerciseNote } = require('../database');
+    await upsertExerciseNote('ex-1', 'form_notes', 'Keep elbows tucked');
+
+    const call = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('user_exercise_notes')
+    );
+    expect(call).toBeDefined();
+    expect(call![0]).toContain('INSERT INTO user_exercise_notes');
+    expect(call![0]).toContain('ON CONFLICT');
+    expect(call![0]).toContain('form_notes');
+  });
+});
+
+describe('getUserExerciseNotes', () => {
+  it('returns null when no notes exist', async () => {
+    const { getUserExerciseNotes } = require('../database');
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    const result = await getUserExerciseNotes('ex-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns notes when they exist', async () => {
+    const { getUserExerciseNotes } = require('../database');
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', notes: 'coach note', form_notes: 'form note', machine_notes: 'machine note' },
+    ]);
+
+    const result = await getUserExerciseNotes('ex-1');
+    expect(result).toEqual({
+      notes: 'coach note',
+      form_notes: 'form note',
+      machine_notes: 'machine note',
+    });
+  });
+});
+
+describe('getUserExerciseNotesBatch', () => {
+  it('returns empty map for empty input', async () => {
+    const { getUserExerciseNotesBatch } = require('../database');
+    const result = await getUserExerciseNotesBatch([]);
+    expect(result).toEqual(new Map());
+  });
+
+  it('returns map of exercise notes', async () => {
+    const { getUserExerciseNotesBatch } = require('../database');
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { exercise_id: 'ex-1', notes: null, form_notes: 'form1', machine_notes: null },
+      { exercise_id: 'ex-2', notes: null, form_notes: null, machine_notes: 'machine2' },
+    ]);
+
+    const result = await getUserExerciseNotesBatch(['ex-1', 'ex-2']);
+    expect(result.get('ex-1')).toEqual({ notes: null, form_notes: 'form1', machine_notes: null });
+    expect(result.get('ex-2')).toEqual({ notes: null, form_notes: null, machine_notes: 'machine2' });
   });
 });
 
 describe('getExerciseById', () => {
   it('returns parsed exercise when found', async () => {
     __mockDb.getAllAsync.mockResolvedValueOnce([
-      { id: 'ex-1', name: 'Squat', type: 'weighted', muscle_groups: '["Quads","Glutes"]', training_goal: 'strength', description: 'Barbell squat', created_at: '2026-01-01', user_id: 'local', notes: null },
+      { id: 'ex-1', name: 'Squat', type: 'weighted', muscle_groups: '["Quads","Glutes"]', training_goal: 'strength', description: 'Barbell squat', created_at: '2026-01-01', user_id: null },
     ]);
 
     const result = await getExerciseById('ex-1');
