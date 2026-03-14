@@ -3,7 +3,6 @@ import { render, waitFor, fireEvent, act } from '@testing-library/react-native';
 import { createMockExercise } from '../../__tests__/helpers/factories';
 
 jest.mock('../../services/database', () => ({
-  getBestE1RM: jest.fn().mockResolvedValue(null),
   updateExerciseFormNotes: jest.fn().mockResolvedValue(undefined),
   updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
 }));
@@ -23,7 +22,6 @@ jest.mock('../ExerciseHistoryContent', () => {
 
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import {
-  getBestE1RM,
   updateExerciseFormNotes,
   updateExerciseMachineNotes,
 } from '../../services/database';
@@ -37,7 +35,6 @@ const defaultExercise = createMockExercise({
 describe('ExerciseDetailModal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (getBestE1RM as jest.Mock).mockResolvedValue(null);
   });
 
   it('renders nothing when exercise is null', () => {
@@ -61,63 +58,6 @@ describe('ExerciseDetailModal', () => {
       expect(getByText('weighted')).toBeTruthy();
       expect(getByText('Chest, Triceps')).toBeTruthy();
     });
-  });
-
-  it('shows loading indicator then content', async () => {
-    let resolveE1RM!: (v: number | null) => void;
-    (getBestE1RM as jest.Mock).mockReturnValue(
-      new Promise((r) => (resolveE1RM = r))
-    );
-
-    const { queryByText, UNSAFE_queryByType } = render(
-      <ExerciseDetailModal
-        visible={true}
-        exercise={defaultExercise}
-        onClose={jest.fn()}
-      />
-    );
-
-    const { ActivityIndicator } = require('react-native');
-    expect(UNSAFE_queryByType(ActivityIndicator)).toBeTruthy();
-    expect(queryByText('Form Notes')).toBeNull();
-
-    await act(async () => {
-      resolveE1RM(null);
-    });
-
-    await waitFor(() => {
-      expect(UNSAFE_queryByType(ActivityIndicator)).toBeNull();
-      expect(queryByText('Form Notes')).toBeTruthy();
-    });
-  });
-
-  it('shows e1RM banner when bestE1RM is available', async () => {
-    (getBestE1RM as jest.Mock).mockResolvedValue(225);
-
-    const { findByText } = render(
-      <ExerciseDetailModal
-        visible={true}
-        exercise={defaultExercise}
-        onClose={jest.fn()}
-      />
-    );
-
-    expect(await findByText('225 lb')).toBeTruthy();
-  });
-
-  it('hides e1RM banner when bestE1RM is null', async () => {
-    (getBestE1RM as jest.Mock).mockResolvedValue(null);
-
-    const { queryByText, findByText } = render(
-      <ExerciseDetailModal
-        visible={true}
-        exercise={defaultExercise}
-        onClose={jest.fn()}
-      />
-    );
-
-    await findByText('Form Notes');
-    expect(queryByText(/lb/)).toBeNull();
   });
 
   it('renders form notes textarea with initial value from exercise', async () => {

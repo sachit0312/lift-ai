@@ -155,7 +155,7 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
     loadData();
   }, [exercise.id]);
 
-  const screenWidth = Dimensions.get('window').width - spacing.lg * 2;
+  const screenWidth = Dimensions.get('window').width - spacing.md * 2;
 
   if (loading) {
     return <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />;
@@ -169,18 +169,13 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
             <Ionicons name="trophy" size={20} color={colors.warning} />
             <Text style={styles.prLabel}>Estimated 1RM</Text>
           </View>
-          <View style={styles.prRow}>
-            <View style={styles.prStat}>
-              <Text style={styles.prValue}>{data.currentE1rm > 0 ? data.currentE1rm : data.prValue} lb</Text>
-              <Text style={styles.prSubtext}>Current</Text>
+          <Text style={styles.prValue}>{data.prValue} lb</Text>
+          <Text style={styles.prSubtext}>Best · {data.prDateFormatted}</Text>
+          {data.currentE1rm > 0 && data.currentE1rm < data.prValue * 0.95 && (
+            <View style={styles.currentRow}>
+              <Text style={styles.currentValue}>Recent form: {data.currentE1rm} lb</Text>
             </View>
-            {data.currentE1rm > 0 && data.currentE1rm < data.prValue && (
-              <View style={styles.prStat}>
-                <Text style={[styles.prValue, styles.prAllTime]}>{data.prValue} lb</Text>
-                <Text style={styles.prSubtext}>All-time · {data.prDateFormatted}</Text>
-              </View>
-            )}
-          </View>
+          )}
         </View>
       )}
 
@@ -199,7 +194,7 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
               labels: thinLabels(data.chartData),
               datasets: [{ data: data.chartData.map(d => d.best1RM) }],
             }}
-            width={screenWidth - spacing.md * 2}
+            width={screenWidth}
             height={180}
             chartConfig={{
               backgroundColor: colors.surface,
@@ -230,7 +225,7 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
               labels: thinLabels(data.volumeData),
               datasets: [{ data: data.volumeData.map(d => d.volume) }],
             }}
-            width={screenWidth - spacing.md * 2}
+            width={screenWidth}
             height={180}
             chartConfig={{
               backgroundColor: colors.surface,
@@ -284,7 +279,7 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
 const styles = StyleSheet.create({
   body: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
   },
   prBanner: {
     backgroundColor: colors.surface,
@@ -310,17 +305,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xxl,
     fontWeight: fontWeight.bold,
   },
-  prRow: {
-    flexDirection: 'row',
-    gap: spacing.xl,
-    marginTop: spacing.xs,
+  currentRow: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  prStat: {
-    flex: 0,
-  },
-  prAllTime: {
-    fontSize: fontSize.lg,
-    color: colors.textMuted,
+  currentValue: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
   prSubtext: {
     color: colors.textMuted,
@@ -328,8 +322,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxs,
   },
   chartContainer: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.xl,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
   },
   sectionTitle: {
     color: colors.textSecondary,

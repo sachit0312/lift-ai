@@ -7,18 +7,15 @@ import {
   ScrollView,
   TextInput,
   StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
-  getBestE1RM,
   updateExerciseFormNotes,
   updateExerciseMachineNotes,
 } from '../services/database';
 import { fireAndForgetSync } from '../services/sync';
-import * as Sentry from '@sentry/react-native';
 import ExerciseHistoryContent from './ExerciseHistoryContent';
 import type { Exercise } from '../types/database';
 
@@ -30,8 +27,6 @@ interface Props {
 }
 
 export default function ExerciseDetailModal({ visible, exercise, onClose, onExerciseUpdated }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [bestE1RM, setBestE1RM] = useState<number | null>(null);
   const [formNotes, setFormNotes] = useState('');
   const [machineNotes, setMachineNotes] = useState('');
   const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
@@ -46,7 +41,6 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
     setFormNotes(exercise.form_notes ?? '');
     setMachineNotes(exercise.machine_notes ?? '');
     setActiveTab('details');
-    loadData(exercise.id);
   }, [visible, exercise?.id]);
 
   // Flush pending writes on unmount or close
@@ -55,18 +49,6 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
       flushPending();
     };
   }, []);
-
-  async function loadData(exerciseId: string) {
-    setLoading(true);
-    try {
-      const e1rm = await getBestE1RM(exerciseId);
-      setBestE1RM(e1rm);
-    } catch (e) {
-      Sentry.captureException(e);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function flushPending() {
     if (formNotesTimerRef.current) {
@@ -175,19 +157,7 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
 
           {/* Details tab — always mounted to preserve note editing state */}
           <View style={activeTab !== 'details' ? styles.hiddenTab : styles.visibleTab}>
-            {loading ? (
-              <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
-            ) : (
               <ScrollView style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                {/* e1RM Banner */}
-                {bestE1RM != null && bestE1RM > 0 && (
-                  <View style={styles.e1rmBanner}>
-                    <Ionicons name="trophy" size={18} color={colors.warning} />
-                    <Text style={styles.e1rmLabel}>Est. 1RM</Text>
-                    <Text style={styles.e1rmValue}>{Math.round(bestE1RM)} lb</Text>
-                  </View>
-                )}
-
                 {/* Form Notes */}
                 <View style={styles.section}>
                   <View style={styles.sectionHeader}>
@@ -230,7 +200,6 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
 
                 <View style={{ height: spacing.xl }} />
               </ScrollView>
-            )}
           </View>
 
           {/* History tab — always mounted to avoid re-fetch on tab switch */}
@@ -336,27 +305,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   body: {
-    paddingHorizontal: spacing.lg,
-  },
-  e1rmBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    marginTop: spacing.md,
-    gap: spacing.sm,
-  },
-  e1rmLabel: {
-    color: colors.warning,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-    flex: 1,
-  },
-  e1rmValue: {
-    color: colors.text,
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
+    paddingHorizontal: spacing.md,
   },
   section: {
     marginTop: spacing.lg,
