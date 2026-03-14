@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
-    maxHeight: '85%',
+    height: '85%',
     paddingBottom: spacing.xl,
     backgroundColor: colors.background,
     borderWidth: 0,

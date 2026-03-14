@@ -283,6 +283,7 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
 
 const styles = StyleSheet.create({
   body: {
+    flex: 1,
     paddingHorizontal: spacing.lg,
   },
   prBanner: {
