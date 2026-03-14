@@ -1,16 +1,16 @@
 import { useRef, useEffect } from 'react';
 import * as Sentry from '@sentry/react-native';
-import { updateExerciseNotes, updateWorkoutSet } from '../services/database';
+import { updateExerciseMachineNotes } from '../services/database';
 import { fireAndForgetSync } from '../services/sync';
 
 interface UseNotesDebounceReturn {
-  debouncedSaveNotes: (exerciseId: string, notes: string, setId: string | null) => void;
+  debouncedSaveNotes: (exerciseId: string, notes: string) => void;
   flushPendingNotes: () => Promise<void>;
   clearPendingNotes: () => void;
 }
 
 export function useNotesDebounce(): UseNotesDebounceReturn {
-  const pendingNotesRef = useRef<Map<string, { notes: string; setId: string | null }>>(new Map());
+  const pendingNotesRef = useRef<Map<string, { notes: string }>>(new Map());
   const notesTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Clean up timers on unmount
@@ -29,15 +29,10 @@ export function useNotesDebounce(): UseNotesDebounceReturn {
     notesTimerRef.current.clear();
 
     const promises: Promise<unknown>[] = [];
-    for (const [exerciseId, { notes, setId }] of pendingNotesRef.current.entries()) {
+    for (const [exerciseId, { notes }] of pendingNotesRef.current.entries()) {
       promises.push(
-        updateExerciseNotes(exerciseId, notes || null).catch(e => Sentry.captureException(e))
+        updateExerciseMachineNotes(exerciseId, notes || null).catch(e => Sentry.captureException(e))
       );
-      if (setId) {
-        promises.push(
-          updateWorkoutSet(setId, { notes }).catch(e => Sentry.captureException(e))
-        );
-      }
     }
     await Promise.allSettled(promises);
     pendingNotesRef.current.clear();
@@ -51,8 +46,8 @@ export function useNotesDebounce(): UseNotesDebounceReturn {
     pendingNotesRef.current.clear();
   }
 
-  function debouncedSaveNotes(exerciseId: string, notes: string, setId: string | null) {
-    pendingNotesRef.current.set(exerciseId, { notes, setId });
+  function debouncedSaveNotes(exerciseId: string, notes: string) {
+    pendingNotesRef.current.set(exerciseId, { notes });
 
     const existing = notesTimerRef.current.get(exerciseId);
     if (existing) clearTimeout(existing);
@@ -60,10 +55,7 @@ export function useNotesDebounce(): UseNotesDebounceReturn {
     const timerId = setTimeout(() => {
       const pending = pendingNotesRef.current.get(exerciseId);
       if (pending) {
-        updateExerciseNotes(exerciseId, pending.notes || null);
-        if (pending.setId) {
-          updateWorkoutSet(pending.setId, { notes: pending.notes });
-        }
+        updateExerciseMachineNotes(exerciseId, pending.notes || null);
         pendingNotesRef.current.delete(exerciseId);
         fireAndForgetSync();
       }

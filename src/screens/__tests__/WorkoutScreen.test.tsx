@@ -28,12 +28,12 @@ jest.mock('../../services/database', () => ({
   getExerciseHistory: jest.fn().mockResolvedValue([]),
   getExerciseById: jest.fn().mockResolvedValue(null),
   getAllExercises: jest.fn().mockResolvedValue([
-    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null },
+    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, form_notes: null, machine_notes: null },
   ]),
   getBulkExercises: jest.fn().mockResolvedValue([]),
   getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
-  createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '', notes: null }),
-  updateExerciseNotes: jest.fn().mockResolvedValue(undefined),
+  createExercise: jest.fn().mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '', notes: null, form_notes: null, machine_notes: null }),
+  updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
   getLastPerformedByTemplate: jest.fn().mockResolvedValue({}),
   getBestE1RM: jest.fn().mockResolvedValue(null),
   stampExerciseOrder: jest.fn().mockResolvedValue(undefined),
@@ -98,7 +98,7 @@ import {
   addWorkoutSetsBatch,
   getAllExercises,
   updateWorkoutSet,
-  updateExerciseNotes,
+  updateExerciseMachineNotes,
   deleteWorkout,
   deleteWorkoutSet,
   getAllTemplates,
@@ -737,45 +737,45 @@ describe('WorkoutScreen', () => {
       await startWorkoutWithExercise(result);
 
       // Notes should not be visible initially (no sticky notes on the mock exercise)
-      expect(result.queryByTestId('exercise-notes-0')).toBeNull();
+      expect(result.queryByTestId('machine-notes-0')).toBeNull();
 
       // Tap Notes button
-      await act(async () => { fireEvent.press(result.getByText('Notes')); });
+      await act(async () => { fireEvent.press(result.getByText('Machine')); });
 
       // Notes textarea should appear
       await waitFor(() => {
-        expect(result.getByTestId('exercise-notes-0')).toBeTruthy();
+        expect(result.getByTestId('machine-notes-0')).toBeTruthy();
       });
 
       // Tap again to hide
-      await act(async () => { fireEvent.press(result.getByText('Hide Notes')); });
+      await act(async () => { fireEvent.press(result.getByText('Hide Settings')); });
 
       await waitFor(() => {
-        expect(result.queryByTestId('exercise-notes-0')).toBeNull();
+        expect(result.queryByTestId('machine-notes-0')).toBeNull();
       });
     });
 
-    it('calls updateExerciseNotes after debounce when typing in notes', async () => {
+    it('calls updateExerciseMachineNotes after debounce when typing in notes', async () => {
       jest.useFakeTimers();
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
       // Show notes
-      await act(async () => { fireEvent.press(result.getByText('Notes')); });
-      await waitFor(() => expect(result.getByTestId('exercise-notes-0')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Machine')); });
+      await waitFor(() => expect(result.getByTestId('machine-notes-0')).toBeTruthy());
 
       // Type in notes
       await act(async () => {
-        fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'Focus on form');
+        fireEvent.changeText(result.getByTestId('machine-notes-0'), 'Focus on form');
       });
 
       // Should NOT be called immediately (debounced)
-      expect(updateExerciseNotes).not.toHaveBeenCalled();
+      expect(updateExerciseMachineNotes).not.toHaveBeenCalled();
 
       // Advance past debounce delay
       act(() => { jest.advanceTimersByTime(500); });
 
-      expect(updateExerciseNotes).toHaveBeenCalledWith('ex1', 'Focus on form');
+      expect(updateExerciseMachineNotes).toHaveBeenCalledWith('ex1', 'Focus on form');
 
       jest.useRealTimers();
     });
@@ -786,25 +786,25 @@ describe('WorkoutScreen', () => {
       await startWorkoutWithExercise(result);
 
       // Show notes
-      await act(async () => { fireEvent.press(result.getByText('Notes')); });
-      await waitFor(() => expect(result.getByTestId('exercise-notes-0')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Machine')); });
+      await waitFor(() => expect(result.getByTestId('machine-notes-0')).toBeTruthy());
 
       // Type rapidly
-      await act(async () => { fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'a'); });
-      await act(async () => { fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'ab'); });
-      await act(async () => { fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'abc'); });
-      await act(async () => { fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'abcd'); });
-      await act(async () => { fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'abcde'); });
+      await act(async () => { fireEvent.changeText(result.getByTestId('machine-notes-0'), 'a'); });
+      await act(async () => { fireEvent.changeText(result.getByTestId('machine-notes-0'), 'ab'); });
+      await act(async () => { fireEvent.changeText(result.getByTestId('machine-notes-0'), 'abc'); });
+      await act(async () => { fireEvent.changeText(result.getByTestId('machine-notes-0'), 'abcd'); });
+      await act(async () => { fireEvent.changeText(result.getByTestId('machine-notes-0'), 'abcde'); });
 
       // Should NOT be called yet
-      expect(updateExerciseNotes).not.toHaveBeenCalled();
+      expect(updateExerciseMachineNotes).not.toHaveBeenCalled();
 
       // Advance past debounce delay
       act(() => { jest.advanceTimersByTime(500); });
 
       // Should be called once with the final value
-      expect(updateExerciseNotes).toHaveBeenCalledTimes(1);
-      expect(updateExerciseNotes).toHaveBeenCalledWith('ex1', 'abcde');
+      expect(updateExerciseMachineNotes).toHaveBeenCalledTimes(1);
+      expect(updateExerciseMachineNotes).toHaveBeenCalledWith('ex1', 'abcde');
 
       jest.useRealTimers();
     });
@@ -815,10 +815,10 @@ describe('WorkoutScreen', () => {
       await startWorkoutWithExercise(result);
 
       // Show notes and type (but don't advance timers — debounce pending)
-      await act(async () => { fireEvent.press(result.getByText('Notes')); });
-      await waitFor(() => expect(result.getByTestId('exercise-notes-0')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Machine')); });
+      await waitFor(() => expect(result.getByTestId('machine-notes-0')).toBeTruthy());
       await act(async () => {
-        fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'Pending note');
+        fireEvent.changeText(result.getByTestId('machine-notes-0'), 'Pending note');
       });
 
       // Complete a set so we can finish
@@ -837,7 +837,7 @@ describe('WorkoutScreen', () => {
       }
 
       // Notes should NOT have been saved yet (debounce not fired)
-      expect(updateExerciseNotes).not.toHaveBeenCalled();
+      expect(updateExerciseMachineNotes).not.toHaveBeenCalled();
 
       // Press finish
       await act(async () => { fireEvent.press(result.getByTestId('finish-workout-btn')); });
@@ -848,7 +848,7 @@ describe('WorkoutScreen', () => {
       await act(async () => { fireEvent.press(finishButtons[finishButtons.length - 1]); });
 
       // flushPendingNotes should have saved the pending notes
-      expect(updateExerciseNotes).toHaveBeenCalledWith('ex1', 'Pending note');
+      expect(updateExerciseMachineNotes).toHaveBeenCalledWith('ex1', 'Pending note');
 
       jest.useRealTimers();
     });
@@ -861,10 +861,10 @@ describe('WorkoutScreen', () => {
       await startWorkoutWithExercise(result);
 
       // Show notes and type (but don't advance timers — debounce pending)
-      await act(async () => { fireEvent.press(result.getByText('Notes')); });
-      await waitFor(() => expect(result.getByTestId('exercise-notes-0')).toBeTruthy());
+      await act(async () => { fireEvent.press(result.getByText('Machine')); });
+      await waitFor(() => expect(result.getByTestId('machine-notes-0')).toBeTruthy());
       await act(async () => {
-        fireEvent.changeText(result.getByTestId('exercise-notes-0'), 'Should not save');
+        fireEvent.changeText(result.getByTestId('machine-notes-0'), 'Should not save');
       });
 
       // Press cancel button
@@ -880,7 +880,7 @@ describe('WorkoutScreen', () => {
       act(() => { jest.advanceTimersByTime(1000); });
 
       // Notes should NOT have been saved (cleared on cancel)
-      expect(updateExerciseNotes).not.toHaveBeenCalled();
+      expect(updateExerciseMachineNotes).not.toHaveBeenCalled();
 
       mockAlert.mockRestore();
       jest.useRealTimers();
@@ -889,7 +889,7 @@ describe('WorkoutScreen', () => {
     it('pre-expands notes when exercise has sticky notes', async () => {
       // Override getAllExercises to return exercise with existing notes
       (getAllExercises as jest.Mock).mockResolvedValueOnce([
-        { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: 'Existing note' },
+        { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '', notes: null, form_notes: null, machine_notes: 'Existing note' },
       ]);
 
       const result = render(<WorkoutScreen />);
@@ -897,7 +897,7 @@ describe('WorkoutScreen', () => {
 
       // Notes should be pre-expanded because exercise has sticky notes
       await waitFor(() => {
-        expect(result.getByTestId('exercise-notes-0')).toBeTruthy();
+        expect(result.getByTestId('machine-notes-0')).toBeTruthy();
         expect(result.getByDisplayValue('Existing note')).toBeTruthy();
       });
     });

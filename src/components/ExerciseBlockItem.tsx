@@ -118,9 +118,9 @@ export interface ExerciseBlockItemProps {
   onSetChange: (blockIdx: number, setIdx: number, field: 'weight' | 'reps' | 'rpe', value: string) => void;
   onToggleComplete: (blockIdx: number, setIdx: number) => void;
   onAddSet: (blockIdx: number) => void;
-  onToggleNotes: (blockIdx: number) => void;
+  onToggleMachineNotes: (blockIdx: number) => void;
   onRemoveExercise: (blockIdx: number) => void;
-  onNotesChange: (blockIdx: number, text: string) => void;
+  onMachineNotesChange: (blockIdx: number, text: string) => void;
   onExercisePress: (exercise: Exercise) => void;
 }
 
@@ -137,9 +137,9 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
   onSetChange,
   onToggleComplete,
   onAddSet,
-  onToggleNotes,
+  onToggleMachineNotes,
   onRemoveExercise,
-  onNotesChange,
+  onMachineNotesChange,
   onExercisePress,
 }: ExerciseBlockItemProps) {
   const coachTip = upcomingTargets?.find(e => e.exercise_id === block.exercise.id)?.notes;
@@ -304,10 +304,10 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
           <Ionicons name="add" size={16} color={colors.primary} />
           <Text style={styles.actionBtnText}>Add Set</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => onToggleNotes(blockIdx)}>
-          <Ionicons name={block.notesExpanded ? 'document-text' : 'document-text-outline'} size={16} color={colors.textMuted} />
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onToggleMachineNotes(blockIdx)}>
+          <Ionicons name={block.machineNotesExpanded ? 'document-text' : 'document-text-outline'} size={16} color={colors.textMuted} />
           <Text style={styles.actionBtnTextMuted}>
-            {block.notesExpanded ? 'Hide Notes' : 'Notes'}
+            {block.machineNotesExpanded ? 'Hide Settings' : 'Machine'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -348,15 +348,15 @@ const ExerciseBlockItem = React.memo(function ExerciseBlockItem({
         </TouchableOpacity>
       </View>
 
-      {block.notesExpanded && (
+      {block.machineNotesExpanded && (
         <TextInput
           style={styles.notesInput}
           multiline
-          value={block.notes}
-          onChangeText={(v) => onNotesChange(blockIdx, v)}
-          placeholder="Exercise notes..."
+          value={block.machineNotes}
+          onChangeText={(v) => onMachineNotesChange(blockIdx, v)}
+          placeholder="Seat position, attachments..."
           placeholderTextColor={colors.textMuted}
-          testID={`exercise-notes-${blockIdx}`}
+          testID={`machine-notes-${blockIdx}`}
         />
       )}
     </View>

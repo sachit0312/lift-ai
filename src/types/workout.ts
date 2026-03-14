@@ -21,8 +21,8 @@ export interface ExerciseBlock {
   exercise: Exercise;
   sets: LocalSet[];
   lastTime: string | null;
-  notesExpanded: boolean;
-  notes: string;
+  machineNotesExpanded: boolean;
+  machineNotes: string;
   restSeconds: number;
   restEnabled: boolean;
   bestE1RM?: number;

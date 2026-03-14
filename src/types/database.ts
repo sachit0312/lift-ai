@@ -12,6 +12,8 @@ export interface Exercise {
   description: string;
   created_at: string;
   notes: string | null;
+  form_notes: string | null;     // form/technique tips
+  machine_notes: string | null;  // machine settings (user-only)
 }
 
 export interface Template {

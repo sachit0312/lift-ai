@@ -1,12 +1,11 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useNotesDebounce } from '../useNotesDebounce';
-import { updateExerciseNotes, updateWorkoutSet } from '../../services/database';
+import { updateExerciseMachineNotes } from '../../services/database';
 import { fireAndForgetSync } from '../../services/sync';
 import * as Sentry from '@sentry/react-native';
 
 jest.mock('../../services/database', () => ({
-  updateExerciseNotes: jest.fn().mockResolvedValue(undefined),
-  updateWorkoutSet: jest.fn().mockResolvedValue(undefined),
+  updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -14,8 +13,7 @@ jest.mock('../../services/sync', () => ({
   fireAndForgetSync: jest.fn(),
 }));
 
-const mockUpdateExerciseNotes = updateExerciseNotes as jest.MockedFunction<typeof updateExerciseNotes>;
-const mockUpdateWorkoutSet = updateWorkoutSet as jest.MockedFunction<typeof updateWorkoutSet>;
+const mockUpdateExerciseMachineNotes = updateExerciseMachineNotes as jest.MockedFunction<typeof updateExerciseMachineNotes>;
 const mockFireAndForgetSync = fireAndForgetSync as jest.MockedFunction<typeof fireAndForgetSync>;
 const mockCaptureException = Sentry.captureException as jest.MockedFunction<typeof Sentry.captureException>;
 
@@ -33,20 +31,19 @@ describe('useNotesDebounce', () => {
     const { result } = renderHook(() => useNotesDebounce());
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'first', 'set-1');
+      result.current.debouncedSaveNotes('ex-1', 'first');
     });
 
     // Should not have saved yet
-    expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
-    expect(mockUpdateWorkoutSet).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
 
     act(() => {
       // Update before timer fires — should replace the pending value
-      result.current.debouncedSaveNotes('ex-1', 'second', 'set-1');
+      result.current.debouncedSaveNotes('ex-1', 'second');
     });
 
     // Still nothing saved
-    expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
 
     // Advance past the debounce interval
     act(() => {
@@ -54,82 +51,61 @@ describe('useNotesDebounce', () => {
     });
 
     // Now the last value should have been saved
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledTimes(1);
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledWith('ex-1', 'second');
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledTimes(1);
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledWith('set-1', { notes: 'second' });
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledTimes(1);
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-1', 'second');
     expect(mockFireAndForgetSync).toHaveBeenCalledTimes(1);
   });
 
-  it('passes null to updateExerciseNotes when notes are empty', () => {
+  it('passes null to updateExerciseMachineNotes when notes are empty', () => {
     const { result } = renderHook(() => useNotesDebounce());
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', '', 'set-1');
+      result.current.debouncedSaveNotes('ex-1', '');
     });
 
     act(() => {
       jest.advanceTimersByTime(500);
     });
 
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledWith('ex-1', null);
-  });
-
-  it('does not call updateWorkoutSet when setId is null', () => {
-    const { result } = renderHook(() => useNotesDebounce());
-
-    act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'some notes', null);
-    });
-
-    act(() => {
-      jest.advanceTimersByTime(500);
-    });
-
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledTimes(1);
-    expect(mockUpdateWorkoutSet).not.toHaveBeenCalled();
-    expect(mockFireAndForgetSync).toHaveBeenCalledTimes(1);
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-1', null);
   });
 
   it('flushPendingNotes saves all pending notes immediately', async () => {
     const { result } = renderHook(() => useNotesDebounce());
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'notes A', 'set-1');
-      result.current.debouncedSaveNotes('ex-2', 'notes B', 'set-2');
+      result.current.debouncedSaveNotes('ex-1', 'notes A');
+      result.current.debouncedSaveNotes('ex-2', 'notes B');
     });
 
     // Nothing saved yet (timers haven't fired)
-    expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
 
     // Flush forces immediate save
     await act(async () => {
       await result.current.flushPendingNotes();
     });
 
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledTimes(2);
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledWith('ex-1', 'notes A');
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledWith('ex-2', 'notes B');
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledTimes(2);
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledWith('set-1', { notes: 'notes A' });
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledWith('set-2', { notes: 'notes B' });
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledTimes(2);
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-1', 'notes A');
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-2', 'notes B');
 
     // Advancing timers should NOT fire again (timers were cleared by flush)
     jest.clearAllMocks();
     act(() => {
       jest.advanceTimersByTime(1000);
     });
-    expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
   });
 
   it('flushPendingNotes catches errors via Sentry.captureException', async () => {
     const error = new Error('db write failed');
-    mockUpdateExerciseNotes.mockRejectedValueOnce(error);
+    mockUpdateExerciseMachineNotes.mockRejectedValueOnce(error);
 
     const { result } = renderHook(() => useNotesDebounce());
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'notes', null);
+      result.current.debouncedSaveNotes('ex-1', 'notes');
     });
 
     await act(async () => {
@@ -143,8 +119,8 @@ describe('useNotesDebounce', () => {
     const { result } = renderHook(() => useNotesDebounce());
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'notes A', 'set-1');
-      result.current.debouncedSaveNotes('ex-2', 'notes B', 'set-2');
+      result.current.debouncedSaveNotes('ex-1', 'notes A');
+      result.current.debouncedSaveNotes('ex-2', 'notes B');
     });
 
     act(() => {
@@ -156,8 +132,7 @@ describe('useNotesDebounce', () => {
       jest.advanceTimersByTime(1000);
     });
 
-    expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
-    expect(mockUpdateWorkoutSet).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
     expect(mockFireAndForgetSync).not.toHaveBeenCalled();
   });
 
@@ -165,7 +140,7 @@ describe('useNotesDebounce', () => {
     const { result } = renderHook(() => useNotesDebounce());
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'notes A', 'set-1');
+      result.current.debouncedSaveNotes('ex-1', 'notes A');
     });
 
     act(() => {
@@ -176,8 +151,7 @@ describe('useNotesDebounce', () => {
       await result.current.flushPendingNotes();
     });
 
-    expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
-    expect(mockUpdateWorkoutSet).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
   });
 
   it('tracks multiple exercises independently', () => {
@@ -185,7 +159,7 @@ describe('useNotesDebounce', () => {
 
     // Schedule notes for two different exercises at different times
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'notes for ex1', 'set-1');
+      result.current.debouncedSaveNotes('ex-1', 'notes for ex1');
     });
 
     // Advance halfway — ex-1 is still pending
@@ -194,7 +168,7 @@ describe('useNotesDebounce', () => {
     });
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-2', 'notes for ex2', 'set-2');
+      result.current.debouncedSaveNotes('ex-2', 'notes for ex2');
     });
 
     // Advance another 200ms — ex-1's 500ms has elapsed, but ex-2 still pending
@@ -202,10 +176,8 @@ describe('useNotesDebounce', () => {
       jest.advanceTimersByTime(200);
     });
 
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledTimes(1);
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledWith('ex-1', 'notes for ex1');
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledTimes(1);
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledWith('set-1', { notes: 'notes for ex1' });
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledTimes(1);
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-1', 'notes for ex1');
 
     // Advance remaining 300ms — ex-2 should now fire
     jest.clearAllMocks();
@@ -213,17 +185,15 @@ describe('useNotesDebounce', () => {
       jest.advanceTimersByTime(300);
     });
 
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledTimes(1);
-    expect(mockUpdateExerciseNotes).toHaveBeenCalledWith('ex-2', 'notes for ex2');
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledTimes(1);
-    expect(mockUpdateWorkoutSet).toHaveBeenCalledWith('set-2', { notes: 'notes for ex2' });
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledTimes(1);
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-2', 'notes for ex2');
   });
 
   it('cleans up timers on unmount', () => {
     const { result, unmount } = renderHook(() => useNotesDebounce());
 
     act(() => {
-      result.current.debouncedSaveNotes('ex-1', 'notes', 'set-1');
+      result.current.debouncedSaveNotes('ex-1', 'notes');
     });
 
     // Unmount clears timers
@@ -234,7 +204,6 @@ describe('useNotesDebounce', () => {
       jest.advanceTimersByTime(1000);
     });
 
-    expect(mockUpdateExerciseNotes).not.toHaveBeenCalled();
-    expect(mockUpdateWorkoutSet).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
   });
 });

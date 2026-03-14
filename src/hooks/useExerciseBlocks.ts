@@ -16,7 +16,7 @@ export interface UseExerciseBlocksOptions {
   workoutRef: React.MutableRefObject<Workout | null>;
   blocksRef: React.MutableRefObject<ExerciseBlock[]>;
   lastActiveBlockRef: React.MutableRefObject<number>;
-  debouncedSaveNotes: (exerciseId: string, notes: string, setId: string | null) => void;
+  debouncedSaveNotes: (exerciseId: string, notes: string) => void;
 }
 
 export interface UseExerciseBlocksReturn {
@@ -31,10 +31,10 @@ export interface UseExerciseBlocksReturn {
   handleCycleTag: (blockIdx: number, setIdx: number) => void;
   handleAddSet: (blockIdx: number) => Promise<void>;
   handleDeleteSet: (blockIdx: number, setIdx: number) => Promise<void>;
-  handleToggleNotes: (blockIdx: number) => void;
+  handleToggleMachineNotes: (blockIdx: number) => void;
   handleToggleRestTimer: (blockIdx: number) => void;
   handleAdjustExerciseRest: (blockIdx: number, delta: number) => void;
-  handleNotesChange: (blockIdx: number, text: string) => void;
+  handleMachineNotesChange: (blockIdx: number, text: string) => void;
   handleRemoveExercise: (blockIdx: number) => void;
 }
 
@@ -254,8 +254,8 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     }
   }, [updateBlockSets]);
 
-  const handleToggleNotes = useCallback((blockIdx: number) => {
-    updateBlock(blockIdx, (block) => ({ ...block, notesExpanded: !block.notesExpanded }));
+  const handleToggleMachineNotes = useCallback((blockIdx: number) => {
+    updateBlock(blockIdx, (block) => ({ ...block, machineNotesExpanded: !block.machineNotesExpanded }));
   }, [updateBlock]);
 
   const handleToggleRestTimer = useCallback((blockIdx: number) => {
@@ -270,15 +270,14 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     });
   }, [updateBlock]);
 
-  const handleNotesChange = useCallback((blockIdx: number, text: string) => {
+  const handleMachineNotesChange = useCallback((blockIdx: number, text: string) => {
     const block = blocksRef.current[blockIdx];
     if (!block) return;
 
-    updateBlock(blockIdx, (b) => ({ ...b, notes: text }));
+    updateBlock(blockIdx, (b) => ({ ...b, machineNotes: text }));
 
-    // Debounced persist to exercise (sticky notes) + first set
-    const firstSet = block.sets[0];
-    debouncedSaveNotes(block.exercise.id, text, firstSet?.id ?? null);
+    // Debounced persist to exercise machine notes
+    debouncedSaveNotes(block.exercise.id, text);
   }, [updateBlock, debouncedSaveNotes]);
 
   const handleRemoveExercise = useCallback(async (blockIdx: number) => {
@@ -334,10 +333,10 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     handleCycleTag,
     handleAddSet,
     handleDeleteSet,
-    handleToggleNotes,
+    handleToggleMachineNotes,
     handleToggleRestTimer,
     handleAdjustExerciseRest,
-    handleNotesChange,
+    handleMachineNotesChange,
     handleRemoveExercise,
   };
 }

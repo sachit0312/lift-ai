@@ -24,7 +24,7 @@ import { fireAndForgetSync } from '../services/sync';
 import { filterExercises } from '../utils/exerciseSearch';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
-import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
+import ExerciseDetailModal from '../components/ExerciseDetailModal';
 import type { Exercise, ExerciseType } from '../types/database';
 
 export default function ExercisesScreen() {
@@ -40,7 +40,6 @@ export default function ExercisesScreen() {
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState<ExerciseType>('weighted');
   const [editMuscles, setEditMuscles] = useState<string[]>([]);
-  const [editNotes, setEditNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
   useFocusEffect(
@@ -75,11 +74,15 @@ export default function ExercisesScreen() {
     setEditName(exercise.name);
     setEditType(exercise.type);
     setEditMuscles([...exercise.muscle_groups]);
-    setEditNotes(exercise.notes ?? '');
   }, []);
 
   const closeEditModal = useCallback(() => {
     setEditExercise(null);
+  }, []);
+
+  const handleExerciseUpdated = useCallback((updated: Exercise) => {
+    setExercises(prev => prev.map(e => e.id === updated.id ? updated : e));
+    setSelectedExercise(updated);
   }, []);
 
   const handleSaveEdit = useCallback(async () => {
@@ -90,7 +93,6 @@ export default function ExercisesScreen() {
         name: editName.trim(),
         type: editType,
         muscle_groups: editMuscles,
-        notes: editNotes.trim() || null,
       });
       fireAndForgetSync();
       await loadExercises();
@@ -100,7 +102,7 @@ export default function ExercisesScreen() {
     } finally {
       setSaving(false);
     }
-  }, [editExercise, editName, editType, editMuscles, editNotes, closeEditModal]);
+  }, [editExercise, editName, editType, editMuscles, closeEditModal]);
 
   const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
@@ -171,10 +173,11 @@ export default function ExercisesScreen() {
         }
       />
 
-      <ExerciseHistoryModal
+      <ExerciseDetailModal
         visible={!!selectedExercise}
         exercise={selectedExercise}
         onClose={() => setSelectedExercise(null)}
+        onExerciseUpdated={handleExerciseUpdated}
       />
 
       {/* Edit Exercise Modal */}
@@ -236,16 +239,6 @@ export default function ExercisesScreen() {
                 })}
               </View>
 
-              <Text style={styles.editLabel}>Notes</Text>
-              <TextInput
-                style={[modalStyles.input, styles.notesInput]}
-                value={editNotes}
-                onChangeText={setEditNotes}
-                placeholder="Machine settings, form cues, goals..."
-                placeholderTextColor={colors.textMuted}
-                multiline
-                testID="edit-exercise-notes"
-              />
             </ScrollView>
 
             <View style={modalStyles.actions}>
@@ -360,9 +353,5 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
     marginTop: spacing.md,
     marginBottom: spacing.xs,
-  },
-  notesInput: {
-    minHeight: 80,
-    textAlignVertical: 'top',
   },
 });

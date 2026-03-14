@@ -10,6 +10,8 @@ export function createMockExercise(overrides: Partial<Exercise> = {}): Exercise 
     training_goal: 'hypertrophy',
     description: '',
     notes: null,
+    form_notes: null,
+    machine_notes: null,
     created_at: new Date().toISOString(),
     ...overrides,
   };

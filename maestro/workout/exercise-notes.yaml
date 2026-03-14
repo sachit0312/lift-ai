@@ -1,6 +1,6 @@
 appId: com.sachitgoyal.liftai
 ---
-# Exercise notes: add exercise, toggle notes, type, verify persistence
+# Machine notes: add exercise, toggle notes, type, verify persistence
 
 - runFlow: ../workout/start-empty.yaml
 
@@ -15,30 +15,30 @@ appId: com.sachitgoyal.liftai
 # Wait for exercise block to appear
 - waitForAnimationToEnd
 
-# Tap Notes button to show notes field
+# Tap Machine button to show notes field
 - tapOn:
-    text: "Notes"
+    text: "Machine"
 
 # Verify notes field appears
 - assertVisible:
-    id: "exercise-notes-0"
+    id: "machine-notes-0"
 
-# Type exercise notes
+# Type machine notes
 - tapOn:
-    id: "exercise-notes-0"
-- inputText: "Focus on chest squeeze"
+    id: "machine-notes-0"
+- inputText: "Seat position 3"
 - hideKeyboard
 
-# Tap Hide Notes to collapse
+# Tap Hide Settings to collapse
 - tapOn:
-    text: "Hide Notes"
+    text: "Hide Settings"
 
 # Verify notes field is hidden
 - assertNotVisible:
-    id: "exercise-notes-0"
+    id: "machine-notes-0"
 
-# Tap Notes again to verify persistence
+# Tap Machine again to verify persistence
 - tapOn:
-    text: "Notes"
+    text: "Machine"
 - assertVisible:
-    id: "exercise-notes-0"
+    id: "machine-notes-0"

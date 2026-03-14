@@ -70,7 +70,7 @@ export interface UseWorkoutLifecycleOptions {
   lastActiveBlockRef: React.MutableRefObject<number>;
   syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void;
   dismissRest: () => void;
-  debouncedSaveNotes: (exerciseId: string, notes: string, setId: string | null) => void;
+  debouncedSaveNotes: (exerciseId: string, notes: string) => void;
   flushPendingNotes: () => Promise<void>;
   clearPendingNotes: () => void;
   flushPendingSetWrites: () => void;
@@ -233,8 +233,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       is_completed: false,
       previous: previousSets[i] ?? null,
     }));
-    const stickyNotes = exercise.notes ?? '';
-    return { exercise, sets, lastTime, notesExpanded: stickyNotes.length > 0, notes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
+    const stickyNotes = exercise.machine_notes ?? '';
+    return { exercise, sets, lastTime, machineNotesExpanded: stickyNotes.length > 0, machineNotes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
   }
 
   function activateWorkout(workout: Workout, blocks: ExerciseBlock[], name: string | null = null) {
@@ -367,8 +367,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       const bestE1RM = e1rmResults[i] ?? undefined;
       originalBestE1RMRef.current.set(exId, bestE1RM);
       currentBestE1RMRef.current.set(exId, bestE1RM);
-      const setNotes = wSets[0]?.notes;
-      const restoredNotes = setNotes || exercise.notes || '';
+      const restoredNotes = exercise.machine_notes || '';
 
       blocks.push({
         exercise,
@@ -384,8 +383,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           previous: previousSets[idx] ?? null,
         })),
         lastTime,
-        notesExpanded: restoredNotes.length > 0,
-        notes: restoredNotes,
+        machineNotesExpanded: restoredNotes.length > 0,
+        machineNotes: restoredNotes,
         restSeconds: REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS,
         restEnabled: true,
         bestE1RM,
@@ -594,7 +593,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       is_completed: false,
       notes: null,
     });
-    const stickyNotes = exercise.notes ?? '';
+    const stickyNotes = exercise.machine_notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
     currentBestE1RMRef.current.set(exercise.id, bestE1RM);
@@ -612,8 +611,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         previous: previousSets[0] ?? null,
       }],
       lastTime,
-      notesExpanded: stickyNotes.length > 0,
-      notes: stickyNotes,
+      machineNotesExpanded: stickyNotes.length > 0,
+      machineNotes: stickyNotes,
       restSeconds: REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS,
       restEnabled: true,
       bestE1RM,

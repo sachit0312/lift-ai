@@ -22,6 +22,8 @@ interface ExerciseRow {
   description: string;
   created_at: string;
   notes: string | null;
+  form_notes: string | null;
+  machine_notes: string | null;
 }
 
 /** Raw row from workouts table, optionally joined with template name */
@@ -71,6 +73,8 @@ interface TemplateExerciseJoinRow {
   exercise_description: string;
   exercise_created_at: string;
   exercise_notes: string | null;
+  exercise_form_notes: string | null;
+  exercise_machine_notes: string | null;
 }
 
 /** For COUNT(*) queries */
@@ -135,6 +139,8 @@ interface UpcomingExerciseJoinRow {
   e_description: string;
   e_created_at: string;
   e_notes: string | null;
+  e_form_notes: string | null;
+  e_machine_notes: string | null;
 }
 
 /** Raw row from upcoming_workouts table */
@@ -175,6 +181,8 @@ function parseExercise(r: ExerciseRow): Exercise {
     muscle_groups: safeJsonParse(r.muscle_groups, []),
     training_goal: r.training_goal as TrainingGoal,
     notes: r.notes ?? null,
+    form_notes: r.form_notes ?? null,
+    machine_notes: r.machine_notes ?? null,
   };
 }
 
@@ -189,7 +197,7 @@ function mapWorkoutSetRow(r: WorkoutSetRow): WorkoutSet {
 }
 
 /** Build a typed Exercise from join-row columns with e_ prefix */
-function parseExerciseFromJoin(r: { e_id: string; e_user_id: string; e_name: string; e_type: string; e_muscle_groups: string; e_training_goal: string; e_description: string; e_created_at: string; e_notes: string | null }): Exercise {
+function parseExerciseFromJoin(r: { e_id: string; e_user_id: string; e_name: string; e_type: string; e_muscle_groups: string; e_training_goal: string; e_description: string; e_created_at: string; e_notes: string | null; e_form_notes: string | null; e_machine_notes: string | null }): Exercise {
   return {
     id: r.e_id,
     user_id: r.e_user_id,
@@ -200,6 +208,8 @@ function parseExerciseFromJoin(r: { e_id: string; e_user_id: string; e_name: str
     description: r.e_description,
     created_at: r.e_created_at,
     notes: r.e_notes ?? null,
+    form_notes: r.e_form_notes ?? null,
+    machine_notes: r.e_machine_notes ?? null,
   };
 }
 
@@ -223,6 +233,8 @@ function parseExerciseFromTemplateJoin(r: TemplateExerciseJoinRow): Exercise {
     description: r.exercise_description,
     created_at: r.exercise_created_at,
     notes: r.exercise_notes ?? null,
+    form_notes: r.exercise_form_notes ?? null,
+    machine_notes: r.exercise_machine_notes ?? null,
   };
 }
 
@@ -380,6 +392,10 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 
   // Migration: null out RPE on failure sets (failure = implicit RPE 10, no need to store it)
   await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
+
+  // Migration: split notes into three types (form_notes, machine_notes, existing notes)
+  await database.runAsync('ALTER TABLE exercises ADD COLUMN form_notes TEXT').catch(() => {});
+  await database.runAsync('ALTER TABLE exercises ADD COLUMN machine_notes TEXT').catch(() => {});
 }
 
 // ─── Exercises ───
@@ -399,7 +415,7 @@ export function getAllExercises(): Promise<Exercise[]> {
   });
 }
 
-export function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'created_at' | 'notes'> & { notes?: string | null }): Promise<Exercise> {
+export function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'created_at' | 'notes' | 'form_notes' | 'machine_notes'> & { notes?: string | null }): Promise<Exercise> {
   return withDb('createExercise', async (database) => {
     const id = uuid();
     const now = new Date().toISOString();
@@ -408,7 +424,7 @@ export function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'created_at'
       'INSERT INTO exercises (id, name, type, muscle_groups, training_goal, description, created_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       id, e.name, e.type, JSON.stringify(e.muscle_groups), e.training_goal, e.description, now, notes,
     );
-    return { id, user_id: 'local', name: e.name, type: e.type, muscle_groups: e.muscle_groups, training_goal: e.training_goal, description: e.description, created_at: now, notes };
+    return { id, user_id: 'local', name: e.name, type: e.type, muscle_groups: e.muscle_groups, training_goal: e.training_goal, description: e.description, created_at: now, notes, form_notes: null, machine_notes: null };
   });
 }
 
@@ -426,6 +442,18 @@ export function getBulkExercises(ids: string[]): Promise<Exercise[]> {
 export function updateExerciseNotes(exerciseId: string, notes: string | null): Promise<void> {
   return withDb('updateExerciseNotes', async (database) => {
     await database.runAsync('UPDATE exercises SET notes = ? WHERE id = ?', notes, exerciseId);
+  });
+}
+
+export function updateExerciseFormNotes(exerciseId: string, formNotes: string | null): Promise<void> {
+  return withDb('updateExerciseFormNotes', async (database) => {
+    await database.runAsync('UPDATE exercises SET form_notes = ? WHERE id = ?', formNotes, exerciseId);
+  });
+}
+
+export function updateExerciseMachineNotes(exerciseId: string, machineNotes: string | null): Promise<void> {
+  return withDb('updateExerciseMachineNotes', async (database) => {
+    await database.runAsync('UPDATE exercises SET machine_notes = ? WHERE id = ?', machineNotes, exerciseId);
   });
 }
 
@@ -483,7 +511,7 @@ export function deleteTemplate(id: string): Promise<void> {
 export function getTemplateExercises(templateId: string): Promise<TemplateExercise[]> {
   return withDb('getTemplateExercises', async (database) => {
     const rows = await database.getAllAsync<TemplateExerciseJoinRow>(
-      `SELECT te.*, e.name as exercise_name, e.type as exercise_type, e.muscle_groups as exercise_muscle_groups, e.training_goal as exercise_training_goal, e.description as exercise_description, e.created_at as exercise_created_at, e.notes as exercise_notes
+      `SELECT te.*, e.name as exercise_name, e.type as exercise_type, e.muscle_groups as exercise_muscle_groups, e.training_goal as exercise_training_goal, e.description as exercise_description, e.created_at as exercise_created_at, e.notes as exercise_notes, e.form_notes as exercise_form_notes, e.machine_notes as exercise_machine_notes
        FROM template_exercises te
        JOIN exercises e ON te.exercise_id = e.id
        WHERE te.template_id = ?
@@ -814,6 +842,37 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
   });
 }
 
+export function getRecentExerciseHistory(exerciseId: string, limit = 3): Promise<{ date: string; setCount: number; bestSet: string }[]> {
+  return withDb('getRecentExerciseHistory', async (database) => {
+    const rows = await database.getAllAsync<{ started_at: string; set_count: number; best_weight: number; best_reps: number }>(
+      `SELECT w.started_at, COUNT(ws.id) as set_count,
+              ws_best.weight as best_weight, ws_best.reps as best_reps
+       FROM workouts w
+       INNER JOIN workout_sets ws ON ws.workout_id = w.id AND ws.exercise_id = ? AND ws.is_completed = 1
+       LEFT JOIN (
+         SELECT ws3.workout_id, ws3.weight, ws3.reps
+         FROM workout_sets ws3
+         WHERE ws3.exercise_id = ? AND ws3.is_completed = 1
+           AND ws3.weight = (
+             SELECT MAX(ws4.weight) FROM workout_sets ws4
+             WHERE ws4.workout_id = ws3.workout_id AND ws4.exercise_id = ? AND ws4.is_completed = 1
+           )
+         GROUP BY ws3.workout_id
+       ) ws_best ON ws_best.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+       GROUP BY w.id
+       ORDER BY w.started_at DESC
+       LIMIT ?`,
+      exerciseId, exerciseId, exerciseId, limit,
+    );
+    return rows.map(r => ({
+      date: r.started_at,
+      setCount: r.set_count,
+      bestSet: `${r.best_weight ?? 0}lb × ${r.best_reps ?? 0}`,
+    }));
+  });
+}
+
 // ─── PRs This Week ───
 
 export function getPRsThisWeek(): Promise<number> {
@@ -897,7 +956,8 @@ async function buildUpcomingExercises(
   const exerciseRows = await database.getAllAsync<UpcomingExerciseJoinRow>(
     `SELECT ue.*, e.id as e_id, e.user_id as e_user_id, e.name as e_name, e.type as e_type,
             e.muscle_groups as e_muscle_groups, e.training_goal as e_training_goal,
-            e.description as e_description, e.created_at as e_created_at, e.notes as e_notes
+            e.description as e_description, e.created_at as e_created_at, e.notes as e_notes,
+            e.form_notes as e_form_notes, e.machine_notes as e_machine_notes
      FROM upcoming_workout_exercises ue
      JOIN exercises e ON ue.exercise_id = e.id
      WHERE ue.upcoming_workout_id = ?

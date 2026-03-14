@@ -5,6 +5,10 @@ jest.mock('../../services/database', () => ({
   getWorkoutHistory: jest.fn().mockResolvedValue([]),
   getWorkoutSets: jest.fn().mockResolvedValue([]),
   getAllExercises: jest.fn().mockResolvedValue([]),
+  getBestE1RM: jest.fn().mockResolvedValue(null),
+  getRecentExerciseHistory: jest.fn().mockResolvedValue([]),
+  updateExerciseFormNotes: jest.fn().mockResolvedValue(undefined),
+  updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -19,9 +23,12 @@ jest.mock('@react-navigation/native', () => ({
   },
 }));
 
-jest.mock('../../components/ExerciseHistoryModal', () => {
+jest.mock('../../components/ExerciseDetailModal', () => {
+  const React = require('react');
   const { View } = require('react-native');
-  return (props: any) => props.visible ? require('react').createElement(View, { testID: 'exercise-history-modal' }) : null;
+  const MockModal = (props: any) => props.visible ? React.createElement(View, { testID: 'exercise-detail-modal' }) : null;
+  MockModal.default = MockModal;
+  return MockModal;
 });
 
 import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../../services/database';
@@ -141,7 +148,7 @@ describe('HistoryScreen', () => {
     });
 
     await waitFor(() => {
-      expect(getByTestId('exercise-history-modal')).toBeTruthy();
+      expect(getByTestId('exercise-detail-modal')).toBeTruthy();
     });
   });
 });

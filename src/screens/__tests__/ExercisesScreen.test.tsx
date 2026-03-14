@@ -4,11 +4,15 @@ import { getAllExercises } from '../../services/database';
 
 jest.mock('../../services/database', () => ({
   getAllExercises: jest.fn().mockResolvedValue([
-    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', notes: null },
-    { id: 'ex2', name: 'Squat', type: 'weighted', muscle_groups: ['Quads'], training_goal: 'strength', notes: null },
+    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', notes: null, form_notes: null, machine_notes: null },
+    { id: 'ex2', name: 'Squat', type: 'weighted', muscle_groups: ['Quads'], training_goal: 'strength', notes: null, form_notes: null, machine_notes: null },
   ]),
   getExerciseHistory: jest.fn().mockResolvedValue([]),
   updateExercise: jest.fn().mockResolvedValue(undefined),
+  getBestE1RM: jest.fn().mockResolvedValue(null),
+  getRecentExerciseHistory: jest.fn().mockResolvedValue([]),
+  updateExerciseFormNotes: jest.fn().mockResolvedValue(undefined),
+  updateExerciseMachineNotes: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({

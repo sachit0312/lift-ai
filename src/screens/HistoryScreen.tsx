@@ -15,7 +15,7 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, layout } from '../
 import { getWorkoutHistory, getWorkoutSets, getAllExercises } from '../services/database';
 import { formatDuration, formatDate } from '../utils/format';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
-import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
+import ExerciseDetailModal from '../components/ExerciseDetailModal';
 import type { Workout, WorkoutSet, Exercise } from '../types/database';
 
 interface WorkoutWithDuration extends Workout {
@@ -237,7 +237,7 @@ export default function HistoryScreen() {
           </View>
         }
       />
-      <ExerciseHistoryModal
+      <ExerciseDetailModal
         visible={!!historyModalExercise}
         exercise={historyModalExercise}
         onClose={handleCloseHistoryModal}

@@ -12,8 +12,8 @@ function makeBlock(
 ): ExerciseBlock {
   return {
     lastTime: null,
-    notesExpanded: false,
-    notes: '',
+    machineNotesExpanded: false,
+    machineNotes: '',
     restSeconds: 150,
     restEnabled: true,
     ...overrides,

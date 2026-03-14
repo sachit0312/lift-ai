@@ -11,6 +11,8 @@ const createExercise = (overrides: Partial<Exercise> = {}): Exercise => ({
   description: '',
   created_at: '2024-01-01',
   notes: null,
+  form_notes: null,
+  machine_notes: null,
   ...overrides,
 });
 

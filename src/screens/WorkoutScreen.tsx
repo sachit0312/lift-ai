@@ -22,7 +22,7 @@ import { useExerciseBlocks } from '../hooks/useExerciseBlocks';
 import { useSetCompletion } from '../hooks/useSetCompletion';
 import { useWorkoutLifecycle } from '../hooks/useWorkoutLifecycle';
 import type { ExerciseBlock } from '../types/workout';
-import type { Workout } from '../types/database';
+import type { Exercise, Workout } from '../types/database';
 import { colors, spacing, fontSize, modalStyles } from '../theme';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import { filterExercises } from '../utils/exerciseSearch';
@@ -30,7 +30,7 @@ import {
   startWorkoutActivity,
 } from '../services/liveActivity';
 import { RestTimerBar, ElapsedTimer } from '../components/WorkoutTimers';
-import ExerciseHistoryModal from '../components/ExerciseHistoryModal';
+import ExerciseDetailModal from '../components/ExerciseDetailModal';
 import ExerciseBlockItem from '../components/ExerciseBlockItem';
 import WorkoutSummary from '../components/WorkoutSummary';
 import NoActiveWorkout from '../components/WorkoutIdleScreen';
@@ -90,8 +90,8 @@ export default function WorkoutScreen() {
     originalBestE1RMRef, currentBestE1RMRef, prSetIdsRef,
     flushPendingSetWrites, clearPendingSetWrites,
     handleSetChange, handleCycleTag, handleAddSet, handleDeleteSet,
-    handleToggleNotes, handleToggleRestTimer, handleAdjustExerciseRest,
-    handleNotesChange, handleRemoveExercise,
+    handleToggleMachineNotes, handleToggleRestTimer, handleAdjustExerciseRest,
+    handleMachineNotesChange, handleRemoveExercise,
   } = useExerciseBlocks({
     workoutRef,
     blocksRef,
@@ -139,6 +139,15 @@ export default function WorkoutScreen() {
 
   // Stable callback for PR badge checks (avoids passing Set as prop)
   const isPRSet = useCallback((setId: string) => prSetIdsRef.current.has(setId), []);
+
+  // Update exercise blocks when notes change in detail modal
+  const handleExerciseUpdated = useCallback((updated: Exercise) => {
+    setExerciseBlocks(prev => prev.map(block =>
+      block.exercise.id === updated.id
+        ? { ...block, exercise: updated, machineNotes: updated.machine_notes ?? '' }
+        : block
+    ));
+  }, [setExerciseBlocks]);
 
   // Cleanup on unmount: flush pending writes, clear timers
   useEffect(() => {
@@ -324,9 +333,9 @@ export default function WorkoutScreen() {
             onSetChange={handleSetChange}
             onToggleComplete={handleToggleComplete}
             onAddSet={handleAddSet}
-            onToggleNotes={handleToggleNotes}
+            onToggleMachineNotes={handleToggleMachineNotes}
             onRemoveExercise={handleRemoveExercise}
-            onNotesChange={handleNotesChange}
+            onMachineNotesChange={handleMachineNotesChange}
             onExercisePress={lifecycle.setHistoryExercise}
           />
         ))}
@@ -504,12 +513,13 @@ export default function WorkoutScreen() {
       </Modal>
       )}
 
-      {/* Exercise history modal — lazy-mounted */}
+      {/* Exercise detail modal — lazy-mounted */}
       {lifecycle.historyExercise && (
-      <ExerciseHistoryModal
+      <ExerciseDetailModal
         visible
         exercise={lifecycle.historyExercise}
         onClose={lifecycle.handleCloseHistoryModal}
+        onExerciseUpdated={handleExerciseUpdated}
       />
       )}
 

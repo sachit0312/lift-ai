@@ -27,6 +27,8 @@ interface SyncExerciseRow {
   training_goal: string;
   description: string;
   notes: string | null;
+  form_notes: string | null;
+  machine_notes: string | null;
 }
 
 /** Template row for sync — subset of columns selected */
@@ -83,7 +85,7 @@ export async function syncToSupabase(): Promise<void> {
     const db = await getDb();
 
     // Exercises — select specific columns, parse muscle_groups
-    const exercises = await db.getAllAsync<SyncExerciseRow>('SELECT id, name, type, muscle_groups, training_goal, description, notes FROM exercises');
+    const exercises = await db.getAllAsync<SyncExerciseRow>('SELECT id, name, type, muscle_groups, training_goal, description, notes, form_notes, machine_notes FROM exercises');
     if (exercises.length > 0) {
       const parsed = exercises.map((e: SyncExerciseRow) => ({
         id: e.id,
@@ -94,6 +96,8 @@ export async function syncToSupabase(): Promise<void> {
         training_goal: e.training_goal,
         description: e.description,
         notes: e.notes,
+        form_notes: e.form_notes,
+        machine_notes: e.machine_notes,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
       if (error) { handleSyncError('exercises', error); return; }
@@ -207,6 +211,8 @@ interface PullExerciseRow {
   description: string;
   created_at: string;
   notes: string | null;
+  form_notes: string | null;
+  machine_notes: string | null;
 }
 
 /** Template row from Supabase */
@@ -247,16 +253,17 @@ async function pullExercises(): Promise<void> {
 
   for (const ex of exercises as PullExerciseRow[]) {
     await db.runAsync(
-      `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at, notes, form_notes, machine_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          user_id=excluded.user_id, name=excluded.name, type=excluded.type,
          muscle_groups=excluded.muscle_groups, training_goal=excluded.training_goal,
          description=excluded.description, created_at=excluded.created_at,
-         notes=excluded.notes`,
+         notes=excluded.notes, form_notes=excluded.form_notes, machine_notes=excluded.machine_notes`,
       ex.id, ex.user_id, ex.name, ex.type,
       JSON.stringify(ex.muscle_groups ?? []),
       ex.training_goal, ex.description, ex.created_at, ex.notes ?? null,
+      ex.form_notes ?? null, ex.machine_notes ?? null,
     );
   }
 
