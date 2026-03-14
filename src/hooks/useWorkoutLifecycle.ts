@@ -53,6 +53,8 @@ import {
   applyWorkoutChangesToTemplate,
   updateWorkoutSessionNotes,
   clearLocalUpcomingWorkout,
+  getUserExerciseNotes,
+  getUserExerciseNotesBatch,
 } from '../services/database';
 
 const BACKGROUND_PULL_TIMEOUT_MS = 15000;
@@ -233,7 +235,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       is_completed: false,
       previous: previousSets[i] ?? null,
     }));
-    const stickyNotes = exercise.machine_notes ?? '';
+    const userNotes = await getUserExerciseNotes(exercise.id);
+    const stickyNotes = userNotes?.machine_notes ?? '';
     return { exercise, sets, lastTime, machineNotesExpanded: stickyNotes.length > 0, machineNotes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
   }
 
@@ -353,6 +356,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     const exercises = await getBulkExercises(exerciseOrder);
     const exerciseLookup = new Map(exercises.map(e => [e.id, e]));
 
+    const notesMap = await getUserExerciseNotesBatch(exerciseOrder);
+
     const validExIds = exerciseOrder.filter(id => exerciseLookup.has(id));
     const [historyResults, e1rmResults] = await Promise.all([
       Promise.all(validExIds.map(id => getExerciseHistoryData(id))),
@@ -367,7 +372,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       const bestE1RM = e1rmResults[i] ?? undefined;
       originalBestE1RMRef.current.set(exId, bestE1RM);
       currentBestE1RMRef.current.set(exId, bestE1RM);
-      const restoredNotes = exercise.machine_notes || '';
+      const restoredNotes = notesMap.get(exId)?.machine_notes ?? '';
 
       blocks.push({
         exercise,
@@ -593,7 +598,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       is_completed: false,
       notes: null,
     });
-    const stickyNotes = exercise.machine_notes ?? '';
+    const userNotes = await getUserExerciseNotes(exercise.id);
+    const stickyNotes = userNotes?.machine_notes ?? '';
     const bestE1RM = await getBestE1RM(exercise.id) ?? undefined;
     originalBestE1RMRef.current.set(exercise.id, bestE1RM);
     currentBestE1RMRef.current.set(exercise.id, bestE1RM);
