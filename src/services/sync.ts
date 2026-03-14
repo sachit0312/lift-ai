@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
-import { getDb, clearLocalUpcomingWorkout } from './database';
+import { getDb, clearLocalUpcomingWorkout, getCurrentUserId } from './database';
 
 function handleSyncError(label: string, error: unknown): void {
   if (__DEV__) console.error(`Sync ${label} error:`, error);
@@ -21,11 +21,17 @@ export function fireAndForgetSync(): void {
 /** Exercise row for sync — subset of columns selected */
 interface SyncExerciseRow {
   id: string;
+  user_id: string | null;
   name: string;
   type: string;
   muscle_groups: string;
   training_goal: string;
   description: string;
+}
+
+/** User exercise notes row for sync */
+interface SyncExerciseNotesRow {
+  exercise_id: string;
   notes: string | null;
   form_notes: string | null;
   machine_notes: string | null;
@@ -84,8 +90,10 @@ export async function syncToSupabase(): Promise<void> {
 
     const db = await getDb();
 
-    // Exercises — select specific columns, parse muscle_groups
-    const exercises = await db.getAllAsync<SyncExerciseRow>('SELECT id, name, type, muscle_groups, training_goal, description, notes, form_notes, machine_notes FROM exercises');
+    // Exercises — only push custom exercises (global exercises have user_id = NULL)
+    const exercises = await db.getAllAsync<SyncExerciseRow>(
+      'SELECT id, user_id, name, type, muscle_groups, training_goal, description FROM exercises WHERE user_id IS NOT NULL'
+    );
     if (exercises.length > 0) {
       const parsed = exercises.map((e: SyncExerciseRow) => ({
         id: e.id,
@@ -95,12 +103,26 @@ export async function syncToSupabase(): Promise<void> {
         muscle_groups: JSON.parse(e.muscle_groups || '[]'),
         training_goal: e.training_goal,
         description: e.description,
-        notes: e.notes,
-        form_notes: e.form_notes,
-        machine_notes: e.machine_notes,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
       if (error) { handleSyncError('exercises', error); return; }
+    }
+
+    // User exercise notes — push all
+    const noteRows = await db.getAllAsync<SyncExerciseNotesRow>(
+      'SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ?',
+      getCurrentUserId(),
+    );
+    if (noteRows.length > 0) {
+      const mappedNotes = noteRows.map(n => ({
+        user_id: session.user.id,
+        exercise_id: n.exercise_id,
+        notes: n.notes,
+        form_notes: n.form_notes,
+        machine_notes: n.machine_notes,
+      }));
+      const { error: notesErr } = await supabase.from('user_exercise_notes').upsert(mappedNotes, { onConflict: 'user_id,exercise_id' });
+      if (notesErr) { handleSyncError('user_exercise_notes', notesErr); return; }
     }
 
     // Templates — select specific columns
@@ -203,16 +225,13 @@ export async function deleteUpcomingWorkoutFromSupabase(upcomingWorkoutId: strin
 /** Exercise row from Supabase (muscle_groups is JSONB array) */
 interface PullExerciseRow {
   id: string;
-  user_id: string;
+  user_id: string | null;
   name: string;
   type: string;
   muscle_groups: string[];
   training_goal: string;
   description: string;
   created_at: string;
-  notes: string | null;
-  form_notes: string | null;
-  machine_notes: string | null;
 }
 
 /** Template row from Supabase */
@@ -245,26 +264,42 @@ async function pullExercises(): Promise<void> {
 
   const { data: exercises, error } = await supabase
     .from('exercises')
-    .select('*')
-    .eq('user_id', session.user.id);
+    .select('id, user_id, name, type, muscle_groups, training_goal, description, created_at');
 
   if (error) { handleSyncError('pull exercises', error); return; }
   if (!exercises || exercises.length === 0) return;
 
   for (const ex of exercises as PullExerciseRow[]) {
     await db.runAsync(
-      `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at, notes, form_notes, machine_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          user_id=excluded.user_id, name=excluded.name, type=excluded.type,
          muscle_groups=excluded.muscle_groups, training_goal=excluded.training_goal,
-         description=excluded.description, created_at=excluded.created_at,
-         notes=excluded.notes, form_notes=excluded.form_notes, machine_notes=excluded.machine_notes`,
+         description=excluded.description, created_at=excluded.created_at`,
       ex.id, ex.user_id, ex.name, ex.type,
       JSON.stringify(ex.muscle_groups ?? []),
-      ex.training_goal, ex.description, ex.created_at, ex.notes ?? null,
-      ex.form_notes ?? null, ex.machine_notes ?? null,
+      ex.training_goal, ex.description, ex.created_at,
     );
+  }
+
+  // Pull user's exercise notes
+  const { data: notes, error: notesErr } = await supabase
+    .from('user_exercise_notes')
+    .select('exercise_id, notes, form_notes, machine_notes')
+    .eq('user_id', session.user.id);
+
+  if (notesErr) { handleSyncError('pull exercise notes', notesErr); }
+  else if (notes && notes.length > 0) {
+    for (const n of notes) {
+      await db.runAsync(
+        `INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+           notes=excluded.notes, form_notes=excluded.form_notes, machine_notes=excluded.machine_notes`,
+        session.user.id, n.exercise_id, n.notes ?? null, n.form_notes ?? null, n.machine_notes ?? null,
+      );
+    }
   }
 
   if (__DEV__) console.log('Pull exercises complete');
