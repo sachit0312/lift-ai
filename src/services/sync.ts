@@ -143,7 +143,14 @@ export async function syncToSupabase(): Promise<void> {
     // Workouts (only finished) — select specific columns
     const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, ai_summary, session_notes FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
-      const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({ ...w, user_id: session.user.id }));
+      const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({
+        ...w,
+        user_id: session.user.id,
+        // Nullify upcoming_workout_id — the referenced upcoming_workout is ephemeral
+        // and may have been deleted by create_upcoming_workout before this sync runs,
+        // which would cause an FK constraint violation on insert.
+        upcoming_workout_id: null,
+      }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
       if (error) { handleSyncError('workouts', error); return; }
     }

@@ -203,9 +203,32 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(workoutBuilder.upsert).toHaveBeenCalledWith(
-      [{ ...mockWorkouts[0], user_id: 'user-123' }],
+      [{ ...mockWorkouts[0], user_id: 'user-123', upcoming_workout_id: null }],
       { onConflict: 'id' },
     );
+  });
+
+  it('nullifies upcoming_workout_id to avoid FK violation on deleted upcoming_workouts', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', template_id: 'tpl-1', upcoming_workout_id: 'uw-deleted-999', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+    ];
+
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce(mockWorkouts);
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // workout_sets
+
+    const workoutBuilder = mockQueryBuilder();
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    await syncToSupabase();
+
+    const [payload] = workoutBuilder.upsert.mock.calls[0];
+    expect(payload[0].upcoming_workout_id).toBeNull();
   });
 
   it('syncs workout_sets with is_completed converted to boolean', async () => {
