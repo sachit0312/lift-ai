@@ -26,11 +26,11 @@ const MIN_UPDATE_INTERVAL_MS = 500;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldShowAlert: false,
+    shouldPlaySound: false,
     shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: false,
+    shouldShowBanner: false,
+    shouldShowList: true,
   }),
 });
 
