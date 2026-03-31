@@ -70,15 +70,27 @@ export async function requestNotificationPermissions(): Promise<void> {
  */
 export async function startWorkoutActivity(exerciseName: string, subtitle: string): Promise<void> {
   if (Platform.OS !== 'ios') return;
-  try {
-    // Stop any existing activity first
-    if (currentActivityId) {
-      try {
-        LiveActivity.stopActivity(currentActivityId, { title: 'Done', subtitle: '' });
-      } catch {
-        // Activity may already be dismissed
+
+  // If we already have an activity, try to update it (idempotent — no stacking)
+  if (currentActivityId) {
+    try {
+      LiveActivity.updateActivity(currentActivityId, { title: exerciseName, subtitle });
+      currentExerciseName = exerciseName;
+      lastContentStateJSON = JSON.stringify({ title: exerciseName, subtitle });
+      lastUpdateTimestamp = Date.now();
+      return;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '';
+      if (/not found/i.test(message)) {
+        currentActivityId = null;
+      } else {
+        return;
       }
     }
+  }
+
+  // No existing activity — create fresh
+  try {
     currentEndTime = 0;
     currentExerciseName = exerciseName;
     await cancelTimerEndNotification();
@@ -98,7 +110,6 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
     );
 
     currentActivityId = activityId ?? null;
-    // Reset dedup/throttle state for fresh activity
     lastContentStateJSON = '';
     lastUpdateTimestamp = 0;
     if (pendingUpdate) {

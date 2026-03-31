@@ -48,12 +48,13 @@ describe('liveActivity service', () => {
       );
     });
 
-    it('stops previous activity before starting new one', async () => {
+    it('reuses existing activity on second call instead of creating new', async () => {
       await startWorkoutActivity('First', 'Set 1/3');
       await startWorkoutActivity('Second', 'Set 1/4');
 
-      expect(LiveActivity.stopActivity).toHaveBeenCalled();
-      expect(LiveActivity.startActivity).toHaveBeenCalledTimes(2);
+      expect(LiveActivity.startActivity).toHaveBeenCalledTimes(1);
+      expect(LiveActivity.updateActivity).toHaveBeenCalledTimes(1);
+      expect(LiveActivity.stopActivity).not.toHaveBeenCalled();
     });
   });
 

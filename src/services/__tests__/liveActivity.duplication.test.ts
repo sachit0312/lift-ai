@@ -50,32 +50,25 @@ describe('Live Activity duplication bugs', () => {
   // This creates a NEW Live Activity each time, stacking widgets on lock screen.
 
   describe('focus-triggered activity stacking', () => {
-    it('calling startWorkoutActivity multiple times creates multiple startActivity calls', async () => {
-      // Simulates: user starts workout, tabs away, tabs back (focus fires loadState again)
+    it('calling startWorkoutActivity multiple times reuses existing activity', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       await startWorkoutActivity('Bench Press', 'Set 2/4');
       await startWorkoutActivity('Bench Press', 'Set 3/4');
 
-      // Each call creates a new activity — even though it tries to stop the old one first
-      expect(LiveActivity.startActivity).toHaveBeenCalledTimes(3);
+      expect(LiveActivity.startActivity).toHaveBeenCalledTimes(1);
+      expect(LiveActivity.updateActivity).toHaveBeenCalledTimes(2);
     });
 
-    it('stopActivity failure before new start leaves orphaned activity', async () => {
-      // First activity
+    it('creates new activity when existing one is dead (not found)', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
 
-      // Simulate: stopActivity fails silently (activity already dismissed by iOS)
-      (LiveActivity.stopActivity as jest.Mock).mockImplementationOnce(() => {
+      (LiveActivity.updateActivity as jest.Mock).mockImplementationOnce(() => {
         throw new Error('Activity not found');
       });
 
-      // Second call — stop fails but start still creates a new one
       await startWorkoutActivity('Bench Press', 'Set 2/4');
 
-      // TWO activities were started, but only one was (attempted to be) stopped
-      // The first activity may still be alive on the lock screen
       expect(LiveActivity.startActivity).toHaveBeenCalledTimes(2);
-      expect(LiveActivity.stopActivity).toHaveBeenCalledTimes(1);
     });
 
     it('startActivity returning null/undefined leaves currentActivityId tracking broken', async () => {
@@ -165,13 +158,14 @@ describe('Live Activity duplication bugs', () => {
   // If these overlap or fire in sequence, we get stacked activities.
 
   describe('multiple start paths', () => {
-    it('activateWorkout + loadActiveWorkout sequence creates two activities', async () => {
+    it('activateWorkout + loadActiveWorkout sequence reuses activity', async () => {
       // Simulates: user starts workout (activateWorkout) then immediately
       // tabs away and back (loadState → loadActiveWorkout)
       await startWorkoutActivity('Bench Press', 'Set 1/4'); // activateWorkout
       await startWorkoutActivity('Bench Press', 'Set 1/4'); // loadActiveWorkout (resume)
 
-      expect(LiveActivity.startActivity).toHaveBeenCalledTimes(2);
+      // Idempotent: only one activity created, second call updates
+      expect(LiveActivity.startActivity).toHaveBeenCalledTimes(1);
     });
   });
 
