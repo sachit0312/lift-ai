@@ -23,7 +23,10 @@ import {
   adjustRestTimerActivity,
   applyPendingWidgetActions,
 } from '../liveActivity';
-import { setItem, removeItem, __resetStore } from 'modules/shared-user-defaults';
+import { setItem, removeItem } from '../../../modules/shared-user-defaults';
+
+// __resetStore is a test helper only in the mock (src/__mocks__/shared-user-defaults.ts)
+const { __resetStore } = require('modules/shared-user-defaults') as { __resetStore: () => void };
 
 const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
 const flushNotificationChain = async () => {

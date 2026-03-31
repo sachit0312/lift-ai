@@ -4,7 +4,7 @@ import type { LiveActivityState } from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
-import { getItem, removeItem } from 'modules/shared-user-defaults';
+import { getItem, removeItem } from '../../modules/shared-user-defaults';
 import { colors } from '../theme';
 
 // ─── Module-level state (singleton) ───
@@ -313,7 +313,7 @@ export function applyPendingWidgetActions(): number {
 let notificationChain: Promise<void> = Promise.resolve();
 
 function serializedNotificationOp(fn: () => Promise<void>): void {
-  notificationChain = notificationChain.then(fn).catch(e => Sentry.captureException(e));
+  notificationChain = notificationChain.then(fn).catch(e => { Sentry.captureException(e); });
 }
 
 // ─── Internal helpers ───
