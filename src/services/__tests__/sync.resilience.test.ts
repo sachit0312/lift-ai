@@ -115,7 +115,7 @@ describe('syncToSupabase resilience', () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  it('handles network offline: exercise upsert returns network error — reports to Sentry and returns early', async () => {
+  it('handles network offline: exercise upsert returns network error — reports to Sentry but continues', async () => {
     setSessionAuthenticated();
 
     __mockDb.getAllAsync.mockResolvedValueOnce([MOCK_EXERCISE_ROW]);
@@ -128,11 +128,11 @@ describe('syncToSupabase resilience', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(networkError);
-    // Should return early — no further getAllAsync calls for templates, etc.
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(1);
+    // All 6 steps still execute (resilient sync — no early return)
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(6);
   });
 
-  it('handles timeout error from Supabase exercises upsert — reports to Sentry', async () => {
+  it('handles timeout error from Supabase exercises upsert — reports to Sentry but continues', async () => {
     setSessionAuthenticated();
 
     __mockDb.getAllAsync.mockResolvedValueOnce([MOCK_EXERCISE_ROW]);
@@ -145,11 +145,11 @@ describe('syncToSupabase resilience', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(timeoutError);
-    // Early return — templates not fetched
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(1);
+    // All 6 steps still execute
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(6);
   });
 
-  it('handles RLS violation from upsert — reports to Sentry', async () => {
+  it('handles RLS violation from upsert — reports to Sentry but continues', async () => {
     setSessionAuthenticated();
 
     __mockDb.getAllAsync.mockResolvedValueOnce([MOCK_EXERCISE_ROW]);
@@ -162,13 +162,21 @@ describe('syncToSupabase resilience', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(rlsError);
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(1);
+    // All 6 steps still execute
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(6);
   });
 
-  it('partial failure: exercises upsert fails, later tables NOT attempted (early return)', async () => {
+  it('partial failure: exercises upsert fails, later tables still attempted (resilient sync)', async () => {
     setSessionAuthenticated();
 
     __mockDb.getAllAsync.mockResolvedValueOnce([MOCK_EXERCISE_ROW]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
+    __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'tpl-1', name: 'Push' }]); // templates
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { id: 'w-1', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+    ]); // workouts
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // workout_sets
 
     const exerciseError = { message: 'connection reset', code: 'XX000' };
     const exerciseBuilder = mockQueryBuilder();
@@ -176,30 +184,28 @@ describe('syncToSupabase resilience', () => {
     mockFromHandlers['exercises'] = exerciseBuilder;
 
     const templateBuilder = mockQueryBuilder();
+    templateBuilder.upsert.mockResolvedValue({ error: null });
     mockFromHandlers['templates'] = templateBuilder;
-    const teBuilder = mockQueryBuilder();
-    mockFromHandlers['template_exercises'] = teBuilder;
+
     const workoutBuilder = mockQueryBuilder();
+    workoutBuilder.upsert.mockResolvedValue({ error: null });
     mockFromHandlers['workouts'] = workoutBuilder;
-    const setsBuilder = mockQueryBuilder();
-    mockFromHandlers['workout_sets'] = setsBuilder;
 
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(exerciseError);
-    // Only exercises getAllAsync was called, not templates/template_exercises/workouts/sets
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(1);
-    // Templates, template_exercises, workouts, workout_sets upsert never called
-    expect(templateBuilder.upsert).not.toHaveBeenCalled();
-    expect(teBuilder.upsert).not.toHaveBeenCalled();
-    expect(workoutBuilder.upsert).not.toHaveBeenCalled();
-    expect(setsBuilder.upsert).not.toHaveBeenCalled();
+    // All 6 steps execute despite exercise failure
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(6);
+    // Verify later upserts were actually called (not just queries)
+    expect(templateBuilder.upsert).toHaveBeenCalled();
+    expect(workoutBuilder.upsert).toHaveBeenCalled();
   });
 
   it('empty database: no data in any table — completes without error, no upserts sent', async () => {
     setSessionAuthenticated();
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts

@@ -301,7 +301,7 @@ describe('syncToSupabase', () => {
     );
   });
 
-  it('stops syncing and reports to Sentry when exercise upsert fails', async () => {
+  it('reports to Sentry when exercise upsert fails but continues syncing remaining steps', async () => {
     setSessionAuthenticated();
 
     const supabaseError = { message: 'RLS policy violation', code: '42501' };
@@ -317,11 +317,11 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
-    // Should not proceed to templates
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(1);
+    // All 6 steps still execute (resilient sync — no early return)
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(6);
   });
 
-  it('stops syncing and reports to Sentry when template upsert fails', async () => {
+  it('reports to Sentry when template upsert fails but continues syncing remaining steps', async () => {
     setSessionAuthenticated();
 
     const supabaseError = { message: 'Template sync failed', code: '500' };
@@ -339,10 +339,11 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(3);
+    // All 6 steps still execute (resilient sync — no early return)
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(6);
   });
 
-  it('stops syncing and reports to Sentry when template_exercises upsert fails', async () => {
+  it('reports to Sentry when template_exercises upsert fails but continues syncing remaining steps', async () => {
     setSessionAuthenticated();
 
     const supabaseError = { message: 'template_exercises sync failed' };
@@ -361,10 +362,11 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
-    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(4);
+    // All 6 steps still execute
+    expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(6);
   });
 
-  it('stops syncing and reports to Sentry when workouts upsert fails', async () => {
+  it('reports to Sentry when workouts upsert fails and skips workout_sets (FK dependency)', async () => {
     setSessionAuthenticated();
 
     const supabaseError = { message: 'workouts sync failed' };
@@ -384,6 +386,7 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
+    // 5 steps execute — workout_sets skipped because workouts failed (FK dependency)
     expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(5);
   });
 

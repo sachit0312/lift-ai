@@ -90,6 +90,7 @@ export async function syncToSupabase(): Promise<void> {
 
     const db = await getDb();
 
+    // Each sync step runs independently — one step's failure must not block others.
     // Exercises — only push custom exercises (global exercises have user_id = NULL)
     const exercises = await db.getAllAsync<SyncExerciseRow>(
       'SELECT id, user_id, name, type, muscle_groups, training_goal, description FROM exercises WHERE user_id IS NOT NULL'
@@ -105,7 +106,7 @@ export async function syncToSupabase(): Promise<void> {
         description: e.description,
       }));
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
-      if (error) { handleSyncError('exercises', error); return; }
+      if (error) handleSyncError('exercises', error);
     }
 
     // User exercise notes — push all (use session.user.id, not getCurrentUserId(), to avoid stale 'local' on token refresh)
@@ -122,7 +123,7 @@ export async function syncToSupabase(): Promise<void> {
         machine_notes: n.machine_notes,
       }));
       const { error: notesErr } = await supabase.from('user_exercise_notes').upsert(mappedNotes, { onConflict: 'user_id,exercise_id' });
-      if (notesErr) { handleSyncError('user_exercise_notes', notesErr); return; }
+      if (notesErr) handleSyncError('user_exercise_notes', notesErr);
     }
 
     // Templates — select specific columns
@@ -130,17 +131,18 @@ export async function syncToSupabase(): Promise<void> {
     if (templates.length > 0) {
       const mapped = templates.map((t: SyncTemplateRow) => ({ ...t, user_id: session.user.id }));
       const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
-      if (error) { handleSyncError('templates', error); return; }
+      if (error) handleSyncError('templates', error);
     }
 
     // Template exercises — select specific columns (including rest_seconds, warmup_sets for Supabase sync)
     const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, sort_order, default_sets, warmup_sets, rest_seconds FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
-      if (error) { handleSyncError('template_exercises', error); return; }
+      if (error) handleSyncError('template_exercises', error);
     }
 
     // Workouts (only finished) — select specific columns
+    let workoutsOk = true;
     const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, ai_summary, session_notes FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({
@@ -152,23 +154,25 @@ export async function syncToSupabase(): Promise<void> {
         upcoming_workout_id: null,
       }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
-      if (error) { handleSyncError('workouts', error); return; }
+      if (error) { handleSyncError('workouts', error); workoutsOk = false; }
     }
 
-    // Workout sets — only for finished workouts, convert is_completed to boolean
-    const workoutSets = await db.getAllAsync<SyncWorkoutSetRow>(
-      `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed, ws.target_weight, ws.target_reps, ws.target_rpe, ws.exercise_order
-       FROM workout_sets ws
-       JOIN workouts w ON ws.workout_id = w.id
-       WHERE w.finished_at IS NOT NULL`
-    );
-    if (workoutSets.length > 0) {
-      const mapped = workoutSets.map((s: SyncWorkoutSetRow) => ({
-        ...s,
-        is_completed: !!s.is_completed,
-      }));
-      const { error } = await supabase.from('workout_sets').upsert(mapped, { onConflict: 'id' });
-      if (error) { handleSyncError('workout_sets', error); return; }
+    // Workout sets — only attempt if workouts upsert succeeded (FK dependency on workout_id)
+    if (workoutsOk) {
+      const workoutSets = await db.getAllAsync<SyncWorkoutSetRow>(
+        `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed, ws.target_weight, ws.target_reps, ws.target_rpe, ws.exercise_order
+         FROM workout_sets ws
+         JOIN workouts w ON ws.workout_id = w.id
+         WHERE w.finished_at IS NOT NULL`
+      );
+      if (workoutSets.length > 0) {
+        const mapped = workoutSets.map((s: SyncWorkoutSetRow) => ({
+          ...s,
+          is_completed: !!s.is_completed,
+        }));
+        const { error } = await supabase.from('workout_sets').upsert(mapped, { onConflict: 'id' });
+        if (error) handleSyncError('workout_sets', error);
+      }
     }
 
     if (__DEV__) console.log('Sync to Supabase complete');
