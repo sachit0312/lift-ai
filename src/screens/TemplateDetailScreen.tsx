@@ -118,6 +118,7 @@ export default function TemplateDetailScreen() {
           removeExerciseFromTemplate(item.id)
             .then(() => {
               deleteTemplateExerciseFromSupabase(item.id); // fire-and-forget
+              pushTemplateOrderToSupabase(templateId); // push compacted sort_order
               return loadExercises();
             })
             .catch((e) => {

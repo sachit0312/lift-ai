@@ -188,17 +188,23 @@ export async function syncToSupabase(): Promise<void> {
  *  Separated from general sync to prevent stale sort_order from overwriting MCP changes. */
 export async function pushTemplateOrderToSupabase(templateId: string): Promise<void> {
   try {
-    const session = await supabase.auth.getSession();
-    if (!session.data?.session) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
     const db = await getDb();
     const rows = await db.getAllAsync<{ id: string; sort_order: number }>(
       'SELECT id, sort_order FROM template_exercises WHERE template_id = ?', templateId
     );
     if (rows.length === 0) return;
-    // Use individual updates since upsert requires all NOT NULL columns
-    await Promise.all(rows.map(row =>
+    // Individual updates — only sort_order should change; other columns are managed by general sync
+    const results = await Promise.all(rows.map(row =>
       supabase.from('template_exercises').update({ sort_order: row.sort_order }).eq('id', row.id)
     ));
+    for (const { error } of results) {
+      if (error) {
+        if (__DEV__) console.error('pushTemplateOrderToSupabase row error:', error);
+        Sentry.captureException(error);
+      }
+    }
   } catch (e) {
     if (__DEV__) console.error('pushTemplateOrderToSupabase error:', e);
     Sentry.captureException(e);

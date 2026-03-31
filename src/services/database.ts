@@ -614,23 +614,25 @@ export function addExerciseToTemplate(templateId: string, exerciseId: string, de
 
 export function removeExerciseFromTemplate(id: string): Promise<void> {
   return withDb('removeExerciseFromTemplate', async (database) => {
-    // Get template_id before deleting
+    // Get template_id before deleting so we can re-compact sort_order
     const row = await database.getFirstAsync<{ template_id: string }>(
       'SELECT template_id FROM template_exercises WHERE id = ?', id
     );
-    await database.runAsync('DELETE FROM template_exercises WHERE id = ?', id);
-    // Re-compact sort_order if we know the template
     if (row) {
-      const remaining = await database.getAllAsync<{ id: string }>(
-        'SELECT id FROM template_exercises WHERE template_id = ? ORDER BY sort_order', row.template_id
-      );
+      // Delete + re-compact in a single transaction for atomicity
       await database.withTransactionAsync(async () => {
+        await database.runAsync('DELETE FROM template_exercises WHERE id = ?', id);
+        const remaining = await database.getAllAsync<{ id: string }>(
+          'SELECT id FROM template_exercises WHERE template_id = ? ORDER BY sort_order', row.template_id
+        );
         for (let i = 0; i < remaining.length; i++) {
           await database.runAsync(
             'UPDATE template_exercises SET sort_order = ? WHERE id = ?', i, remaining[i].id
           );
         }
       });
+    } else {
+      await database.runAsync('DELETE FROM template_exercises WHERE id = ?', id);
     }
   });
 }
