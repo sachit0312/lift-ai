@@ -76,7 +76,7 @@ describe('useRestTimer', () => {
     expect(result.current.currentEndTime).toBeGreaterThan(0);
 
     expect(onRestUpdate).toHaveBeenCalledTimes(1);
-    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
+    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number), 'Bench Press');
     // End time should be roughly now + 120s
     const endTime = onRestUpdate.mock.calls[0][1];
     expect(endTime).toBeGreaterThanOrEqual(Date.now() + 119 * 1000);

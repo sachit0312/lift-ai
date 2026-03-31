@@ -9,7 +9,7 @@ import {
 
 interface UseRestTimerOptions {
   onRestEnd: () => void;
-  onRestUpdate: (isResting: boolean, endTime: number) => void;
+  onRestUpdate: (isResting: boolean, endTime: number, exerciseName?: string) => void;
 }
 
 interface UseRestTimerReturn {
@@ -75,7 +75,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     setIsResting(true);
     setCurrentEndTime(endTime);
 
-    onRestUpdateRef.current(true, endTime);
+    onRestUpdateRef.current(true, endTime, exerciseName);
 
     // Schedule notification for when timer ends (Fix 1)
     // Routed through serialized queue to prevent race with adjustRestTimerActivity
