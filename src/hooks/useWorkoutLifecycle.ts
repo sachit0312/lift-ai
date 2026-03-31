@@ -20,6 +20,7 @@ import { computeSetDiffs, buildTemplateUpdatePlan } from '../utils/setDiff';
 import type { TemplateUpdatePlan } from '../utils/setDiff';
 import {
   fireAndForgetSync,
+  pushTemplateOrderToSupabase,
   pullUpcomingWorkout,
   pullExercisesAndTemplates,
   pullWorkoutHistory,
@@ -855,6 +856,9 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
             try {
               await applyWorkoutChangesToTemplate(templateUpdatePlan);
               fireAndForgetSync();
+              if (templateUpdatePlan.reorderedTemplateExerciseIds) {
+                pushTemplateOrderToSupabase(templateUpdatePlan.templateId);
+              }
               setTemplateUpdatePlan(null);
               setTemplateChangeDescriptions([]);
             } catch (e) {

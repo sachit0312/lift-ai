@@ -16,7 +16,7 @@ import {
   updateTemplateExerciseOrder,
   updateTemplate,
 } from '../services/database';
-import { deleteTemplateExerciseFromSupabase, fireAndForgetSync } from '../services/sync';
+import { deleteTemplateExerciseFromSupabase, fireAndForgetSync, pushTemplateOrderToSupabase } from '../services/sync';
 import type { TemplateExercise } from '../types/database';
 import * as Sentry from '@sentry/react-native';
 
@@ -135,7 +135,7 @@ export default function TemplateDetailScreen() {
     setExercises(data);
     const orderedIds = data.map((e) => e.id);
     updateTemplateExerciseOrder(templateId, orderedIds)
-      .then(() => { fireAndForgetSync(); })
+      .then(() => { fireAndForgetSync(); pushTemplateOrderToSupabase(templateId); })
       .catch((e) => {
         if (__DEV__) console.error('Failed to update exercise order', e);
         Sentry.captureException(e);

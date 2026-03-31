@@ -43,12 +43,13 @@ interface SyncTemplateRow {
   name: string;
 }
 
-/** Template exercise row for sync — subset of columns selected */
+/** Template exercise row for sync — subset of columns selected.
+ *  sort_order intentionally excluded — pushed only by explicit reorder operations
+ *  (drag-to-reorder, F5 template update) to prevent overwriting MCP changes. */
 interface SyncTemplateExerciseRow {
   id: string;
   template_id: string;
   exercise_id: string;
-  sort_order: number;
   default_sets: number;
   warmup_sets: number;
   rest_seconds: number;
@@ -135,8 +136,8 @@ export async function syncToSupabase(): Promise<void> {
       if (error) handleSyncError('templates', error);
     }
 
-    // Template exercises — select specific columns (including rest_seconds, warmup_sets for Supabase sync)
-    const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, sort_order, default_sets, warmup_sets, rest_seconds FROM template_exercises');
+    // Template exercises — select specific columns (sort_order excluded — pushed only by explicit reorder ops)
+    const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, default_sets, warmup_sets, rest_seconds FROM template_exercises');
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
       if (error) handleSyncError('template_exercises', error);
@@ -179,6 +180,28 @@ export async function syncToSupabase(): Promise<void> {
     if (__DEV__) console.log('Sync to Supabase complete');
   } catch (err) {
     handleSyncError('syncToSupabase', err);
+  }
+}
+
+/** Push sort_order for a specific template to Supabase.
+ *  Called after explicit reorder operations (drag-to-reorder, F5 template update).
+ *  Separated from general sync to prevent stale sort_order from overwriting MCP changes. */
+export async function pushTemplateOrderToSupabase(templateId: string): Promise<void> {
+  try {
+    const session = await supabase.auth.getSession();
+    if (!session.data?.session) return;
+    const db = await getDb();
+    const rows = await db.getAllAsync<{ id: string; sort_order: number }>(
+      'SELECT id, sort_order FROM template_exercises WHERE template_id = ?', templateId
+    );
+    if (rows.length === 0) return;
+    // Use individual updates since upsert requires all NOT NULL columns
+    await Promise.all(rows.map(row =>
+      supabase.from('template_exercises').update({ sort_order: row.sort_order }).eq('id', row.id)
+    ));
+  } catch (e) {
+    if (__DEV__) console.error('pushTemplateOrderToSupabase error:', e);
+    Sentry.captureException(e);
   }
 }
 
