@@ -5,6 +5,7 @@ import {
   stopRestTimerActivity,
   scheduleRestNotification,
   isRestNotificationScheduled,
+  applyPendingWidgetActions,
 } from '../services/liveActivity';
 
 interface UseRestTimerOptions {
@@ -130,18 +131,25 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       } else if (nextState === 'active') {
         // ─── Resync rest timer on foreground return ───
         if (restRef.current !== null) {
+          // Apply any pending widget intent actions (e.g., +/-15s taps from lock screen)
+          const delta = applyPendingWidgetActions();
+          if (delta === -Infinity) {
+            // Widget user tapped "skip rest"
+            endRest(false);
+            return;
+          }
+          if (delta !== 0) {
+            currentEndTimeRef.current += delta * 1000;
+          }
+
           const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
           if (remaining <= 0) {
             endRest(false); // no vibrate — notification already fired
-            // wasBackgroundedRef stays true — endingRef guards any lagging interval tick
           } else {
             setRestSeconds(remaining);
-            // Timer still running — clear flag after a short delay so unfrozen
-            // interval ticks also see it, but any subsequent natural expiry vibrates
             setTimeout(() => { wasBackgroundedRef.current = false; }, 500);
           }
         } else {
-          // No active timer — nothing to protect against
           wasBackgroundedRef.current = false;
         }
       }

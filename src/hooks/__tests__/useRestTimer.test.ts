@@ -9,6 +9,7 @@ jest.mock('../../services/liveActivity', () => ({
   stopRestTimerActivity: jest.fn(),
   scheduleRestNotification: jest.fn(),
   isRestNotificationScheduled: jest.fn(() => true), // notification scheduled by default
+  applyPendingWidgetActions: jest.fn(() => 0), // default: no actions
 }));
 
 const {
@@ -16,6 +17,7 @@ const {
   stopRestTimerActivity,
   scheduleRestNotification,
   isRestNotificationScheduled,
+  applyPendingWidgetActions,
 } = require('../../services/liveActivity');
 
 // Capture the AppState listener so tests can simulate foreground return
@@ -404,6 +406,53 @@ describe('useRestTimer', () => {
 
       expect(onRestEnd).toHaveBeenCalledTimes(1);
       expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
+    });
+
+    it('applies widget action queue delta before computing remaining time', () => {
+      const { result, onRestEnd } = setup();
+
+      act(() => {
+        result.current.startRestTimer(30, 'Bench');
+      });
+
+      act(() => {
+        appStateCallback?.('background');
+      });
+
+      // Widget user tapped +15s while app was backgrounded
+      (applyPendingWidgetActions as jest.Mock).mockReturnValueOnce(15);
+
+      // 25 seconds pass — without the +15s, timer would have 5s left
+      // With the +15s, timer should have 20s left
+      jest.setSystemTime(new Date(Date.now() + 25000));
+
+      act(() => {
+        appStateCallback?.('active');
+      });
+
+      expect(result.current.isResting).toBe(true);
+      expect(result.current.restSeconds).toBe(20);
+    });
+
+    it('applies widget skipRest action by ending rest', () => {
+      const { result, onRestEnd } = setup();
+
+      act(() => {
+        result.current.startRestTimer(120, 'Bench');
+      });
+
+      act(() => {
+        appStateCallback?.('background');
+      });
+
+      (applyPendingWidgetActions as jest.Mock).mockReturnValueOnce(-Infinity);
+
+      act(() => {
+        appStateCallback?.('active');
+      });
+
+      expect(result.current.isResting).toBe(false);
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
     });
 
     it('vibrates after 500ms foreground recovery if timer has remaining time then expires', () => {

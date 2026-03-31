@@ -62,6 +62,7 @@ jest.mock('../../services/liveActivity', () => ({
   stopWorkoutActivity: jest.fn(),
   scheduleTimerEndNotification: jest.fn(),
   scheduleRestNotification: jest.fn(),
+  applyPendingWidgetActions: jest.fn(() => 0),
 }));
 
 jest.mock('../../services/workoutBridge', () => ({

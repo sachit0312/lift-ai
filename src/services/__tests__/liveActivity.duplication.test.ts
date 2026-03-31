@@ -21,7 +21,9 @@ import {
   scheduleTimerEndNotification,
   cancelTimerEndNotification,
   adjustRestTimerActivity,
+  applyPendingWidgetActions,
 } from '../liveActivity';
+import { setItem, removeItem, __resetStore } from 'modules/shared-user-defaults';
 
 const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
 const flushNotificationChain = async () => {
@@ -39,6 +41,7 @@ describe('Live Activity duplication bugs', () => {
     await stopWorkoutActivity();
     jest.clearAllMocks();
     jest.useRealTimers();
+    __resetStore();
   });
 
   afterAll(() => {
@@ -166,6 +169,47 @@ describe('Live Activity duplication bugs', () => {
 
       // Idempotent: only one activity created, second call updates
       expect(LiveActivity.startActivity).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─── Poll Swift widget action queue ───
+
+  describe('applyPendingWidgetActions', () => {
+    it('returns 0 when no actions queued', () => {
+      expect(applyPendingWidgetActions()).toBe(0);
+    });
+
+    it('sums adjustRest deltas', () => {
+      setItem('liftai_action_queue', JSON.stringify([
+        { type: 'adjustRest', delta: 15, ts: Date.now() },
+        { type: 'adjustRest', delta: 15, ts: Date.now() },
+        { type: 'adjustRest', delta: -15, ts: Date.now() },
+      ]));
+
+      expect(applyPendingWidgetActions()).toBe(15);
+    });
+
+    it('returns -Infinity for skipRest', () => {
+      setItem('liftai_action_queue', JSON.stringify([
+        { type: 'adjustRest', delta: 15, ts: Date.now() },
+        { type: 'skipRest', delta: null, ts: Date.now() },
+      ]));
+
+      expect(applyPendingWidgetActions()).toBe(-Infinity);
+    });
+
+    it('clears the queue after reading', () => {
+      setItem('liftai_action_queue', JSON.stringify([
+        { type: 'adjustRest', delta: 15, ts: Date.now() },
+      ]));
+
+      applyPendingWidgetActions();
+      expect(removeItem).toHaveBeenCalledWith('liftai_action_queue');
+    });
+
+    it('returns 0 on Android', () => {
+      Object.defineProperty(Platform, 'OS', { value: 'android', writable: true });
+      expect(applyPendingWidgetActions()).toBe(0);
     });
   });
 
