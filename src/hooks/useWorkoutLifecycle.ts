@@ -646,14 +646,12 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       bestE1RM,
     };
 
-    setExerciseBlocks((prev) => {
-      if (prev.length === 0) {
-        startWorkoutActivityProp(newBlock.exercise.name, `Set 1/${newBlock.sets.length}`);
-      }
-      const updated = [...prev, newBlock];
-      syncWidgetState(updated);
-      return updated;
-    });
+    const wasEmpty = blocksRef.current.length === 0;
+    setExerciseBlocks((prev) => [...prev, newBlock]);
+    if (wasEmpty) {
+      startWorkoutActivityProp(newBlock.exercise.name, `Set 1/${newBlock.sets.length}`);
+    }
+    syncWidgetState([...blocksRef.current, newBlock]);
   }
 
   async function handleCreateAndAddExercise() {
