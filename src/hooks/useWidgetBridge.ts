@@ -19,8 +19,8 @@ export interface UseWidgetBridgeOptions {
 
 export interface UseWidgetBridgeReturn {
   lastActiveBlockRef: React.MutableRefObject<number>;
-  buildWidgetState: (blocks: ExerciseBlock[], isResting: boolean, restEnd: number, preferBlockIdx?: number) => WidgetState;
-  syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void;
+  buildWidgetState: (blocks: ExerciseBlock[], isResting: boolean, restEnd: number, preferBlockIdx?: number, restingExerciseName?: string) => WidgetState;
+  syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number, restingExerciseName?: string) => void;
 }
 
 // ─── Hook ───
@@ -41,7 +41,7 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
   restEndTimeRef.current = restEndTime;
 
   const buildWidgetState = useCallback(
-    (blocks: ExerciseBlock[], isRestingArg: boolean, restEnd: number, preferBlockIdx?: number): WidgetState => {
+    (blocks: ExerciseBlock[], isRestingArg: boolean, restEnd: number, preferBlockIdx?: number, restingExerciseName?: string): WidgetState => {
       // Find first incomplete set, starting from the last-active block (wrap around)
       let currentBlockIdx = -1;
       let currentSetIdx = -1;
@@ -90,7 +90,7 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
       const set = block.sets[currentSetIdx];
 
       const current = {
-        exerciseName: block.exercise.name,
+        exerciseName: (isRestingArg && restingExerciseName) ? restingExerciseName : block.exercise.name,
         exerciseBlockIndex: currentBlockIdx,
         setNumber: set.set_number,
         totalSets: block.sets.length,
@@ -109,11 +109,11 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
   );
 
   const syncWidgetState = useCallback(
-    (blocks?: ExerciseBlock[], isRestingOverride?: boolean, restEnd?: number) => {
+    (blocks?: ExerciseBlock[], isRestingOverride?: boolean, restEnd?: number, restingExerciseName?: string) => {
       const b = blocks ?? blocksRef.current;
       const resting = isRestingOverride ?? isRestingRef.current;
       const end = restEnd ?? (resting ? restEndTimeRef.current : 0);
-      const state = buildWidgetState(b, resting, end, lastActiveBlockRef.current);
+      const state = buildWidgetState(b, resting, end, lastActiveBlockRef.current, restingExerciseName);
 
       // Write to UserDefaults
       syncStateToWidget(state);

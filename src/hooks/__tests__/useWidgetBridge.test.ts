@@ -230,11 +230,11 @@ describe('useWidgetBridge', () => {
   // If all sets of the resting exercise are done, it finds a DIFFERENT exercise.
   // The widget/Live Activity then shows the wrong exercise name during rest.
 
-  describe('exercise name after auto-reorder (BUG tests)', () => {
-    it('BUG: shows wrong exercise when resting from fully-completed exercise after reorder', () => {
+  describe('exercise name after auto-reorder', () => {
+    it('shows correct exercise when resting from fully-completed exercise after reorder', () => {
       // Scenario: 3 exercises. User completes ALL sets of Bench (originally at index 2).
       // Auto-reorder moved Bench to index 0. User is now resting from Bench.
-      // buildWidgetState searches from lastActiveBlockRef=0, finds Squats (index 1) first.
+      // restingExerciseName overrides the "next incomplete set" search result.
       const completedBench = createBlock({
         exercise: createMockExercise({ id: 'bench', name: 'Bench Press' }),
         sets: [
@@ -259,17 +259,15 @@ describe('useWidgetBridge', () => {
       const options = makeOptions({ blocksRef: { current: blocks } });
       const { result } = renderHook(() => useWidgetBridge(options));
 
-      // User is resting from Bench Press. lastActiveBlockRef = 0 (reorder insertion point).
+      // User is resting from Bench Press. Pass restingExerciseName to override.
       const restEnd = Date.now() + 120000;
-      const state = result.current.buildWidgetState(blocks, true, restEnd, 0);
+      const state = result.current.buildWidgetState(blocks, true, restEnd, 0, 'Bench Press');
 
-      // BUG: Returns "Squats" because it's the first incomplete set from index 0.
-      // User expects to see "Bench Press" on the lock screen during rest.
-      expect(state.current.exerciseName).toBe('Squats'); // BUGGY behavior — documents the real bug
-      // Correct behavior would be: expect(state.current.exerciseName).toBe('Bench Press');
+      // Fixed: restingExerciseName overrides the "next incomplete set" lookup
+      expect(state.current.exerciseName).toBe('Bench Press');
     });
 
-    it('BUG: syncWidgetState sends wrong exercise to Live Activity during rest after reorder', () => {
+    it('syncWidgetState sends correct exercise to Live Activity during rest after reorder', () => {
       const completedBench = createBlock({
         exercise: createMockExercise({ id: 'bench', name: 'Bench Press' }),
         sets: [
@@ -291,12 +289,12 @@ describe('useWidgetBridge', () => {
 
       const restEnd = Date.now() + 120000;
       act(() => {
-        result.current.syncWidgetState(undefined, true, restEnd);
+        result.current.syncWidgetState(undefined, true, restEnd, 'Bench Press');
       });
 
-      // BUG: updateWorkoutActivityForRest receives "Squats" instead of "Bench Press"
+      // Fixed: restingExerciseName threads through to updateWorkoutActivityForRest
       expect(updateWorkoutActivityForRest).toHaveBeenCalledWith(
-        'Squats', // WRONG — documents the bug. Should be 'Bench Press'.
+        'Bench Press',
         expect.any(Number),
         expect.any(Number),
         expect.any(Number),
