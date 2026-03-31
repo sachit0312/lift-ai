@@ -61,7 +61,8 @@ interface SyncWorkoutRow {
   upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string | null;
-  ai_summary: string | null;
+  coach_notes: string | null;
+  exercise_coach_notes: string | null;
   session_notes: string | null;
 }
 
@@ -143,7 +144,7 @@ export async function syncToSupabase(): Promise<void> {
 
     // Workouts (only finished) — select specific columns
     let workoutsOk = true;
-    const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, ai_summary, session_notes FROM workouts WHERE finished_at IS NOT NULL');
+    const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({
         ...w,
@@ -408,7 +409,8 @@ interface PullWorkoutRow {
   upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string;
-  ai_summary: string | null;
+  coach_notes: string | null;
+  exercise_coach_notes: string | null;
   session_notes: string | null;
 }
 
@@ -452,14 +454,14 @@ export async function pullWorkoutHistory(): Promise<void> {
     // Upsert workouts into local SQLite
     for (const w of workouts as PullWorkoutRow[]) {
       await db.runAsync(
-        `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, ai_summary, session_notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            user_id=excluded.user_id, template_id=excluded.template_id,
            upcoming_workout_id=excluded.upcoming_workout_id,
            started_at=excluded.started_at, finished_at=excluded.finished_at,
-           ai_summary=excluded.ai_summary, session_notes=excluded.session_notes`,
-        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.ai_summary, w.session_notes,
+           coach_notes=excluded.coach_notes, exercise_coach_notes=excluded.exercise_coach_notes, session_notes=excluded.session_notes`,
+        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, w.exercise_coach_notes, w.session_notes,
       );
     }
 

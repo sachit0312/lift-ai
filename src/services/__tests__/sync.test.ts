@@ -187,7 +187,7 @@ describe('syncToSupabase', () => {
     setSessionAuthenticated();
 
     const mockWorkouts = [
-      { id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+      { id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
@@ -212,7 +212,7 @@ describe('syncToSupabase', () => {
     setSessionAuthenticated();
 
     const mockWorkouts = [
-      { id: 'w-1', template_id: 'tpl-1', upcoming_workout_id: 'uw-deleted-999', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+      { id: 'w-1', template_id: 'tpl-1', upcoming_workout_id: 'uw-deleted-999', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
     ];
 
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
@@ -229,6 +229,30 @@ describe('syncToSupabase', () => {
 
     const [payload] = workoutBuilder.upsert.mock.calls[0];
     expect(payload[0].upcoming_workout_id).toBeNull();
+  });
+
+  it('includes coach_notes and exercise_coach_notes in workout upsert payload', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: 'Focus on form', exercise_coach_notes: '{"ex-1":"Keep elbows in"}', session_notes: null },
+    ];
+
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce(mockWorkouts);
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // workout_sets
+
+    const workoutBuilder = mockQueryBuilder();
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    await syncToSupabase();
+
+    const [payload] = workoutBuilder.upsert.mock.calls[0];
+    expect(payload[0].coach_notes).toBe('Focus on form');
+    expect(payload[0].exercise_coach_notes).toBe('{"ex-1":"Keep elbows in"}');
   });
 
   it('syncs workout_sets with is_completed converted to boolean', async () => {
@@ -376,7 +400,7 @@ describe('syncToSupabase', () => {
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
     __mockDb.getAllAsync.mockResolvedValueOnce([
-      { id: 'w-1', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+      { id: 'w-1', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
     ]);
 
     const workoutBuilder = mockQueryBuilder();
@@ -449,7 +473,7 @@ describe('syncToSupabase', () => {
     __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'tpl-1', name: 'Push Day' }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 }]);
-    __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null }]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'ws-1', workout_id: 'w-1', exercise_id: 'ex-1', set_number: 1, reps: 10, weight: 135, tag: 'working', is_completed: 1 }]);
 
     const exerciseBuilder = mockQueryBuilder();
@@ -484,7 +508,7 @@ describe('syncToSupabase', () => {
     ]); // user_exercise_notes
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'tpl-1', name: 'Push' }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'te-1', template_id: 'tpl-1', exercise_id: 'ex-1', sort_order: 0, default_sets: 3 }]);
-    __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null }]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'w-1', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null }]);
     __mockDb.getAllAsync.mockResolvedValueOnce([{ id: 'ws-1', workout_id: 'w-1', exercise_id: 'ex-1', set_number: 1, reps: 10, weight: 135, tag: 'working', is_completed: 1 }]);
 
     const notesBuilder = mockQueryBuilder();
@@ -1420,8 +1444,8 @@ describe('pullWorkoutHistory', () => {
     setSessionAuthenticated();
 
     const mockWorkouts = [
-      { id: 'w-1', user_id: 'user-123', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: 'Good session', session_notes: 'Felt strong' },
-      { id: 'w-2', user_id: 'user-123', template_id: null, started_at: '2026-01-02T10:00:00Z', finished_at: '2026-01-02T11:00:00Z', ai_summary: null, session_notes: null },
+      { id: 'w-1', user_id: 'user-123', template_id: 'tpl-1', started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: 'Good session', exercise_coach_notes: null, session_notes: 'Felt strong' },
+      { id: 'w-2', user_id: 'user-123', template_id: null, started_at: '2026-01-02T10:00:00Z', finished_at: '2026-01-02T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
     ];
 
     const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
@@ -1444,8 +1468,9 @@ describe('pullWorkoutHistory', () => {
     expect(insertCalls[0][1]).toBe('w-1');
     expect(insertCalls[0][2]).toBe('user-123');
     expect(insertCalls[0][3]).toBe('tpl-1');
-    expect(insertCalls[0][7]).toBe('Good session');
-    expect(insertCalls[0][8]).toBe('Felt strong');
+    expect(insertCalls[0][7]).toBe('Good session'); // coach_notes
+    expect(insertCalls[0][8]).toBeNull(); // exercise_coach_notes
+    expect(insertCalls[0][9]).toBe('Felt strong'); // session_notes
     expect(insertCalls[1][1]).toBe('w-2');
     expect(insertCalls[1][3]).toBeNull(); // template_id null
   });
@@ -1454,7 +1479,7 @@ describe('pullWorkoutHistory', () => {
     setSessionAuthenticated();
 
     const mockWorkouts = [
-      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
     ];
 
     const mockSets = [
@@ -1505,7 +1530,7 @@ describe('pullWorkoutHistory', () => {
     setSessionAuthenticated();
 
     const mockWorkouts = [
-      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
     ];
 
     const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
@@ -1551,7 +1576,7 @@ describe('pullWorkoutHistory', () => {
     setSessionAuthenticated();
 
     const mockWorkouts = [
-      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', ai_summary: null, session_notes: null },
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
     ];
 
     const workoutBuilder = mockQueryBuilder(mockWorkouts, null);

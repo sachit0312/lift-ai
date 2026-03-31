@@ -38,7 +38,8 @@ interface WorkoutRow {
   upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string | null;
-  ai_summary: string | null;
+  coach_notes: string | null;
+  exercise_coach_notes: string | null;
   session_notes: string | null;
   template_name?: string;
 }
@@ -102,7 +103,8 @@ interface ExerciseHistoryJoinRow {
   w_upcoming_workout_id: string | null;
   w_started_at: string;
   w_finished_at: string | null;
-  w_ai_summary: string | null;
+  w_coach_notes: string | null;
+  w_exercise_coach_notes: string | null;
   w_session_notes: string | null;
   s_id: string;
   s_workout_id: string;
@@ -298,7 +300,8 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
       template_id TEXT,
       started_at TEXT NOT NULL DEFAULT (datetime('now')),
       finished_at TEXT,
-      ai_summary TEXT,
+      coach_notes TEXT,
+      exercise_coach_notes TEXT,
       session_notes TEXT,
       FOREIGN KEY (template_id) REFERENCES templates(id)
     );
@@ -391,6 +394,10 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // Migration: split notes into three types (form_notes, machine_notes, existing notes)
   await database.runAsync('ALTER TABLE exercises ADD COLUMN form_notes TEXT').catch(() => {});
   await database.runAsync('ALTER TABLE exercises ADD COLUMN machine_notes TEXT').catch(() => {});
+
+  // Migration: persist AI coach notes — rename ai_summary to coach_notes, add exercise_coach_notes
+  await database.runAsync('ALTER TABLE workouts RENAME COLUMN ai_summary TO coach_notes').catch(() => {});
+  await database.runAsync('ALTER TABLE workouts ADD COLUMN exercise_coach_notes TEXT').catch(() => {});
 
   // Migration: create user_exercise_notes table for per-user notes
   await database.execAsync(`
@@ -648,19 +655,25 @@ export function startWorkout(templateId: string | null, upcomingWorkoutId?: stri
       'INSERT INTO workouts (id, template_id, upcoming_workout_id, started_at) VALUES (?, ?, ?, ?)',
       id, templateId, upcomingWorkoutId ?? null, now,
     );
-    return { id, user_id: 'local', template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, ai_summary: null, session_notes: null };
+    return { id, user_id: 'local', template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, coach_notes: null, exercise_coach_notes: null, session_notes: null };
   });
 }
 
-export function finishWorkout(id: string, summary?: string, sessionNotes?: string): Promise<void> {
+export function finishWorkout(id: string, sessionNotes?: string): Promise<void> {
   return withDb('finishWorkout', async (database) => {
-    await database.runAsync('UPDATE workouts SET finished_at = datetime(\'now\'), ai_summary = ?, session_notes = ? WHERE id = ?', summary ?? null, sessionNotes ?? null, id);
+    await database.runAsync('UPDATE workouts SET finished_at = datetime(\'now\'), session_notes = ? WHERE id = ?', sessionNotes ?? null, id);
   });
 }
 
 export function updateWorkoutSessionNotes(id: string, sessionNotes: string | null): Promise<void> {
   return withDb('updateWorkoutSessionNotes', async (database) => {
     await database.runAsync('UPDATE workouts SET session_notes = ? WHERE id = ?', sessionNotes, id);
+  });
+}
+
+export function updateWorkoutCoachNotes(workoutId: string, coachNotes: string | null, exerciseCoachNotes: string | null): Promise<void> {
+  return withDb('updateWorkoutCoachNotes', async (database) => {
+    await database.runAsync('UPDATE workouts SET coach_notes = ?, exercise_coach_notes = ? WHERE id = ?', coachNotes, exerciseCoachNotes, workoutId);
   });
 }
 
@@ -833,7 +846,7 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
          w.id as w_id, w.user_id as w_user_id, w.template_id as w_template_id,
          w.upcoming_workout_id as w_upcoming_workout_id,
          w.started_at as w_started_at, w.finished_at as w_finished_at,
-         w.ai_summary as w_ai_summary, w.session_notes as w_session_notes,
+         w.coach_notes as w_coach_notes, w.exercise_coach_notes as w_exercise_coach_notes, w.session_notes as w_session_notes,
          ws.id as s_id, ws.workout_id as s_workout_id, ws.exercise_id as s_exercise_id,
          ws.set_number as s_set_number, ws.reps as s_reps, ws.weight as s_weight,
          ws.tag as s_tag, ws.rpe as s_rpe, ws.is_completed as s_is_completed, ws.notes as s_notes
@@ -857,7 +870,8 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
             upcoming_workout_id: r.w_upcoming_workout_id,
             started_at: r.w_started_at,
             finished_at: r.w_finished_at,
-            ai_summary: r.w_ai_summary,
+            coach_notes: r.w_coach_notes,
+            exercise_coach_notes: r.w_exercise_coach_notes,
             session_notes: r.w_session_notes,
           },
           sets: [],

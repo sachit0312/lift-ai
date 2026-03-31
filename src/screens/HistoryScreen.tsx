@@ -182,10 +182,10 @@ export default function HistoryScreen() {
                   })}
                 </View>
               ))}
-              {item.ai_summary ? (
-                <View style={styles.aiSummary}>
+              {item.coach_notes ? (
+                <View style={styles.coachNotes}>
                   <Ionicons name="sparkles" size={12} color={colors.primaryLight} style={{ marginRight: 6 }} />
-                  <Text style={styles.aiSummaryText}>{item.ai_summary}</Text>
+                  <Text style={styles.coachNotesText}>{item.coach_notes}</Text>
                 </View>
               ) : null}
             </View>
@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: fontWeight.bold,
   },
-  aiSummary: {
+  coachNotes: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginTop: spacing.md,
@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  aiSummaryText: {
+  coachNotesText: {
     color: colors.textSecondary,
     fontSize: fontSize.sm,
     lineHeight: 18,

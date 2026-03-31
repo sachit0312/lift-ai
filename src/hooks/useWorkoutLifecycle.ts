@@ -55,6 +55,7 @@ import {
   clearLocalUpcomingWorkout,
   getUserExerciseNotes,
   getUserExerciseNotesBatch,
+  updateWorkoutCoachNotes,
 } from '../services/database';
 
 const BACKGROUND_PULL_TIMEOUT_MS = 15000;
@@ -561,6 +562,23 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         if (__DEV__) console.warn('Failed to persist target values:', targetErr);
       }
 
+      // Persist coach notes from upcoming workout onto the workout row
+      try {
+        const coachNotes = upcomingWorkout.workout.notes ?? null;
+        const exerciseCoachNotesMap: Record<string, string> = {};
+        for (const upEx of upcomingWorkout.exercises) {
+          if (upEx.notes) {
+            exerciseCoachNotesMap[upEx.exercise_id] = upEx.notes;
+          }
+        }
+        const exerciseCoachNotes = Object.keys(exerciseCoachNotesMap).length > 0
+          ? JSON.stringify(exerciseCoachNotesMap)
+          : null;
+        await updateWorkoutCoachNotes(workout.id, coachNotes, exerciseCoachNotes);
+      } catch (coachErr) {
+        if (__DEV__) console.warn('Failed to persist coach notes:', coachErr);
+      }
+
       setUpcomingTargets(upcomingWorkout.exercises);
       activateWorkout(workout, blocks);
     } catch (e: unknown) {
@@ -767,7 +785,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       sessionNotesDebounceRef.current = null;
     }
 
-    await finishWorkout(workout.id, undefined, workoutNotes || undefined);
+    await finishWorkout(workout.id, workoutNotes || undefined);
 
     if (workout.upcoming_workout_id) {
       clearLocalUpcomingWorkout().catch(() => {});

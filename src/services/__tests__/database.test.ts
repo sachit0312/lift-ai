@@ -26,6 +26,7 @@ import {
   upsertExerciseNote,
   getUserExerciseNotes,
   getUserExerciseNotesBatch,
+  updateWorkoutCoachNotes,
 } from '../database';
 import type { TemplateUpdatePlan } from '../../utils/setDiff';
 
@@ -254,7 +255,7 @@ describe('getExerciseHistory', () => {
       {
         w_id: 'w-old', w_user_id: 'u1', w_template_id: null,
         w_started_at: '2026-02-04T10:00:00Z', w_finished_at: '2026-02-04T11:00:00Z',
-        w_ai_summary: null, w_session_notes: null,
+        w_coach_notes: null, w_exercise_coach_notes: null, w_session_notes: null,
         s_id: 's1', s_workout_id: 'w-old', s_exercise_id: 'ex-1',
         s_set_number: 1, s_reps: 3, s_weight: 2,
         s_tag: null, s_rpe: null, s_is_completed: 1, s_notes: null,
@@ -272,6 +273,39 @@ describe('getExerciseHistory', () => {
     expect(result[0].sets).toHaveLength(1);
     expect(result[0].sets[0].weight).toBe(2);
     expect(result[0].sets[0].reps).toBe(3);
+
+    // coach_notes and exercise_coach_notes should be present (null in this mock data)
+    expect(result[0].workout.coach_notes).toBeNull();
+    expect(result[0].workout.exercise_coach_notes).toBeNull();
+  });
+});
+
+describe('updateWorkoutCoachNotes', () => {
+  it('updates both coach_notes and exercise_coach_notes when non-null', async () => {
+    await updateWorkoutCoachNotes('w-1', 'Great session', '{"ex-1":"Keep elbows in"}');
+
+    const call = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE workouts SET coach_notes')
+    );
+    expect(call).toBeDefined();
+    expect(call![0]).toContain('coach_notes = ?');
+    expect(call![0]).toContain('exercise_coach_notes = ?');
+    expect(call![0]).toContain('WHERE id = ?');
+    expect(call![1]).toBe('Great session');
+    expect(call![2]).toBe('{"ex-1":"Keep elbows in"}');
+    expect(call![3]).toBe('w-1');
+  });
+
+  it('updates with null values', async () => {
+    await updateWorkoutCoachNotes('w-2', null, null);
+
+    const call = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE workouts SET coach_notes')
+    );
+    expect(call).toBeDefined();
+    expect(call![1]).toBeNull();
+    expect(call![2]).toBeNull();
+    expect(call![3]).toBe('w-2');
   });
 });
 

@@ -47,7 +47,8 @@ export interface Workout {
   upcoming_workout_id: string | null;
   started_at: string;
   finished_at: string | null;
-  ai_summary: string | null;
+  coach_notes: string | null;
+  exercise_coach_notes: string | null;
   session_notes: string | null;
   template_name?: string;
 }
