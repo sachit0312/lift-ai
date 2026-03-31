@@ -223,4 +223,112 @@ describe('useWidgetBridge', () => {
       expect(writtenState.current.exerciseName).toBe('Bench Press');
     });
   });
+
+  // ─── BUG: Wrong exercise name after auto-reorder during rest ───
+  // When auto-reorder moves a completed exercise to the top, buildWidgetState
+  // searches for "next incomplete set" starting from lastActiveBlockRef.
+  // If all sets of the resting exercise are done, it finds a DIFFERENT exercise.
+  // The widget/Live Activity then shows the wrong exercise name during rest.
+
+  describe('exercise name after auto-reorder (BUG tests)', () => {
+    it('BUG: shows wrong exercise when resting from fully-completed exercise after reorder', () => {
+      // Scenario: 3 exercises. User completes ALL sets of Bench (originally at index 2).
+      // Auto-reorder moved Bench to index 0. User is now resting from Bench.
+      // buildWidgetState searches from lastActiveBlockRef=0, finds Squats (index 1) first.
+      const completedBench = createBlock({
+        exercise: createMockExercise({ id: 'bench', name: 'Bench Press' }),
+        sets: [
+          { id: 'b1', exercise_id: 'bench', set_number: 1, weight: '185', reps: '5', rpe: '', tag: 'working', is_completed: true, previous: null },
+          { id: 'b2', exercise_id: 'bench', set_number: 2, weight: '185', reps: '5', rpe: '', tag: 'working', is_completed: true, previous: null },
+        ],
+      });
+      const incompleteSq = createBlock({
+        exercise: createMockExercise({ id: 'sq', name: 'Squats' }),
+        sets: [
+          { id: 'sq1', exercise_id: 'sq', set_number: 1, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+      const incompleteRow = createBlock({
+        exercise: createMockExercise({ id: 'row', name: 'Rows' }),
+        sets: [
+          { id: 'r1', exercise_id: 'row', set_number: 1, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+
+      const blocks = [completedBench, incompleteSq, incompleteRow];
+      const options = makeOptions({ blocksRef: { current: blocks } });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      // User is resting from Bench Press. lastActiveBlockRef = 0 (reorder insertion point).
+      const restEnd = Date.now() + 120000;
+      const state = result.current.buildWidgetState(blocks, true, restEnd, 0);
+
+      // BUG: Returns "Squats" because it's the first incomplete set from index 0.
+      // User expects to see "Bench Press" on the lock screen during rest.
+      expect(state.current.exerciseName).toBe('Squats'); // BUGGY behavior — documents the real bug
+      // Correct behavior would be: expect(state.current.exerciseName).toBe('Bench Press');
+    });
+
+    it('BUG: syncWidgetState sends wrong exercise to Live Activity during rest after reorder', () => {
+      const completedBench = createBlock({
+        exercise: createMockExercise({ id: 'bench', name: 'Bench Press' }),
+        sets: [
+          { id: 'b1', exercise_id: 'bench', set_number: 1, weight: '185', reps: '5', rpe: '', tag: 'working', is_completed: true, previous: null },
+        ],
+      });
+      const incompleteSq = createBlock({
+        exercise: createMockExercise({ id: 'sq', name: 'Squats' }),
+        sets: [
+          { id: 'sq1', exercise_id: 'sq', set_number: 1, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+
+      const blocks = [completedBench, incompleteSq];
+      const options = makeOptions({ blocksRef: { current: blocks } });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      result.current.lastActiveBlockRef.current = 0; // reorder put bench at 0
+
+      const restEnd = Date.now() + 120000;
+      act(() => {
+        result.current.syncWidgetState(undefined, true, restEnd);
+      });
+
+      // BUG: updateWorkoutActivityForRest receives "Squats" instead of "Bench Press"
+      expect(updateWorkoutActivityForRest).toHaveBeenCalledWith(
+        'Squats', // WRONG — documents the bug. Should be 'Bench Press'.
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+      );
+    });
+
+    it('correct behavior: shows resting exercise when it still has incomplete sets', () => {
+      // This case works correctly — exercise has 3 sets, only 1 completed.
+      const partialBench = createBlock({
+        exercise: createMockExercise({ id: 'bench', name: 'Bench Press' }),
+        sets: [
+          { id: 'b1', exercise_id: 'bench', set_number: 1, weight: '185', reps: '5', rpe: '', tag: 'working', is_completed: true, previous: null },
+          { id: 'b2', exercise_id: 'bench', set_number: 2, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+          { id: 'b3', exercise_id: 'bench', set_number: 3, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+      const incompleteSq = createBlock({
+        exercise: createMockExercise({ id: 'sq', name: 'Squats' }),
+        sets: [
+          { id: 'sq1', exercise_id: 'sq', set_number: 1, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+
+      const blocks = [partialBench, incompleteSq];
+      const options = makeOptions({ blocksRef: { current: blocks } });
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      const state = result.current.buildWidgetState(blocks, true, Date.now() + 120000, 0);
+
+      // Works correctly — Bench still has incomplete sets
+      expect(state.current.exerciseName).toBe('Bench Press');
+      expect(state.current.setNumber).toBe(2);
+    });
+  });
 });

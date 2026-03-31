@@ -325,4 +325,191 @@ describe('useRestTimer', () => {
     unmount();
     expect(mockRemove).toHaveBeenCalled();
   });
+
+  // ─── BUG: Multiple vibrations on foreground return ───
+  // When app returns to foreground after rest expired in background,
+  // both the AppState listener AND the unfrozen interval tick can fire endRest.
+  // The endingRef guard should prevent this, but verify edge cases.
+
+  describe('foreground return vibration edge cases', () => {
+    it('does not vibrate when timer expired while backgrounded and user returns', () => {
+      const { result, onRestEnd } = setup();
+
+      act(() => {
+        result.current.startRestTimer(5, 'Bench');
+      });
+
+      // Go to background
+      act(() => {
+        appStateCallback?.('background');
+      });
+
+      // Time passes beyond rest end
+      jest.setSystemTime(new Date(Date.now() + 10000));
+
+      // Return to foreground
+      act(() => {
+        appStateCallback?.('active');
+      });
+
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      // Should NOT vibrate — notification already alerted user
+      expect(Vibration.vibrate).not.toHaveBeenCalled();
+    });
+
+    it('endingRef prevents interval tick from vibrating after foreground resync already called endRest', () => {
+      const { result, onRestEnd } = setup();
+
+      act(() => {
+        result.current.startRestTimer(2, 'Bench');
+      });
+
+      // Go to background
+      act(() => {
+        appStateCallback?.('background');
+      });
+
+      // Time passes beyond rest end
+      jest.setSystemTime(new Date(Date.now() + 5000));
+
+      // Foreground return calls endRest(false)
+      act(() => {
+        appStateCallback?.('active');
+      });
+
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      jest.clearAllMocks();
+
+      // Now the frozen interval unfreezes and also fires
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      // Guard prevents second call
+      expect(onRestEnd).not.toHaveBeenCalled();
+      expect(Vibration.vibrate).not.toHaveBeenCalled();
+    });
+
+    it('vibrates when timer expires naturally in foreground (not backgrounded)', () => {
+      const { result, onRestEnd } = setup();
+
+      act(() => {
+        result.current.startRestTimer(2, 'Bench');
+      });
+
+      // Timer expires naturally — app stayed in foreground
+      act(() => {
+        jest.advanceTimersByTime(2000);
+      });
+
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
+    });
+
+    it('vibrates after 500ms foreground recovery if timer has remaining time then expires', () => {
+      const { result, onRestEnd } = setup();
+
+      act(() => {
+        result.current.startRestTimer(5, 'Bench');
+      });
+
+      // Go to background
+      act(() => {
+        appStateCallback?.('background');
+      });
+
+      // Only 2s pass — timer still has 3s left
+      jest.setSystemTime(new Date(Date.now() + 2000));
+
+      // Return to foreground
+      act(() => {
+        appStateCallback?.('active');
+      });
+
+      expect(result.current.isResting).toBe(true);
+      expect(result.current.restSeconds).toBe(3);
+
+      // 500ms passes — wasBackgroundedRef clears
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      // Now timer expires naturally — should vibrate since we're back in foreground
+      act(() => {
+        jest.advanceTimersByTime(3000);
+      });
+
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
+    });
+  });
+
+  // ─── BUG: Rapid timer restarts ───
+  // When user completes sets quickly, startRestTimer is called multiple times.
+  // Each call should cleanly replace the previous timer.
+
+  describe('rapid timer restarts', () => {
+    it('new startRestTimer clears previous interval — no double vibration', () => {
+      const { result, onRestEnd } = setup();
+
+      // Start first timer
+      act(() => {
+        result.current.startRestTimer(3, 'Bench');
+      });
+
+      // 1 second passes
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      // User completes another set — new timer starts
+      act(() => {
+        result.current.startRestTimer(3, 'Squats');
+      });
+
+      // Advance past where the FIRST timer would have expired
+      act(() => {
+        jest.advanceTimersByTime(2500);
+      });
+
+      // Should NOT have called onRestEnd (old timer was replaced)
+      expect(onRestEnd).not.toHaveBeenCalled();
+      expect(result.current.restExerciseName).toBe('Squats');
+      expect(result.current.isResting).toBe(true);
+
+      // Now let the new timer expire
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      expect(Vibration.vibrate).toHaveBeenCalledTimes(1);
+    });
+
+    it('each startRestTimer resets endingRef for new timer', () => {
+      const { result, onRestEnd } = setup();
+
+      // Start and let timer expire
+      act(() => {
+        result.current.startRestTimer(1, 'Bench');
+      });
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      jest.clearAllMocks();
+
+      // Start another timer — endingRef should be reset
+      act(() => {
+        result.current.startRestTimer(1, 'Squats');
+      });
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      // Second timer should also fire properly
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      expect(Vibration.vibrate).toHaveBeenCalledTimes(1);
+    });
+  });
 });
