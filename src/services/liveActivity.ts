@@ -313,7 +313,7 @@ export function applyPendingWidgetActions(): number {
 let notificationChain: Promise<void> = Promise.resolve();
 
 function serializedNotificationOp(fn: () => Promise<void>): void {
-  notificationChain = notificationChain.then(fn).catch(() => {});
+  notificationChain = notificationChain.then(fn).catch(e => Sentry.captureException(e));
 }
 
 // ─── Internal helpers ───
