@@ -20,10 +20,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: true,
     bundleIdentifier: 'com.sachitgoyal.liftai',
     // @ts-expect-error — Expo supports this but types may lag
-    privacyPolicyUrl: 'https://sachitgoyal.com/lift-ai/privacy',
+    privacyPolicyUrl: 'https://sachit0312.github.io/lift-ai-privacy/',
     infoPlist: {
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {

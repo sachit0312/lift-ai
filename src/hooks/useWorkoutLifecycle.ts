@@ -893,7 +893,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
               await applyWorkoutChangesToTemplate(templateUpdatePlan);
               fireAndForgetSync();
               if (templateUpdatePlan.reorderedTemplateExerciseIds) {
-                pushTemplateOrderToSupabase(templateUpdatePlan.templateId);
+                pushTemplateOrderToSupabase(templateUpdatePlan.templateId).catch(e => Sentry.captureException(e));
               }
               setTemplateUpdatePlan(null);
               setTemplateChangeDescriptions([]);

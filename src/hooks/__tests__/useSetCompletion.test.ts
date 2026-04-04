@@ -7,7 +7,7 @@ import { createMockExercise } from '../../__tests__/helpers/factories';
 // ─── Mocks ───
 
 jest.mock('../../services/database', () => ({
-  updateWorkoutSet: jest.fn(),
+  updateWorkoutSet: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../utils/oneRepMax', () => ({

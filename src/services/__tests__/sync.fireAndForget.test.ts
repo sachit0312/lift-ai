@@ -15,17 +15,10 @@ jest.mock('../database', () => ({
   getCurrentUserId: jest.fn().mockReturnValue('local'),
 }));
 
-import { fireAndForgetSync, syncToSupabase } from '../sync';
+import { fireAndForgetSync } from '../sync';
+import { supabase } from '../supabase';
 
-jest.mock('../sync', () => {
-  const actual = jest.requireActual('../sync');
-  return {
-    ...actual,
-    syncToSupabase: jest.fn(),
-  };
-});
-
-const mockSyncToSupabase = syncToSupabase as jest.MockedFunction<typeof syncToSupabase>;
+const mockGetSession = supabase.auth.getSession as jest.MockedFunction<typeof supabase.auth.getSession>;
 const mockCaptureException = Sentry.captureException as jest.MockedFunction<typeof Sentry.captureException>;
 const mockAddBreadcrumb = Sentry.addBreadcrumb as jest.MockedFunction<typeof Sentry.addBreadcrumb>;
 
@@ -36,11 +29,14 @@ describe('fireAndForgetSync error handling', () => {
 
   it('calls Sentry.captureException when syncToSupabase rejects', async () => {
     const error = new Error('network failure');
-    mockSyncToSupabase.mockRejectedValueOnce(error);
+    // syncToSupabase's first await is supabase.auth.getSession() — make it reject
+    // so syncToSupabase's internal catch fires Sentry.captureException(error)
+    mockGetSession.mockRejectedValueOnce(error);
 
     fireAndForgetSync();
 
-    // Let the promise rejection propagate
+    // Let the promise chain resolve
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -49,10 +45,11 @@ describe('fireAndForgetSync error handling', () => {
 
   it('does NOT call Sentry.addBreadcrumb for sync failures', async () => {
     const error = new Error('sync failed');
-    mockSyncToSupabase.mockRejectedValueOnce(error);
+    mockGetSession.mockRejectedValueOnce(error);
 
     fireAndForgetSync();
 
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -60,7 +57,7 @@ describe('fireAndForgetSync error handling', () => {
   });
 
   it('does not throw when syncToSupabase rejects', () => {
-    mockSyncToSupabase.mockRejectedValueOnce(new Error('rejected'));
+    mockGetSession.mockRejectedValueOnce(new Error('rejected'));
     expect(() => fireAndForgetSync()).not.toThrow();
   });
 });
