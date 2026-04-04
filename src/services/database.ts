@@ -230,7 +230,7 @@ function parseExerciseFromTemplateJoin(r: TemplateExerciseJoinRow): Exercise {
   };
 }
 
-let db: SQLite.SQLiteDatabase;
+let db: SQLite.SQLiteDatabase | undefined;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export const DB_NAME = 'workout-enhanced.db';
@@ -260,7 +260,7 @@ export async function resetDatabase(): Promise<void> {
   } catch {
     // May fail if DB is corrupted — that's fine, we're deleting it anyway
   }
-  db = undefined as unknown as SQLite.SQLiteDatabase;
+  db = undefined;
   dbInitPromise = null;
   try {
     await SQLite.deleteDatabaseAsync(DB_NAME);
@@ -270,7 +270,14 @@ export async function resetDatabase(): Promise<void> {
     // leave the user with no data at all, which is worse.
     Sentry.captureException(error);
   }
-  await getDb();
+  // Assign dbInitPromise SYNCHRONOUSLY before awaiting, so concurrent getDb()
+  // callers get the same reinit promise instead of spawning a second one.
+  dbInitPromise = (async () => {
+    db = await SQLite.openDatabaseAsync(DB_NAME);
+    await initSchema(db);
+    return db;
+  })();
+  await dbInitPromise;
 }
 
 async function withDb<T>(label: string, fn: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {
@@ -285,10 +292,8 @@ async function withDb<T>(label: string, fn: (db: SQLite.SQLiteDatabase) => Promi
 }
 
 async function initSchema(database: SQLite.SQLiteDatabase) {
+  await database.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   await database.execAsync(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-
     CREATE TABLE IF NOT EXISTS exercises (
       id TEXT PRIMARY KEY,
       user_id TEXT DEFAULT NULL,

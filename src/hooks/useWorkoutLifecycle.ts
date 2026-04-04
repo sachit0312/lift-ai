@@ -274,6 +274,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     try {
       active = await getActiveWorkout();
       setActiveWorkout(active);
+      const prevWorkoutId = workoutRef.current?.id;
       workoutRef.current = active;
 
       if (active) {
@@ -282,7 +283,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         // FIX-4: If this workout is already loaded in memory (same ID), skip the
         // full loadActiveWorkout() which would overwrite in-flight debounced changes.
         // Only do a full load on first mount or after a fresh workout start.
-        if (hasLoadedOnce.current && blocksRef.current.length > 0 && workoutRef.current?.id === active.id) {
+        if (hasLoadedOnce.current && blocksRef.current.length > 0 && prevWorkoutId === active.id) {
           // Workout already loaded — just update auth state refs and bail out.
           // Background sync is intentionally skipped here to avoid the
           // setExerciseBlocks(blocks) call inside loadActiveWorkout clobbering

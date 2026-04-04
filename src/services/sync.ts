@@ -8,7 +8,7 @@ function handleSyncError(label: string, error: unknown): void {
 }
 
 export function fireAndForgetSync(): void {
-  syncToSupabase().catch(e => Sentry.captureException(e));
+  syncToSupabase().catch(() => {});
 }
 
 // ─── Row Interfaces (raw SQLite rows for sync queries) ───
