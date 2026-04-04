@@ -196,6 +196,10 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   const sessionNotesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upcomingTargetsRef = useRef<typeof upcomingTargets>(null);
   upcomingTargetsRef.current = upcomingTargets;
+  // Mirror workoutNotes state so confirmFinish always reads the latest value
+  // regardless of React's async state batching (same pattern as blocksRef).
+  const workoutNotesRef = useRef('');
+  workoutNotesRef.current = workoutNotes;
 
   // ─── Helpers ───
 
@@ -274,6 +278,19 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
       if (active) {
         setTemplateName(active.template_name ?? null);
+
+        // FIX-4: If this workout is already loaded in memory (same ID), skip the
+        // full loadActiveWorkout() which would overwrite in-flight debounced changes.
+        // Only do a full load on first mount or after a fresh workout start.
+        if (hasLoadedOnce.current && blocksRef.current.length > 0 && workoutRef.current?.id === active.id) {
+          // Workout already loaded — just update auth state refs and bail out.
+          // Background sync is intentionally skipped here to avoid the
+          // setExerciseBlocks(blocks) call inside loadActiveWorkout clobbering
+          // pending set-input changes that haven't been flushed to the DB yet.
+          setLoading(false);
+          return;
+        }
+
         await loadActiveWorkout(active);
         hasLoadedOnce.current = true;
         setLoading(false);
@@ -769,8 +786,12 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     flushPendingSetWrites();
     flushPendingNotes();
 
+    // FIX-2: Use blocksRef.current instead of exerciseBlocks (React state) to
+    // avoid a stale closure if sets were completed while the Finish modal was open.
+    const currentBlocks = blocksRef.current;
+
     const setOrderEntries: Array<{ id: string; order: number }> = [];
-    exerciseBlocks.forEach((block, blockIdx) => {
+    currentBlocks.forEach((block, blockIdx) => {
       for (const set of block.sets) {
         setOrderEntries.push({ id: set.id, order: blockIdx + 1 });
       }
@@ -778,8 +799,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     await stampExerciseOrder(workout.id, setOrderEntries);
 
     let totalSets = 0;
-    let exerciseCount = exerciseBlocks.length;
-    for (const block of exerciseBlocks) {
+    let exerciseCount = currentBlocks.length;
+    for (const block of currentBlocks) {
       for (const s of block.sets) {
         if (s.is_completed) {
           totalSets++;
@@ -792,12 +813,16 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     const s = diff % 60;
     const durationStr = `${m}m ${s}s`;
 
+    // FIX-1: Cancel the session notes debounce and flush the latest value using
+    // workoutNotesRef.current (always up-to-date) rather than the workoutNotes
+    // React state (which may lag due to async batching).
     if (sessionNotesDebounceRef.current) {
       clearTimeout(sessionNotesDebounceRef.current);
       sessionNotesDebounceRef.current = null;
     }
 
-    await finishWorkout(workout.id, workoutNotes || undefined);
+    const latestNotes = workoutNotesRef.current;
+    await finishWorkout(workout.id, latestNotes || undefined);
 
     if (workout.upcoming_workout_id) {
       clearLocalUpcomingWorkout().catch(e => Sentry.captureException(e));
@@ -817,10 +842,10 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     if (workout.template_id) {
       try {
         const templateExercises = await getTemplateExercises(workout.template_id);
-        updatePlan = buildTemplateUpdatePlan(workout.template_id, exerciseBlocks, templateExercises);
+        updatePlan = buildTemplateUpdatePlan(workout.template_id, currentBlocks, templateExercises);
         if (updatePlan) {
           const descriptions: string[] = [];
-          const setDiffs = computeSetDiffs(exerciseBlocks);
+          const setDiffs = computeSetDiffs(currentBlocks);
           for (const diff of setDiffs) {
             const parts: string[] = [];
             const describeChange = (label: string, before: number, after: number): string | null => {

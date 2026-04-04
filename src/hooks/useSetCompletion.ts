@@ -46,11 +46,39 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
   const [reorderToast, setReorderToast] = useState<string | null>(null);
   const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // FIX-3: Guard against double-tap.
+  // Maps set ID → the is_completed value we're in the middle of toggling TO.
+  // Two rapid taps both read is_completed=false from blocksRef (which lags by one
+  // render). Without a guard, both would dispatch setExerciseBlocks and call
+  // startRestTimer. We bail if a second tap would toggle toward the same target
+  // value as an already-pending toggle.
+  const pendingCompletionRef = useRef<Map<string, boolean>>(new Map());
 
   const handleToggleComplete = useCallback((blockIdx: number, setIdx: number) => {
     const block = blocksRef.current[blockIdx];
     let set = block?.sets[setIdx];
     if (!set || !block) return;
+
+    const wouldToggleTo = !set.is_completed;
+
+    // Double-tap guard: prevent two rapid taps from both dispatching state updates.
+    //
+    // We store the toggled-to value in a Map keyed by set ID. On the next call
+    // for the same set, we check whether blocksRef already reflects the expected
+    // completed state (meaning the first dispatch has re-rendered). If it does,
+    // the guard is stale and we clear it. If it doesn't match yet AND we already
+    // have a pending toggle to the same value, bail out.
+    const pendingValue = pendingCompletionRef.current.get(set.id);
+    if (pendingValue !== undefined) {
+      // If blocksRef has caught up (set is now in the toggled state), clear guard
+      if (set.is_completed === pendingValue) {
+        pendingCompletionRef.current.delete(set.id);
+      } else if (pendingValue === wouldToggleTo) {
+        // Still pending same toggle — bail (double-tap)
+        return;
+      }
+    }
+    pendingCompletionRef.current.set(set.id, wouldToggleTo);
 
     // Capture timer data NOW, before state update (avoid stale closure)
     const { restEnabled, restSeconds: blockRestSeconds, exercise } = block;
@@ -94,7 +122,10 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
           return rest;
         });
       }, 2000);
+      // Release the double-tap guard so the user can re-try after fixing inputs
+      pendingCompletionRef.current.delete(set.id);
       return;
+
     }
 
     const newCompleted = !set.is_completed;
@@ -183,6 +214,10 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
 
       return next;
     });
+
+    // Note: pendingCompletionRef entry is intentionally NOT deleted here.
+    // It will be cleared on the next handleToggleComplete call for this set,
+    // once blocksRef.current reflects the updated is_completed state (post re-render).
 
     // DB write (fire-and-forget)
     updateWorkoutSet(set.id, {
