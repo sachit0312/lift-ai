@@ -55,7 +55,7 @@ export function useNotesDebounce(): UseNotesDebounceReturn {
     const timerId = setTimeout(() => {
       const pending = pendingNotesRef.current.get(exerciseId);
       if (pending) {
-        updateExerciseMachineNotes(exerciseId, pending.notes || null);
+        updateExerciseMachineNotes(exerciseId, pending.notes || null).catch(e => Sentry.captureException(e));
         pendingNotesRef.current.delete(exerciseId);
         fireAndForgetSync();
       }

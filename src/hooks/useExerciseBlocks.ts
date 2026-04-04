@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { Alert, LayoutAnimation, Vibration } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import type { ExerciseBlock, LocalSet } from '../types/workout';
 import type { SetTag } from '../types/database';
 import type { Workout } from '../types/database';
@@ -78,7 +79,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
   const flushPendingSetWrites = useCallback(() => {
     for (const [setId, entry] of pendingSetWritesRef.current) {
       clearTimeout(entry.timer);
-      updateWorkoutSet(setId, entry.data);
+      updateWorkoutSet(setId, entry.data).catch(e => Sentry.captureException(e));
     }
     pendingSetWritesRef.current.clear();
   }, []);
@@ -119,13 +120,13 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       clearTimeout(pending.timer);
       pending.data[field] = numVal;
       pending.timer = setTimeout(() => {
-        updateWorkoutSet(set.id, pending.data);
+        updateWorkoutSet(set.id, pending.data).catch(e => Sentry.captureException(e));
         pendingSetWritesRef.current.delete(set.id);
       }, 300);
     } else {
       const data: Record<string, unknown> = { [field]: numVal };
       const timer = setTimeout(() => {
-        updateWorkoutSet(set.id, data);
+        updateWorkoutSet(set.id, data).catch(e => Sentry.captureException(e));
         pendingSetWritesRef.current.delete(set.id);
       }, 300);
       pendingSetWritesRef.current.set(set.id, { timer, data });
@@ -157,7 +158,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       return sets;
     });
 
-    updateWorkoutSet(set.id, dbUpdate);
+    updateWorkoutSet(set.id, dbUpdate).catch(e => Sentry.captureException(e));
   }, [updateBlockSets]);
 
   const handleAddSet = useCallback(async (blockIdx: number) => {

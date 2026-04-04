@@ -302,7 +302,8 @@ export function applyPendingWidgetActions(): number {
       }
     }
     return totalDelta;
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e);
     return 0;
   }
 }
