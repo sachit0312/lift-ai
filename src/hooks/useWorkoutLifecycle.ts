@@ -539,6 +539,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           }
         } catch (e) {
           if (__DEV__) console.warn('Failed to load template set counts:', e);
+          Sentry.captureException(e);
         }
       }
 
@@ -561,6 +562,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         await Promise.all(targetUpdates);
       } catch (targetErr) {
         if (__DEV__) console.warn('Failed to persist target values:', targetErr);
+        Sentry.captureException(targetErr);
       }
 
       // Persist coach notes from upcoming workout onto the workout row
@@ -578,6 +580,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         await updateWorkoutCoachNotes(workout.id, coachNotes, exerciseCoachNotes);
       } catch (coachErr) {
         if (__DEV__) console.warn('Failed to persist coach notes:', coachErr);
+        Sentry.captureException(coachErr);
       }
 
       setUpcomingTargets(upcomingWorkout.exercises);
@@ -594,10 +597,15 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   // ─── Add exercise mid-workout ───
 
   async function handleOpenAddExercise() {
-    const exercises = await getAllExercises();
-    setAvailableExercises(exercises);
-    setExerciseSearch('');
-    setShowAddExercise(true);
+    try {
+      const exercises = await getAllExercises();
+      setAvailableExercises(exercises);
+      setExerciseSearch('');
+      setShowAddExercise(true);
+    } catch (e) {
+      if (__DEV__) console.error('Failed to load exercises for add exercise modal:', e);
+      Sentry.captureException(e);
+    }
   }
 
   async function handleAddExerciseToWorkout(exercise: Exercise) {
@@ -660,19 +668,24 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       return;
     }
     setNewExValidation('');
-    const exercise = await createExercise({
-      name: newExName.trim(),
-      type: newExType,
-      muscle_groups: newExMuscles,
-      training_goal: 'hypertrophy',
-      description: newExDescription.trim(),
-    });
-    setNewExName('');
-    setNewExType('weighted');
-    setNewExMuscles([]);
-    setNewExDescription('');
-    setShowCreateInWorkout(false);
-    await handleAddExerciseToWorkout(exercise);
+    try {
+      const exercise = await createExercise({
+        name: newExName.trim(),
+        type: newExType,
+        muscle_groups: newExMuscles,
+        training_goal: 'hypertrophy',
+        description: newExDescription.trim(),
+      });
+      setNewExName('');
+      setNewExType('weighted');
+      setNewExMuscles([]);
+      setNewExDescription('');
+      setShowCreateInWorkout(false);
+      await handleAddExerciseToWorkout(exercise);
+    } catch (e) {
+      if (__DEV__) console.error('Failed to create and add exercise:', e);
+      Sentry.captureException(e);
+    }
   }
 
   // ─── Session notes ───
@@ -682,7 +695,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     if (sessionNotesDebounceRef.current) clearTimeout(sessionNotesDebounceRef.current);
     sessionNotesDebounceRef.current = setTimeout(() => {
       const workout = workoutRef.current;
-      if (workout) updateWorkoutSessionNotes(workout.id, text || null);
+      if (workout) updateWorkoutSessionNotes(workout.id, text || null).catch(e => Sentry.captureException(e));
     }, 500);
   }, []);
 
@@ -787,7 +800,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     await finishWorkout(workout.id, workoutNotes || undefined);
 
     if (workout.upcoming_workout_id) {
-      clearLocalUpcomingWorkout().catch(() => {});
+      clearLocalUpcomingWorkout().catch(e => Sentry.captureException(e));
       await deleteUpcomingWorkoutFromSupabase(workout.upcoming_workout_id);
       setUpcomingWorkout(null);
     }

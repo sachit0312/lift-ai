@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { LayoutAnimation, Vibration } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import type { ExerciseBlock } from '../types/workout';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet, Exercise } from '../types/database';
 import { updateWorkoutSet } from '../services/database';
@@ -189,7 +190,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       weight: set.weight === '' ? null : Number(set.weight),
       reps: set.reps === '' ? null : Number(set.reps),
       rpe: set.rpe === '' ? null : Number(set.rpe),
-    });
+    }).catch(e => Sentry.captureException(e));
 
     // Side effects after single state update
     if (newCompleted) {

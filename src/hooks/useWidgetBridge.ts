@@ -1,4 +1,5 @@
 import { useRef, useCallback } from 'react';
+import * as Sentry from '@sentry/react-native';
 import {
   syncStateToWidget,
   type WidgetState,
@@ -125,13 +126,13 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
           Math.round((end - Date.now()) / 1000),
           state.current.setNumber,
           state.current.totalSets
-        );
+        ).catch(e => Sentry.captureException(e));
       } else {
         updateWorkoutActivityForSet(
           state.current.exerciseName,
           state.current.setNumber,
           state.current.totalSets
-        );
+        ).catch(e => Sentry.captureException(e));
       }
     },
     [blocksRef, buildWidgetState],
