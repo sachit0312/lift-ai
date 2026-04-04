@@ -233,6 +233,8 @@ function parseExerciseFromTemplateJoin(r: TemplateExerciseJoinRow): Exercise {
 let db: SQLite.SQLiteDatabase;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+export const DB_NAME = 'workout-enhanced.db';
+
 // ─── Current User ID (set by AuthContext on login/logout) ───
 let currentUserId = 'local';
 export function setCurrentUserId(id: string) { currentUserId = id; }
@@ -242,12 +244,30 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
-      db = await SQLite.openDatabaseAsync('workout-enhanced.db');
+      db = await SQLite.openDatabaseAsync(DB_NAME);
       await initSchema(db);
       return db;
     })();
   }
   return dbInitPromise;
+}
+
+/** Nuclear reset: close connection, delete the SQLite file, reinitialize fresh schema.
+ *  Use when the DB file is corrupted beyond repair (e.g. phone died mid-write). */
+export async function resetDatabase(): Promise<void> {
+  try {
+    if (db) await db.closeAsync();
+  } catch {
+    // May fail if DB is corrupted — that's fine, we're deleting it anyway
+  }
+  db = undefined as unknown as SQLite.SQLiteDatabase;
+  dbInitPromise = null;
+  try {
+    await SQLite.deleteDatabaseAsync(DB_NAME);
+  } catch (error) {
+    Sentry.captureException(error);
+  }
+  await getDb();
 }
 
 async function withDb<T>(label: string, fn: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {

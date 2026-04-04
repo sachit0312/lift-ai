@@ -4,6 +4,7 @@ const { __mockDb } = require('expo-sqlite') as { __mockDb: {
   getFirstAsync: jest.Mock;
   runAsync: jest.Mock;
   execAsync: jest.Mock;
+  closeAsync: jest.Mock;
 }};
 
 import * as Sentry from '@sentry/react-native';
@@ -13,6 +14,8 @@ import {
   createExercise,
   getWorkoutHistory,
   clearAllLocalData,
+  resetDatabase,
+  DB_NAME,
 } from '../database';
 
 beforeEach(() => {
@@ -20,6 +23,7 @@ beforeEach(() => {
   __mockDb.getFirstAsync.mockClear();
   __mockDb.runAsync.mockClear();
   __mockDb.execAsync.mockClear();
+  __mockDb.closeAsync.mockClear();
   (Sentry.captureException as jest.Mock).mockClear();
 });
 
@@ -208,5 +212,48 @@ describe('clearAllLocalData', () => {
       'user_exercise_notes',
       'exercises',
     ]);
+  });
+});
+
+// ─── resetDatabase ───
+
+describe('resetDatabase', () => {
+  it('closes the database connection', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+    await getAllExercises();
+    __mockDb.closeAsync.mockClear();
+
+    await resetDatabase();
+
+    expect(__mockDb.closeAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes the database file', async () => {
+    const SQLite = require('expo-sqlite');
+    jest.spyOn(SQLite, 'deleteDatabaseAsync');
+
+    await resetDatabase();
+
+    expect(SQLite.deleteDatabaseAsync).toHaveBeenCalledWith(DB_NAME);
+  });
+
+  it('reinitializes the database after deletion', async () => {
+    __mockDb.execAsync.mockClear();
+
+    await resetDatabase();
+
+    // initSchema should have re-executed
+    expect(__mockDb.execAsync).toHaveBeenCalled();
+
+    // After reset, db operations should still work
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+    const result = await getAllExercises();
+    expect(result).toEqual([]);
+  });
+
+  it('survives closeAsync failure (corrupted DB)', async () => {
+    __mockDb.closeAsync.mockRejectedValueOnce(new Error('DB corrupted'));
+
+    await expect(resetDatabase()).resolves.toBeUndefined();
   });
 });
