@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from '
 import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../services/supabase';
-import { clearAllLocalData, setCurrentUserId, migrateExerciseNotesToUserTable } from '../services/database';
+import { resetDatabase, setCurrentUserId, migrateExerciseNotesToUserTable } from '../services/database';
 import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 
 const SYNC_TIMEOUT_MS = 30000;
@@ -55,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             try {
               await Promise.race([
                 (async () => {
-                  await clearAllLocalData();
+                  await resetDatabase();
                   await Promise.all([
                     pullExercisesAndTemplates(),
                     pullWorkoutHistory(),

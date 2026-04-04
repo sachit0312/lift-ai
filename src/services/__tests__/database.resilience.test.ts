@@ -256,4 +256,14 @@ describe('resetDatabase', () => {
 
     await expect(resetDatabase()).resolves.toBeUndefined();
   });
+
+  it('reports to Sentry and still resolves when deleteDatabaseAsync fails', async () => {
+    const SQLite = require('expo-sqlite');
+    jest.spyOn(SQLite, 'deleteDatabaseAsync').mockRejectedValueOnce(new Error('no space left'));
+    (Sentry.captureException as jest.Mock).mockClear();
+
+    // Should not throw — best-effort recovery proceeds with getDb()
+    await expect(resetDatabase()).resolves.toBeUndefined();
+    expect(Sentry.captureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'no space left' }));
+  });
 });

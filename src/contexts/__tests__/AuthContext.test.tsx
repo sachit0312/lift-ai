@@ -21,7 +21,7 @@ jest.mock('../../services/supabase', () => ({
 }));
 
 jest.mock('../../services/database', () => ({
-  clearAllLocalData: jest.fn().mockResolvedValue(undefined),
+  resetDatabase: jest.fn().mockResolvedValue(undefined),
   setCurrentUserId: jest.fn(),
   migrateExerciseNotesToUserTable: jest.fn().mockResolvedValue(undefined),
 }));
@@ -35,7 +35,7 @@ jest.mock('../../services/sync', () => ({
 // Sentry is mocked globally via moduleNameMapper, but we import it to assert on calls
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../../services/supabase';
-import { clearAllLocalData, setCurrentUserId, migrateExerciseNotesToUserTable } from '../../services/database';
+import { resetDatabase, setCurrentUserId, migrateExerciseNotesToUserTable } from '../../services/database';
 import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../../services/sync';
 import { AuthProvider, useAuth } from '../AuthContext';
 
@@ -305,10 +305,10 @@ describe('AuthContext', () => {
   });
 
   // ---------------------------------------------------------------
-  // 11. clearAllLocalData and pullUpcomingWorkout called on SIGNED_IN
+  // 11. resetDatabase and pullUpcomingWorkout called on SIGNED_IN
   //     with a new user (different from previous)
   // ---------------------------------------------------------------
-  it('calls clearAllLocalData and pullUpcomingWorkout on SIGNED_IN with new user', async () => {
+  it('calls resetDatabase and pullUpcomingWorkout on SIGNED_IN with new user', async () => {
     const { getByTestId } = render(
       <AuthProvider>
         <AuthConsumer />
@@ -326,7 +326,7 @@ describe('AuthContext', () => {
     });
 
     expect(setCurrentUserId).toHaveBeenCalledWith('user-new');
-    expect(clearAllLocalData).toHaveBeenCalledTimes(1);
+    expect(resetDatabase).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
     expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
     expect(migrateExerciseNotesToUserTable).toHaveBeenCalledTimes(1);
@@ -335,10 +335,10 @@ describe('AuthContext', () => {
   });
 
   // ---------------------------------------------------------------
-  // 12. clearAllLocalData/pullUpcomingWorkout NOT called on token
+  // 12. resetDatabase/pullUpcomingWorkout NOT called on token
   //     refresh (same user ID)
   // ---------------------------------------------------------------
-  it('does NOT call clearAllLocalData on SIGNED_IN when user ID is the same (token refresh)', async () => {
+  it('does NOT call resetDatabase on SIGNED_IN when user ID is the same (token refresh)', async () => {
     const mockSession = makeSession('user-123', 'test@example.com');
     (supabase.auth.getSession as jest.Mock).mockResolvedValue({
       data: { session: mockSession },
@@ -362,7 +362,7 @@ describe('AuthContext', () => {
       await authStateCallback!('SIGNED_IN', refreshedSession);
     });
 
-    expect(clearAllLocalData).not.toHaveBeenCalled();
+    expect(resetDatabase).not.toHaveBeenCalled();
     expect(pullExercisesAndTemplates).not.toHaveBeenCalled();
     expect(pullWorkoutHistory).not.toHaveBeenCalled();
     expect(pullUpcomingWorkout).not.toHaveBeenCalled();
@@ -375,7 +375,7 @@ describe('AuthContext', () => {
   it('reports sync errors to Sentry on SIGNED_IN', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
     const syncError = new Error('sync failed');
-    (clearAllLocalData as jest.Mock).mockRejectedValueOnce(syncError);
+    (resetDatabase as jest.Mock).mockRejectedValueOnce(syncError);
 
     const { getByTestId } = render(
       <AuthProvider>
@@ -478,7 +478,7 @@ describe('AuthContext', () => {
       await authStateCallback!('SIGNED_IN', sessionA);
     });
 
-    expect(clearAllLocalData).toHaveBeenCalledTimes(1);
+    expect(resetDatabase).toHaveBeenCalledTimes(1);
     jest.clearAllMocks();
 
     // Sign out
@@ -494,9 +494,9 @@ describe('AuthContext', () => {
       await authStateCallback!('SIGNED_IN', sessionB);
     });
 
-    // Should call clearAllLocalData again because user changed (null -> user-B)
+    // Should call resetDatabase again because user changed (null -> user-B)
     expect(setCurrentUserId).toHaveBeenCalledWith('user-B');
-    expect(clearAllLocalData).toHaveBeenCalledTimes(1);
+    expect(resetDatabase).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
     expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
     expect(migrateExerciseNotesToUserTable).toHaveBeenCalledWith('user-B');
@@ -577,7 +577,7 @@ describe('AuthContext', () => {
   // ---------------------------------------------------------------
   it('syncing becomes false even when sync fails', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
-    (clearAllLocalData as jest.Mock).mockRejectedValueOnce(new Error('sync failed'));
+    (resetDatabase as jest.Mock).mockRejectedValueOnce(new Error('sync failed'));
 
     const { getByTestId } = render(
       <AuthProvider>
@@ -622,8 +622,8 @@ describe('AuthContext', () => {
 
     it('sync failure on SIGNED_IN does not crash and session is still set', async () => {
       jest.spyOn(console, 'error').mockImplementation(() => {});
-      (clearAllLocalData as jest.Mock).mockRejectedValueOnce(
-        new Error('clearAllLocalData failed'),
+      (resetDatabase as jest.Mock).mockRejectedValueOnce(
+        new Error('resetDatabase failed'),
       );
 
       const { getByTestId } = render(
@@ -676,8 +676,8 @@ describe('AuthContext', () => {
 
     it('sync errors are reported to Sentry', async () => {
       jest.spyOn(console, 'error').mockImplementation(() => {});
-      const syncError = new Error('clearAllLocalData network failure');
-      (clearAllLocalData as jest.Mock).mockRejectedValueOnce(syncError);
+      const syncError = new Error('resetDatabase network failure');
+      (resetDatabase as jest.Mock).mockRejectedValueOnce(syncError);
 
       const { getByTestId } = render(
         <AuthProvider>

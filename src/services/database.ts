@@ -265,6 +265,9 @@ export async function resetDatabase(): Promise<void> {
   try {
     await SQLite.deleteDatabaseAsync(DB_NAME);
   } catch (error) {
+    // Best-effort: if delete fails, proceed with getDb() anyway — the file may still
+    // be openable, and pulling from Supabase can upsert on top. Aborting here would
+    // leave the user with no data at all, which is worse.
     Sentry.captureException(error);
   }
   await getDb();
