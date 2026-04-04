@@ -264,6 +264,7 @@ async function withDb<T>(label: string, fn: (db: SQLite.SQLiteDatabase) => Promi
 async function initSchema(database: SQLite.SQLiteDatabase) {
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS exercises (
       id TEXT PRIMARY KEY,
@@ -553,8 +554,10 @@ export function updateTemplate(id: string, name: string): Promise<void> {
 
 export function deleteTemplate(id: string): Promise<void> {
   return withDb('deleteTemplate', async (database) => {
-    await database.runAsync('DELETE FROM template_exercises WHERE template_id = ?', id);
-    await database.runAsync('DELETE FROM templates WHERE id = ?', id);
+    await database.withTransactionAsync(async () => {
+      await database.runAsync('DELETE FROM template_exercises WHERE template_id = ?', id);
+      await database.runAsync('DELETE FROM templates WHERE id = ?', id);
+    });
   });
 }
 
@@ -715,8 +718,10 @@ export function getActiveWorkout(): Promise<Workout | null> {
 
 export function deleteWorkout(id: string): Promise<void> {
   return withDb('deleteWorkout', async (database) => {
-    await database.runAsync('DELETE FROM workout_sets WHERE workout_id = ?', id);
-    await database.runAsync('DELETE FROM workouts WHERE id = ?', id);
+    await database.withTransactionAsync(async () => {
+      await database.runAsync('DELETE FROM workout_sets WHERE workout_id = ?', id);
+      await database.runAsync('DELETE FROM workouts WHERE id = ?', id);
+    });
   });
 }
 
@@ -1196,9 +1201,11 @@ export function getE1RMWithConfidence(exerciseId: string): Promise<E1RMResult | 
 
 export function clearLocalUpcomingWorkout(): Promise<void> {
   return withDb('clearLocalUpcomingWorkout', async (database) => {
-    await database.runAsync('DELETE FROM upcoming_workout_sets');
-    await database.runAsync('DELETE FROM upcoming_workout_exercises');
-    await database.runAsync('DELETE FROM upcoming_workouts');
+    await database.withTransactionAsync(async () => {
+      await database.runAsync('DELETE FROM upcoming_workout_sets');
+      await database.runAsync('DELETE FROM upcoming_workout_exercises');
+      await database.runAsync('DELETE FROM upcoming_workouts');
+    });
   });
 }
 
