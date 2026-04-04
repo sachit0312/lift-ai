@@ -5,6 +5,7 @@ const { __mockDb } = require('expo-sqlite') as { __mockDb: {
   runAsync: jest.Mock;
   execAsync: jest.Mock;
   closeAsync: jest.Mock;
+  withTransactionAsync: jest.Mock;
 }};
 
 import * as Sentry from '@sentry/react-native';
@@ -16,6 +17,9 @@ import {
   clearAllLocalData,
   resetDatabase,
   DB_NAME,
+  deleteWorkout,
+  deleteTemplate,
+  clearLocalUpcomingWorkout,
 } from '../database';
 
 beforeEach(() => {
@@ -24,6 +28,7 @@ beforeEach(() => {
   __mockDb.runAsync.mockClear();
   __mockDb.execAsync.mockClear();
   __mockDb.closeAsync.mockClear();
+  __mockDb.withTransactionAsync.mockClear();
   (Sentry.captureException as jest.Mock).mockClear();
 });
 
@@ -211,6 +216,84 @@ describe('clearAllLocalData', () => {
       'templates',
       'user_exercise_notes',
       'exercises',
+    ]);
+  });
+
+  it('does NOT use withTransactionAsync — safe for concurrent callers (sync pull loops)', async () => {
+    await clearAllLocalData();
+    expect(__mockDb.withTransactionAsync).not.toHaveBeenCalled();
+  });
+});
+
+// ─── FK pragma and transaction integrity ───
+
+describe('FK pragma and transaction integrity', () => {
+  it('PRAGMA foreign_keys = ON is set during schema init', async () => {
+    // Use jest.isolateModulesAsync to get a fresh module instance so that
+    // initSchema runs and we can capture the execAsync call it makes.
+    let fkPragmaWasSet = false;
+    await jest.isolateModulesAsync(async () => {
+      const sqliteMock = require('expo-sqlite') as typeof import('expo-sqlite') & { __mockDb: typeof __mockDb };
+      // Clear before triggering init so we only see calls from this fresh load
+      sqliteMock.__mockDb.execAsync.mockClear();
+      const freshDb = require('../database') as typeof import('../database');
+      // Trigger getDb() → initSchema()
+      await freshDb.getAllExercises().catch(() => {});
+      fkPragmaWasSet = sqliteMock.__mockDb.execAsync.mock.calls.some(
+        (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('PRAGMA foreign_keys = ON')
+      );
+    });
+    expect(fkPragmaWasSet).toBe(true);
+  });
+
+  it('deleteWorkout wraps both deletes in a single transaction', async () => {
+    await deleteWorkout('workout-123');
+    expect(__mockDb.withTransactionAsync).toHaveBeenCalledTimes(1);
+
+    // The two deletes must have been called inside the transaction callback
+    const deleteCalls = __mockDb.runAsync.mock.calls
+      .filter((c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).startsWith('DELETE FROM'))
+      .map((c: unknown[]) => {
+        const match = (c[0] as string).match(/DELETE FROM (\w+)/);
+        return match ? match[1] : null;
+      });
+    expect(deleteCalls).toContain('workout_sets');
+    expect(deleteCalls).toContain('workouts');
+    // Child (sets) deleted before parent (workout)
+    expect(deleteCalls.indexOf('workout_sets')).toBeLessThan(deleteCalls.indexOf('workouts'));
+  });
+
+  it('deleteTemplate wraps both deletes in a single transaction', async () => {
+    await deleteTemplate('template-456');
+    expect(__mockDb.withTransactionAsync).toHaveBeenCalledTimes(1);
+
+    const deleteCalls = __mockDb.runAsync.mock.calls
+      .filter((c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).startsWith('DELETE FROM'))
+      .map((c: unknown[]) => {
+        const match = (c[0] as string).match(/DELETE FROM (\w+)/);
+        return match ? match[1] : null;
+      });
+    expect(deleteCalls).toContain('template_exercises');
+    expect(deleteCalls).toContain('templates');
+    // Child (template_exercises) deleted before parent (templates)
+    expect(deleteCalls.indexOf('template_exercises')).toBeLessThan(deleteCalls.indexOf('templates'));
+  });
+
+  it('clearLocalUpcomingWorkout wraps all three deletes in a single transaction', async () => {
+    await clearLocalUpcomingWorkout();
+    expect(__mockDb.withTransactionAsync).toHaveBeenCalledTimes(1);
+
+    const deleteCalls = __mockDb.runAsync.mock.calls
+      .filter((c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).startsWith('DELETE FROM'))
+      .map((c: unknown[]) => {
+        const match = (c[0] as string).match(/DELETE FROM (\w+)/);
+        return match ? match[1] : null;
+      });
+    expect(deleteCalls).toHaveLength(3);
+    expect(deleteCalls).toEqual([
+      'upcoming_workout_sets',
+      'upcoming_workout_exercises',
+      'upcoming_workouts',
     ]);
   });
 });
