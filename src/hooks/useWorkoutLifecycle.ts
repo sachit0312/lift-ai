@@ -51,6 +51,7 @@ import {
   getLastPerformedByTemplate,
   getBestE1RM,
   stampExerciseOrder,
+  setPlannedExerciseIds,
   applyWorkoutChangesToTemplate,
   updateWorkoutSessionNotes,
   clearLocalUpcomingWorkout,
@@ -480,18 +481,21 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       const blocks = await Promise.all(
         templateExercises
           .filter(te => te.exercise)
-          .map(async (te) => {
+          .map(async (te, i) => {
             const totalSets = te.warmup_sets + te.default_sets;
             const tags: SetTag[] = [
               ...Array(te.warmup_sets).fill('warmup' as SetTag),
               ...Array(te.default_sets).fill('working' as SetTag),
             ];
-            const block = await buildExerciseBlock(workout.id, te.exercise!, totalSets, te.rest_seconds, tags);
+            const block = await buildExerciseBlock(workout.id, te.exercise!, totalSets, te.rest_seconds, tags, i);
             block.originalWarmupSets = te.warmup_sets;
             block.originalWorkingSets = te.default_sets;
             return block;
           })
       );
+
+      const plannedIds = templateExercises.filter(te => te.exercise).map(te => te.exercise_id);
+      await setPlannedExerciseIds(workout.id, plannedIds);
 
       activateWorkout(workout, blocks, template.name);
     } catch (e: unknown) {
@@ -522,6 +526,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     try {
       setLoading(true);
       const workout = await startWorkout(null);
+      await setPlannedExerciseIds(workout.id, null);
       activateWorkout(workout, []);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start empty workout', e);
@@ -538,16 +543,17 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       setLoading(true);
       await historyPulledRef.current;
       const workout = await startWorkout(upcomingWorkout.workout.template_id, upcomingWorkout.workout.id);
+      const plannedExercises = upcomingWorkout.exercises.filter(upEx => upEx.exercise);
       const blocks = await Promise.all(
-        upcomingWorkout.exercises
-          .filter(upEx => upEx.exercise)
-          .map(async (upEx) => {
-            const sets = upEx.sets ?? [];
-            const setCount = Math.max(sets.length, 1);
-            const tagOverrides: SetTag[] = sets.map(s => s.tag ?? 'working');
-            return buildExerciseBlock(workout.id, upEx.exercise!, setCount, upEx.rest_seconds, tagOverrides);
-          })
+        plannedExercises.map(async (upEx, i) => {
+          const sets = upEx.sets ?? [];
+          const setCount = Math.max(sets.length, 1);
+          const tagOverrides: SetTag[] = sets.map(s => s.tag ?? 'working');
+          return buildExerciseBlock(workout.id, upEx.exercise!, setCount, upEx.rest_seconds, tagOverrides, i);
+        })
       );
+
+      await setPlannedExerciseIds(workout.id, plannedExercises.map(upEx => upEx.exercise_id));
 
       if (upcomingWorkout.workout.template_id) {
         try {
