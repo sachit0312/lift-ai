@@ -215,8 +215,9 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     programmedOrder?: number | null,
   ): Promise<ExerciseBlock> {
     const tags: SetTag[] = Array.from({ length: setCount }, (_, i) => tagOverrides?.[i] ?? 'working');
-    const exerciseOrderValue = programmedOrder != null ? programmedOrder + 1 : 0;
-    const programmedOrderValue = programmedOrder != null ? programmedOrder + 1 : null;
+    const oneIndexed = programmedOrder != null ? programmedOrder + 1 : null;
+    const exerciseOrderValue = oneIndexed ?? 0;
+    const programmedOrderValue = oneIndexed;
     const setsToInsert = tags.map((tag, i) => ({
       workout_id: workoutId,
       exercise_id: exercise.id,
@@ -480,6 +481,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       const workout = await startWorkout(template.id);
       const templateExercises = await getTemplateExercises(template.id);
 
+      // Persist the plan BEFORE Promise.all so the full planned_exercise_ids is
+      // written even if the app is interrupted while blocks are being built.
+      const plannedIds = templateExercises.filter(te => te.exercise).map(te => te.exercise_id);
+      await setPlannedExerciseIds(workout.id, plannedIds);
+
       const blocks = await Promise.all(
         templateExercises
           .filter(te => te.exercise)
@@ -495,9 +501,6 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
             return block;
           })
       );
-
-      const plannedIds = templateExercises.filter(te => te.exercise).map(te => te.exercise_id);
-      await setPlannedExerciseIds(workout.id, plannedIds);
 
       activateWorkout(workout, blocks, template.name);
     } catch (e: unknown) {
@@ -528,7 +531,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     try {
       setLoading(true);
       const workout = await startWorkout(null);
-      await setPlannedExerciseIds(workout.id, null);
+      // No plan to persist — planned_exercise_ids defaults to NULL in the DB.
+      // confirmFinish guards with `if (plannedIds && plannedIds.length > 0)`.
       activateWorkout(workout, []);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start empty workout', e);
@@ -546,6 +550,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       await historyPulledRef.current;
       const workout = await startWorkout(upcomingWorkout.workout.template_id, upcomingWorkout.workout.id);
       const plannedExercises = upcomingWorkout.exercises.filter(upEx => upEx.exercise);
+
+      // Persist the plan BEFORE Promise.all so the full planned_exercise_ids is
+      // written even if the app is interrupted while blocks are being built.
+      await setPlannedExerciseIds(workout.id, plannedExercises.map(upEx => upEx.exercise_id));
+
       const blocks = await Promise.all(
         plannedExercises.map(async (upEx, i) => {
           const sets = upEx.sets ?? [];
@@ -554,8 +563,6 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           return buildExerciseBlock(workout.id, upEx.exercise!, setCount, upEx.rest_seconds, tagOverrides, i);
         })
       );
-
-      await setPlannedExerciseIds(workout.id, plannedExercises.map(upEx => upEx.exercise_id));
 
       if (upcomingWorkout.workout.template_id) {
         try {
@@ -645,6 +652,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
     setShowAddExercise(false);
     const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
+    // exercise_order: 1-indexed position at the end of the current block list.
+    // programmed_order: null — user-added mid-workout, not part of the original plan.
     const ws = await addWorkoutSet({
       workout_id: workout.id,
       exercise_id: exercise.id,
@@ -655,6 +664,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       rpe: null,
       is_completed: false,
       notes: null,
+      exercise_order: blocksRef.current.length + 1,
+      programmed_order: null,
     });
     const [userNotes, bestE1RMRaw] = await Promise.all([
       getUserExerciseNotes(exercise.id),
@@ -812,8 +823,12 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       const plannedIds = await getPlannedExerciseIds(workout.id);
       if (plannedIds && plannedIds.length > 0) {
         const presentIds = new Set(currentBlocks.map(b => b.exercise.id));
+        // Dedup plannedIds: duplicate exercise_ids use the FIRST occurrence's position.
+        const seen = new Set<string>();
         const skipped: Array<{ exercise_id: string; programmed_order: number }> = [];
         plannedIds.forEach((exerciseId, i) => {
+          if (seen.has(exerciseId)) return;
+          seen.add(exerciseId);
           if (!presentIds.has(exerciseId)) {
             skipped.push({ exercise_id: exerciseId, programmed_order: i + 1 });
           }

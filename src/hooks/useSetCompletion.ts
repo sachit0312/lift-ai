@@ -6,6 +6,28 @@ import type { UpcomingWorkoutExercise, UpcomingWorkoutSet, Exercise } from '../t
 import { updateWorkoutSet, stampExerciseOrder } from '../services/database';
 import { calculateE1RM, getPRGatingMargin } from '../utils/oneRepMax';
 import type { Workout } from '../types/database';
+
+// ─── Pure helpers ───
+
+/**
+ * Apply an auto-reorder splice to a blocks array.
+ * Returns a new array with the exercise at `exerciseId` moved to `insertIdx`
+ * if it is currently beyond that index; otherwise returns the original array.
+ */
+function applyReorderSplice(
+  blocks: ExerciseBlock[],
+  exerciseId: string,
+  insertIdx: number,
+): ExerciseBlock[] {
+  const next = [...blocks];
+  const currentIdx = next.findIndex(b => b.exercise.id === exerciseId);
+  if (currentIdx > insertIdx) {
+    const [moved] = next.splice(currentIdx, 1);
+    next.splice(insertIdx, 0, moved);
+  }
+  return next;
+}
+
 // ─── Types ───
 
 export interface UseSetCompletionOptions {
@@ -193,29 +215,25 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       };
       next[blockIdx] = updatedBlock;
 
-      // 2. Apply reorder (if needed)
-      if (shouldReorder) {
-        const currentIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
-        if (currentIdx > reorderInsertIdx) {
-          const [moved] = next.splice(currentIdx, 1);
-          next.splice(reorderInsertIdx, 0, moved);
-        }
-      }
+      // 2. Apply reorder (if needed) — use shared helper to avoid duplication
+      const reordered = shouldReorder
+        ? applyReorderSplice(next, block.exercise.id, reorderInsertIdx)
+        : next;
 
       // 3. Apply PR bestE1RM update (if needed)
       if (isPR && newBestE1RM != null) {
-        const prIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
-        if (prIdx >= 0) next[prIdx] = { ...next[prIdx], bestE1RM: newBestE1RM };
+        const prIdx = reordered.findIndex(b => b.exercise.id === block.exercise.id);
+        if (prIdx >= 0) reordered[prIdx] = { ...reordered[prIdx], bestE1RM: newBestE1RM };
       }
 
       // 4. Un-complete: revert bestE1RM if this was a PR set
       if (!newCompleted && prSetIdsRef.current.has(set.id)) {
         const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
-        const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
-        if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
+        const idx = reordered.findIndex(b => b.exercise.id === block.exercise.id);
+        if (idx >= 0) reordered[idx] = { ...reordered[idx], bestE1RM: originalBest };
       }
 
-      return next;
+      return reordered;
     });
 
     // Note: pendingCompletionRef entry is intentionally NOT deleted here.
@@ -231,13 +249,9 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
     // to derive the correct post-reorder layout.
     if (shouldReorder && workoutRef.current) {
       const workoutId = workoutRef.current.id;
-      const preBlocks = blocksRef.current;
-      const reordered = [...preBlocks];
-      const currentIdx = reordered.findIndex(b => b.exercise.id === block.exercise.id);
-      if (currentIdx > reorderInsertIdx) {
-        const [moved] = reordered.splice(currentIdx, 1);
-        reordered.splice(reorderInsertIdx, 0, moved);
-      }
+      // blocksRef.current is the PRE-UPDATE list (ref-sync hasn't fired yet).
+      // Use the same applyReorderSplice helper to derive the post-reorder layout.
+      const reordered = applyReorderSplice(blocksRef.current, block.exercise.id, reorderInsertIdx);
       const entries: Array<{ id: string; order: number }> = [];
       reordered.forEach((b, idx) => {
         for (const s of b.sets) {

@@ -35,6 +35,7 @@ import {
   getUserExerciseNotes,
   getUserExerciseNotesBatch,
   updateWorkoutCoachNotes,
+  addWorkoutSet,
   addWorkoutSetsBatch,
   getWorkoutSets,
   setPlannedExerciseIds,
@@ -844,6 +845,72 @@ describe('getWorkoutSets — plan order preservation regression', () => {
     const calls = __mockDb.getAllAsync.mock.calls;
     const lastCall = calls[calls.length - 1];
     const sql = lastCall[0] as string;
+    // Exact match: nothing extra should trail after set_number in the ORDER BY.
+    expect(sql).toMatch(/ORDER BY exercise_order, set_number(?!,)/);
     expect(sql).not.toMatch(/ORDER BY.*rowid/);
+  });
+});
+
+// ─── Test 9: getPlannedExerciseIds with malformed JSON ──────────────────────
+
+describe('getPlannedExerciseIds — malformed/non-array JSON', () => {
+  it('returns null when the stored value is not valid JSON', async () => {
+    __mockDb.getFirstAsync.mockResolvedValueOnce({ planned_exercise_ids: 'not-valid-json' });
+    const ids = await getPlannedExerciseIds('w-bad');
+    expect(ids).toBeNull();
+  });
+
+  it('returns null when the stored value is valid JSON but not an array', async () => {
+    // JSON.parse('"just-a-string"') → "just-a-string" (a string, not an array)
+    __mockDb.getFirstAsync.mockResolvedValueOnce({ planned_exercise_ids: '"just-a-string"' });
+    const ids = await getPlannedExerciseIds('w-str');
+    expect(ids).toBeNull();
+  });
+});
+
+// ─── Test 10: setPlannedExerciseIds with empty array round-trip ─────────────
+
+describe('planned_exercise_ids — empty array round-trip', () => {
+  it('returns empty array (not null) when stored as []', async () => {
+    const w = await startWorkout(null);
+    await setPlannedExerciseIds(w.id, []);
+    __mockDb.getFirstAsync.mockResolvedValueOnce({ planned_exercise_ids: '[]' });
+    const ids = await getPlannedExerciseIds(w.id);
+    expect(ids).toEqual([]);
+    expect(ids).not.toBeNull();
+  });
+});
+
+// ─── Test 14: addWorkoutSet persists exercise_order and programmed_order ────
+
+describe('addWorkoutSet — field persistence', () => {
+  it('includes exercise_order and programmed_order in the INSERT SQL', async () => {
+    await addWorkoutSet({
+      workout_id: 'w-1',
+      exercise_id: 'ex-1',
+      set_number: 1,
+      reps: null,
+      weight: null,
+      tag: 'working',
+      rpe: null,
+      is_completed: false,
+      notes: null,
+      exercise_order: 5,
+      programmed_order: null,
+    });
+
+    const call = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets'),
+    );
+    expect(call).toBeDefined();
+    // Column list must include both columns
+    expect(call![0]).toContain('exercise_order');
+    expect(call![0]).toContain('programmed_order');
+    // exercise_order = 5 should be at the correct binding position
+    const bindings = call!.slice(1);
+    expect(bindings).toContain(5);
+    // programmed_order = null
+    const lastBinding = bindings[bindings.length - 1];
+    expect(lastBinding).toBeNull();
   });
 });

@@ -200,7 +200,7 @@ Unit + integration:
 7. `confirmFinish` with a removed planned exercise — ghost row is inserted with correct `programmed_order`, `exercise_order` NULL, `is_completed = 0`.
 8. `confirmFinish` with no plan (empty workout) — no ghost rows, `stampExerciseOrder` only.
 9. **Regression test for Issue 1:** start workout from template with 5 exercises, simulate `loadActiveWorkout` immediately, verify order matches the template's `sort_order`. (This catches the rowid race even if someone later reintroduces a `Promise.all` race.)
-10. `getWorkoutSets` query orders by `exercise_order, set_number` correctly for a workout with mixed completed/ghost rows (ghosts with NULL `exercise_order` sort first — may need tiebreaker; see open questions).
+10. `getWorkoutSets` query orders by `exercise_order, set_number` correctly for a workout with mixed completed/ghost rows. Ghost rows have `exercise_order = 0` (NOT NULL — sentinel-at-zero, see Open Question 1), so they sort before performed exercises. This is acceptable because ghost rows are only written at finish time, and finished workouts do not reload via `loadActiveWorkout`.
 11. **Auto-reorder persistence:** start a template workout, complete the first set of exercise #3 (triggering auto-reorder to top), call `getWorkoutSets`, verify exercise #3's rows now have `exercise_order = 1` and the previously-first exercise has `exercise_order = 2`. Simulate `loadActiveWorkout`, verify the in-memory order matches the auto-reordered state.
 
 Maestro smoke: start from a template, finish, verify summary screen renders correctly (no regression in F5 template-update flow, which reads from `exerciseBlocks` not from `workout_sets`).
@@ -214,7 +214,7 @@ Maestro smoke: start from a template, finish, verify summary screen renders corr
 
 ## Open Questions
 
-1. **NULL sort order in `getWorkoutSets`:** SQLite sorts NULL first by default. Ghost rows have `exercise_order = NULL`. If a user reloads an in-progress workout that already had a ghost from a previous finish… wait, ghosts are only written at finish, and finished workouts don't reload via `loadActiveWorkout`. So this is fine. **Resolved: no ordering conflict in practice.**
+1. **Ghost-row sentinel:** The spec originally described ghost rows as having `exercise_order IS NULL`. However, `workout_sets.exercise_order` was declared `NOT NULL DEFAULT 0` in migration 007. The NOT NULL constraint is preserved — dropping it would be a breaking change. Instead, ghost rows use `exercise_order = 0`. The composite sentinel is: `programmed_order IS NOT NULL AND exercise_order = 0 AND is_completed = 0 AND reps = 0 AND weight = 0`. MCP and phone code must NOT check `exercise_order IS NULL`; they must use this composite condition (or the equivalent `sets.length === 0` after filtering out ghost rows). **Resolved: sentinel-at-zero, NOT NULL constraint retained.**
 2. **Should `getWorkoutSets` be updated to sort differently?** Current: `ORDER BY exercise_order, rowid, set_number`. After the fix, `exercise_order` is always non-NULL for active workouts, so `rowid` becomes dead code. Safe to leave for defense-in-depth, or simplify to `ORDER BY exercise_order, set_number`. **Proposed: simplify, one line of code is cleaner than a dead tiebreaker.**
 3. **Should `handleRemoveExercise` confirm destructively when removing a planned exercise?** Currently it asks for any exercise. The ghost-row flow means "Remove" now effectively means "Mark skipped" for planned exercises. No UX change needed — the confirmation dialog message still reads correctly.
 

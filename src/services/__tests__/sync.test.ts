@@ -517,7 +517,9 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     const [payload] = setsBuilder.upsert.mock.calls[0];
+    // Both ordering columns must be present in the push payload (Test 12)
     expect(payload[0].programmed_order).toBe(2);
+    expect(payload[0].exercise_order).toBe(1);
   });
 
   it('push includes planned_exercise_ids in workouts upsert payload', async () => {

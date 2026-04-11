@@ -803,9 +803,10 @@ export function addWorkoutSet(set: Omit<WorkoutSet, 'id'>): Promise<WorkoutSet> 
   return withDb('addWorkoutSet', async (database) => {
     const id = uuid();
     await database.runAsync(
-      'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       id, set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
       set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null, set.exercise_order ?? 0,
+      set.programmed_order ?? null,
     );
     return { id, ...set };
   });

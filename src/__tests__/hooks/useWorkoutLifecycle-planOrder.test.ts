@@ -4,7 +4,9 @@
  * Verifies that handleStartFromTemplate passes array index as programmedOrder
  * to buildExerciseBlock (which calls addWorkoutSetsBatch) and persists the
  * planned exercise ID list via setPlannedExerciseIds.
- * Verifies that handleStartEmpty persists null via setPlannedExerciseIds.
+ * Verifies that handleStartFromUpcoming does the same.
+ * Verifies that handleStartEmpty does NOT call setPlannedExerciseIds
+ * (DB default NULL is sufficient).
  */
 import { renderHook, act } from '@testing-library/react-native';
 import { useWorkoutLifecycle } from '../../hooks/useWorkoutLifecycle';
@@ -24,6 +26,7 @@ const mockGetTemplateExercises = jest.fn().mockResolvedValue([]);
 const mockAddWorkoutSetsBatch = jest.fn().mockResolvedValue([{ id: 'ws-1' }]);
 const mockGetBestE1RM = jest.fn().mockResolvedValue(null);
 const mockGetUserExerciseNotes = jest.fn().mockResolvedValue(null);
+const mockGetUpcomingWorkoutForToday = jest.fn().mockResolvedValue(null);
 
 jest.mock('../../services/database', () => ({
   getActiveWorkout: (...args: unknown[]) => mockGetActiveWorkout(...args),
@@ -40,7 +43,7 @@ jest.mock('../../services/database', () => ({
   getBestE1RM: (...args: unknown[]) => mockGetBestE1RM(...args),
   getUserExerciseNotes: (...args: unknown[]) => mockGetUserExerciseNotes(...args),
   updateWorkoutSessionNotes: jest.fn().mockResolvedValue(undefined),
-  getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
+  getUpcomingWorkoutForToday: (...args: unknown[]) => mockGetUpcomingWorkoutForToday(...args),
   getWorkoutSets: jest.fn().mockResolvedValue([]),
   deleteWorkout: jest.fn().mockResolvedValue(undefined),
   getAllExercises: jest.fn().mockResolvedValue([]),
@@ -121,6 +124,7 @@ describe('useWorkoutLifecycle — plan order (Task 5)', () => {
     mockSetPlannedExerciseIds.mockResolvedValue(undefined);
     mockGetBestE1RM.mockResolvedValue(null);
     mockGetUserExerciseNotes.mockResolvedValue(null);
+    mockGetUpcomingWorkoutForToday.mockResolvedValue(null);
   });
 
   it('handleStartFromTemplate passes index as programmedOrder and persists planned IDs', async () => {
@@ -171,7 +175,7 @@ describe('useWorkoutLifecycle — plan order (Task 5)', () => {
     expect(mockSetPlannedExerciseIds).toHaveBeenCalledWith('w1', ['ex-a', 'ex-b', 'ex-c']);
   });
 
-  it('handleStartEmpty persists null plan', async () => {
+  it('handleStartEmpty does NOT call setPlannedExerciseIds (DB default NULL is sufficient)', async () => {
     const options = buildOptions();
     const { result } = renderHook(() =>
       useWorkoutLifecycle(options as Parameters<typeof useWorkoutLifecycle>[0]),
@@ -185,6 +189,76 @@ describe('useWorkoutLifecycle — plan order (Task 5)', () => {
       await result.current.handleStartEmpty();
     });
 
-    expect(mockSetPlannedExerciseIds).toHaveBeenCalledWith('w1', null);
+    // The DB column defaults to NULL, so no explicit write is needed.
+    // confirmFinish guards with `if (plannedIds && plannedIds.length > 0)`.
+    expect(mockSetPlannedExerciseIds).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Test #8: handleStartFromUpcoming plan threading ─────────────────────────
+
+describe('useWorkoutLifecycle — handleStartFromUpcoming plan order (Test 8)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetActiveWorkout.mockResolvedValue(null);
+    mockGetAllTemplates.mockResolvedValue([]);
+    mockGetLastPerformedByTemplate.mockResolvedValue({});
+    mockStartWorkout.mockResolvedValue({ id: 'w1', started_at: new Date().toISOString() });
+    mockSetPlannedExerciseIds.mockResolvedValue(undefined);
+    mockGetBestE1RM.mockResolvedValue(null);
+    mockGetUserExerciseNotes.mockResolvedValue(null);
+    mockGetUpcomingWorkoutForToday.mockResolvedValue(null);
+  });
+
+  it('passes index as programmedOrder and persists planned IDs before Promise.all', async () => {
+    const exA = createMockExercise({ id: 'ex-a', name: 'Exercise A' });
+    const exB = createMockExercise({ id: 'ex-b', name: 'Exercise B' });
+    const exC = createMockExercise({ id: 'ex-c', name: 'Exercise C' });
+
+    const mockUpcoming = {
+      workout: { id: 'up-1', template_id: null, notes: null },
+      exercises: [
+        { exercise_id: 'ex-a', exercise: exA, sets: [{ set_number: 1, tag: 'working', target_weight: null, target_reps: null, target_rpe: null }], rest_seconds: 90, notes: null },
+        { exercise_id: 'ex-b', exercise: exB, sets: [{ set_number: 1, tag: 'working', target_weight: null, target_reps: null, target_rpe: null }], rest_seconds: 90, notes: null },
+        { exercise_id: 'ex-c', exercise: exC, sets: [{ set_number: 1, tag: 'working', target_weight: null, target_reps: null, target_rpe: null }], rest_seconds: 90, notes: null },
+      ],
+    };
+
+    // Return the upcoming workout from loadState
+    mockGetUpcomingWorkoutForToday.mockResolvedValue(mockUpcoming);
+
+    mockAddWorkoutSetsBatch
+      .mockResolvedValueOnce([{ id: 'ws-a-1' }])
+      .mockResolvedValueOnce([{ id: 'ws-b-1' }])
+      .mockResolvedValueOnce([{ id: 'ws-c-1' }]);
+
+    const options = buildOptions();
+    const { result } = renderHook(() =>
+      useWorkoutLifecycle(options as Parameters<typeof useWorkoutLifecycle>[0]),
+    );
+
+    // Wait for initial loadState to set upcomingWorkout
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+
+    await act(async () => {
+      await result.current.handleStartFromUpcoming();
+    });
+
+    // addWorkoutSetsBatch called once per exercise with correct programmed_order
+    expect(mockAddWorkoutSetsBatch).toHaveBeenCalledTimes(3);
+
+    const call0Sets = mockAddWorkoutSetsBatch.mock.calls[0][0];
+    expect(call0Sets[0]).toMatchObject({ programmed_order: 1, exercise_order: 1 });
+
+    const call1Sets = mockAddWorkoutSetsBatch.mock.calls[1][0];
+    expect(call1Sets[0]).toMatchObject({ programmed_order: 2, exercise_order: 2 });
+
+    const call2Sets = mockAddWorkoutSetsBatch.mock.calls[2][0];
+    expect(call2Sets[0]).toMatchObject({ programmed_order: 3, exercise_order: 3 });
+
+    // setPlannedExerciseIds called with workout id and ordered exercise IDs
+    expect(mockSetPlannedExerciseIds).toHaveBeenCalledWith('w1', ['ex-a', 'ex-b', 'ex-c']);
   });
 });

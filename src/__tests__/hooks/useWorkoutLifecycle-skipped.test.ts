@@ -228,3 +228,38 @@ describe('useWorkoutLifecycle — skipped exercises ghost rows (FIX-3)', () => {
     expect(mockStampExerciseOrder).toHaveBeenCalledWith(workoutId, expect.any(Array));
   });
 });
+
+// ─── Test 13: confirmFinish early-return when workoutRef.current is null ────
+
+describe('confirmFinish — early return with null workoutRef (Test 13)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetActiveWorkout.mockResolvedValue(null);
+    mockGetAllTemplates.mockResolvedValue([]);
+    mockGetLastPerformedByTemplate.mockResolvedValue({});
+    mockGetPlannedExerciseIds.mockResolvedValue(null);
+  });
+
+  it('does not call insertSkippedPlaceholderSets or stampExerciseOrder when no active workout', async () => {
+    // Build options WITHOUT activating a workout — workoutRef.current stays null
+    const options = buildOptions('w-null', []);
+    // Override: ensure no active workout is loaded
+    mockGetActiveWorkout.mockResolvedValue(null);
+
+    const { result } = renderHook(() =>
+      useWorkoutLifecycle(options as Parameters<typeof useWorkoutLifecycle>[0]),
+    );
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+
+    // confirmFinish with no active workout should be a no-op
+    await act(async () => {
+      await result.current.confirmFinish();
+    });
+
+    expect(mockInsertSkippedPlaceholderSets).not.toHaveBeenCalled();
+    expect(mockStampExerciseOrder).not.toHaveBeenCalled();
+  });
+});

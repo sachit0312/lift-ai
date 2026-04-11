@@ -8,6 +8,13 @@
 
 ALTER TABLE workout_sets ADD COLUMN programmed_order INTEGER;
 
+-- Ghost-row sentinel rule: a row represents a planned-but-skipped exercise when
+-- programmed_order IS NOT NULL AND exercise_order = 0 AND is_completed = 0
+-- AND reps = 0 AND weight = 0.
+-- NOTE: exercise_order uses 0 (not NULL) because workout_sets.exercise_order
+-- was declared NOT NULL DEFAULT 0 in migration 007. The NOT NULL constraint is
+-- intentional and must not be dropped. Callers must use the composite sentinel
+-- above, NOT an exercise_order IS NULL check.
 CREATE INDEX IF NOT EXISTS workout_sets_workout_programmed_idx
   ON workout_sets(workout_id, programmed_order);
 
