@@ -24,6 +24,7 @@ const mockSetPlannedExerciseIds = jest.fn().mockResolvedValue(undefined);
 const mockStartWorkout = jest.fn().mockResolvedValue({ id: 'w1', started_at: new Date().toISOString() });
 const mockGetTemplateExercises = jest.fn().mockResolvedValue([]);
 const mockAddWorkoutSetsBatch = jest.fn().mockResolvedValue([{ id: 'ws-1' }]);
+const mockAddWorkoutSet = jest.fn().mockResolvedValue({ id: 'ws-new' });
 const mockGetBestE1RM = jest.fn().mockResolvedValue(null);
 const mockGetUserExerciseNotes = jest.fn().mockResolvedValue(null);
 const mockGetUpcomingWorkoutForToday = jest.fn().mockResolvedValue(null);
@@ -47,7 +48,7 @@ jest.mock('../../services/database', () => ({
   getWorkoutSets: jest.fn().mockResolvedValue([]),
   deleteWorkout: jest.fn().mockResolvedValue(undefined),
   getAllExercises: jest.fn().mockResolvedValue([]),
-  addWorkoutSet: jest.fn().mockResolvedValue({ id: 'ws-1' }),
+  addWorkoutSet: (...args: unknown[]) => mockAddWorkoutSet(...args),
   updateWorkoutSet: jest.fn().mockResolvedValue(undefined),
   getBulkExercises: jest.fn().mockResolvedValue([]),
   getUserExerciseNotesBatch: jest.fn().mockResolvedValue(new Map()),
@@ -260,5 +261,143 @@ describe('useWorkoutLifecycle — handleStartFromUpcoming plan order (Test 8)', 
 
     // setPlannedExerciseIds called with workout id and ordered exercise IDs
     expect(mockSetPlannedExerciseIds).toHaveBeenCalledWith('w1', ['ex-a', 'ex-b', 'ex-c']);
+  });
+});
+
+// ─── Test: handleAddExerciseToWorkout exercise_order collision fix ────────────
+
+jest.mock('../../utils/exerciseHistory', () => ({
+  getExerciseHistoryData: jest.fn().mockResolvedValue({ previousSets: [], lastTime: null }),
+}));
+
+describe('useWorkoutLifecycle — handleAddExerciseToWorkout exercise_order (Fix #1)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetActiveWorkout.mockResolvedValue(null);
+    mockGetAllTemplates.mockResolvedValue([]);
+    mockGetLastPerformedByTemplate.mockResolvedValue({});
+    mockGetBestE1RM.mockResolvedValue(null);
+    mockGetUserExerciseNotes.mockResolvedValue(null);
+    mockGetUpcomingWorkoutForToday.mockResolvedValue(null);
+    mockAddWorkoutSet.mockResolvedValue({ id: 'ws-new' });
+  });
+
+  it('assigns exercise_order: 4 and programmed_order: null when blocks have orders [1,2,3]', async () => {
+    const exA = createMockExercise({ id: 'ex-a' });
+    const exB = createMockExercise({ id: 'ex-b' });
+    const exC = createMockExercise({ id: 'ex-c' });
+    const exD = createMockExercise({ id: 'ex-d', name: 'Exercise D' });
+
+    const makeLocalBlock = (exercise: ReturnType<typeof createMockExercise>, order: number): ExerciseBlock => ({
+      exercise,
+      sets: [{ id: `s-${exercise.id}`, exercise_id: exercise.id, set_number: 1, weight: '', reps: '', rpe: '', tag: 'working' as const, is_completed: false, previous: null, exercise_order: order }],
+      lastTime: null, machineNotesExpanded: false, machineNotes: '', restSeconds: 90, restEnabled: true,
+    });
+
+    const workout = createMockWorkout({ id: 'w1', started_at: new Date().toISOString() });
+    const blocks = [makeLocalBlock(exA, 1), makeLocalBlock(exB, 2), makeLocalBlock(exC, 3)];
+    const workoutRef = { current: workout };
+    const blocksRef = { current: blocks };
+
+    const options = {
+      workoutRef,
+      setExerciseBlocks: jest.fn() as React.Dispatch<React.SetStateAction<ExerciseBlock[]>>,
+      exerciseBlocks: blocks,
+      blocksRef,
+      originalBestE1RMRef: { current: new Map<string, number | undefined>() },
+      currentBestE1RMRef: { current: new Map<string, number | undefined>() },
+      prSetIdsRef: { current: new Set<string>() },
+      lastActiveBlockRef: { current: 0 },
+      syncWidgetState: jest.fn(),
+      dismissRest: jest.fn(),
+      debouncedSaveNotes: jest.fn(),
+      flushPendingNotes: jest.fn().mockResolvedValue(undefined),
+      clearPendingNotes: jest.fn(),
+      flushPendingSetWrites: jest.fn(),
+      clearPendingSetWrites: jest.fn(),
+      startWorkoutActivity: jest.fn(),
+    };
+    mockGetActiveWorkout.mockResolvedValue(workout);
+
+    const { result } = renderHook(() =>
+      useWorkoutLifecycle(options as Parameters<typeof useWorkoutLifecycle>[0]),
+    );
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+
+    await act(async () => {
+      await result.current.handleOpenAddExercise();
+    });
+
+    await act(async () => {
+      await result.current.handleAddExerciseToWorkout(exD);
+    });
+
+    const addCall = mockAddWorkoutSet.mock.calls[0]?.[0];
+    expect(addCall).toBeDefined();
+    expect(addCall.exercise_order).toBe(4);
+    expect(addCall.programmed_order).toBeNull();
+  });
+
+  it('assigns exercise_order: 4 (max+1) when blocks have gaps [order 1, order 3] after a remove', async () => {
+    const exA = createMockExercise({ id: 'ex-a' });
+    const exC = createMockExercise({ id: 'ex-c' });
+    const exD = createMockExercise({ id: 'ex-d', name: 'Exercise D' });
+
+    const makeLocalBlock = (exercise: ReturnType<typeof createMockExercise>, order: number): ExerciseBlock => ({
+      exercise,
+      sets: [{ id: `s-${exercise.id}`, exercise_id: exercise.id, set_number: 1, weight: '', reps: '', rpe: '', tag: 'working' as const, is_completed: false, previous: null, exercise_order: order }],
+      lastTime: null, machineNotesExpanded: false, machineNotes: '', restSeconds: 90, restEnabled: true,
+    });
+
+    const workout = createMockWorkout({ id: 'w1', started_at: new Date().toISOString() });
+    // Simulate post-remove gap: ex-b (order 2) was deleted, remaining blocks have orders [1, 3]
+    const blocks = [makeLocalBlock(exA, 1), makeLocalBlock(exC, 3)];
+    const workoutRef = { current: workout };
+    const blocksRef = { current: blocks };
+
+    const options = {
+      workoutRef,
+      setExerciseBlocks: jest.fn() as React.Dispatch<React.SetStateAction<ExerciseBlock[]>>,
+      exerciseBlocks: blocks,
+      blocksRef,
+      originalBestE1RMRef: { current: new Map<string, number | undefined>() },
+      currentBestE1RMRef: { current: new Map<string, number | undefined>() },
+      prSetIdsRef: { current: new Set<string>() },
+      lastActiveBlockRef: { current: 0 },
+      syncWidgetState: jest.fn(),
+      dismissRest: jest.fn(),
+      debouncedSaveNotes: jest.fn(),
+      flushPendingNotes: jest.fn().mockResolvedValue(undefined),
+      clearPendingNotes: jest.fn(),
+      flushPendingSetWrites: jest.fn(),
+      clearPendingSetWrites: jest.fn(),
+      startWorkoutActivity: jest.fn(),
+    };
+    mockGetActiveWorkout.mockResolvedValue(workout);
+
+    const { result } = renderHook(() =>
+      useWorkoutLifecycle(options as Parameters<typeof useWorkoutLifecycle>[0]),
+    );
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+
+    await act(async () => {
+      await result.current.handleOpenAddExercise();
+    });
+
+    await act(async () => {
+      await result.current.handleAddExerciseToWorkout(exD);
+    });
+
+    const addCall = mockAddWorkoutSet.mock.calls[0]?.[0];
+    expect(addCall).toBeDefined();
+    // With gap [1, 3], length+1 would be 3 (collision), max+1 must be 4
+    expect(addCall.exercise_order).toBe(4);
+    expect(addCall.programmed_order).toBeNull();
   });
 });

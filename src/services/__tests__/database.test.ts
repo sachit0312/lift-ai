@@ -874,6 +874,15 @@ describe('planned_exercise_ids — empty array round-trip', () => {
   it('returns empty array (not null) when stored as []', async () => {
     const w = await startWorkout(null);
     await setPlannedExerciseIds(w.id, []);
+
+    // Verify the WRITE path persisted '[]' (not 'null' or undefined) via runAsync
+    const writeCalls = __mockDb.runAsync.mock.calls;
+    const setCall = writeCalls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('UPDATE workouts') && c[0].includes('planned_exercise_ids')
+    );
+    expect(setCall).toBeDefined();
+    expect(setCall![1]).toBe('[]');  // first binding: JSON.stringify([]) = '[]'
+
     __mockDb.getFirstAsync.mockResolvedValueOnce({ planned_exercise_ids: '[]' });
     const ids = await getPlannedExerciseIds(w.id);
     expect(ids).toEqual([]);

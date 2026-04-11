@@ -263,3 +263,48 @@ describe('confirmFinish — early return with null workoutRef (Test 13)', () => 
     expect(mockStampExerciseOrder).not.toHaveBeenCalled();
   });
 });
+
+// ─── Test: dedup of duplicate exercise_ids in plan ───────────────────────────
+
+describe('confirmFinish — dedup duplicate exercise_ids in plan (Fix #3)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetActiveWorkout.mockResolvedValue(null);
+    mockGetAllTemplates.mockResolvedValue([]);
+    mockGetLastPerformedByTemplate.mockResolvedValue({});
+    mockStampExerciseOrder.mockResolvedValue(undefined);
+    mockFinishWorkout.mockResolvedValue(undefined);
+    mockInsertSkippedPlaceholderSets.mockResolvedValue(undefined);
+  });
+
+  it('dedups duplicate exercise_ids in plan when inserting ghost rows', async () => {
+    const workoutId = 'w1';
+    // Plan includes 'ex-a' twice. The second occurrence must NOT produce a second ghost row.
+    mockGetPlannedExerciseIds.mockResolvedValue(['ex-a', 'ex-b', 'ex-a']);
+
+    // Only ex-b is in the live blocks (ex-a is absent — should be ghosted once, not twice)
+    const blocks = [makeBlock('ex-b')];
+    const workout = createMockWorkout({ id: workoutId, started_at: new Date().toISOString() });
+    mockGetActiveWorkout.mockResolvedValue(workout);
+
+    const options = buildOptions(workoutId, blocks);
+    const { result } = renderHook(() =>
+      useWorkoutLifecycle(options as Parameters<typeof useWorkoutLifecycle>[0]),
+    );
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+
+    await act(async () => {
+      await result.current.confirmFinish();
+    });
+
+    // insertSkippedPlaceholderSets called exactly once (deduped)
+    expect(mockInsertSkippedPlaceholderSets).toHaveBeenCalledTimes(1);
+    // ex-a appears at position 1 (first occurrence), deduped second occurrence
+    expect(mockInsertSkippedPlaceholderSets).toHaveBeenCalledWith(workoutId, [
+      { exercise_id: 'ex-a', programmed_order: 1 },
+    ]);
+  });
+});

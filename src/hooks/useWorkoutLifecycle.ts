@@ -250,6 +250,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       tag: tags[i],
       is_completed: false,
       previous: previousSets[i] ?? null,
+      exercise_order: exerciseOrderValue,
     }));
     const stickyNotes = userNotes?.machine_notes ?? '';
     return { exercise, sets, lastTime, machineNotesExpanded: stickyNotes.length > 0, machineNotes: stickyNotes, restSeconds: restSec ?? REST_SECONDS[exercise.training_goal] ?? DEFAULT_REST_SECONDS, restEnabled: true, bestE1RM };
@@ -415,6 +416,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           tag: s.tag,
           is_completed: s.is_completed,
           previous: previousSets[idx] ?? null,
+          exercise_order: s.exercise_order ?? 0,
         })),
         lastTime,
         machineNotesExpanded: restoredNotes.length > 0,
@@ -652,7 +654,10 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
     setShowAddExercise(false);
     const { previousSets, lastTime } = await getExerciseHistoryData(exercise.id);
-    // exercise_order: 1-indexed position at the end of the current block list.
+    // Use max(existing exercise_order) + 1 instead of length + 1 to avoid collision
+    // when handleRemoveExercise has left gaps in the sequence (e.g. blocks=[1,3], length+1=3 collides).
+    const existingOrders = blocksRef.current.flatMap(b => b.sets.map(s => s.exercise_order ?? 0));
+    const nextExerciseOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1;
     // programmed_order: null — user-added mid-workout, not part of the original plan.
     const ws = await addWorkoutSet({
       workout_id: workout.id,
@@ -664,7 +669,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       rpe: null,
       is_completed: false,
       notes: null,
-      exercise_order: blocksRef.current.length + 1,
+      exercise_order: nextExerciseOrder,
       programmed_order: null,
     });
     const [userNotes, bestE1RMRaw] = await Promise.all([
@@ -687,6 +692,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         tag: 'working',
         is_completed: false,
         previous: previousSets[0] ?? null,
+        exercise_order: nextExerciseOrder,
       }],
       lastTime,
       machineNotesExpanded: stickyNotes.length > 0,

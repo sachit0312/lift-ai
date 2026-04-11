@@ -15,6 +15,8 @@ export interface LocalSet {
   tag: SetTag;
   is_completed: boolean;
   previous?: PreviousSetData | null;
+  /** 1-indexed position of this exercise in the workout; 0 = unknown/historical */
+  exercise_order?: number;
 }
 
 export interface ExerciseBlock {
