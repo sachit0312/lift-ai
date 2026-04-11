@@ -42,6 +42,7 @@ import {
   insertSkippedPlaceholderSets,
 } from '../database';
 import type { TemplateUpdatePlan } from '../../utils/setDiff';
+import type { SetTag } from '../../types/database';
 
 beforeEach(() => {
   __mockDb.getAllAsync.mockClear();
@@ -804,5 +805,45 @@ describe('insertSkippedPlaceholderSets', () => {
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets')
     );
     expect(insertCalls).toHaveLength(0);
+  });
+});
+
+describe('getWorkoutSets — plan order preservation regression', () => {
+  it('uses correct ORDER BY that excludes rowid dependency', async () => {
+    // This test pins the fix for Issue 1 in spec
+    // docs/superpowers/specs/2026-04-11-workout-ordering-integrity-design.md.
+    //
+    // Before the fix, getWorkoutSets used:
+    //   ORDER BY exercise_order, rowid, set_number
+    // The rowid tiebreaker caused scrambled order when Promise.all inserted
+    // sets out of sequence.
+    //
+    // The fix uses:
+    //   ORDER BY exercise_order, set_number
+    // Dropping rowid dependency so order is always plan-determined, never
+    // affected by insertion order.
+    //
+    // This test verifies the SQL query has the correct ORDER BY clause.
+    // If someone reverts to rowid-based ordering, this fails.
+
+    const workoutId = 'test-workout-123';
+
+    // Mock the DB call to capture the SQL query
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+
+    await getWorkoutSets(workoutId);
+
+    // Verify getAllAsync was called with the correct ORDER BY clause
+    // (no rowid, just exercise_order then set_number)
+    expect(__mockDb.getAllAsync).toHaveBeenCalledWith(
+      expect.stringContaining('ORDER BY exercise_order, set_number'),
+      workoutId,
+    );
+
+    // Also verify rowid is NOT in the ORDER BY
+    const calls = __mockDb.getAllAsync.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const sql = lastCall[0] as string;
+    expect(sql).not.toMatch(/ORDER BY.*rowid/);
   });
 });
