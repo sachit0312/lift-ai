@@ -170,6 +170,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
 
     const exerciseId = block.exercise.id;
     const newSetNumber = block.sets.length + 1;
+    const blockExerciseOrder = block.sets[0]?.exercise_order ?? 0;
 
     const { previousSets } = await getExerciseHistoryData(exerciseId);
     const ws = await addWorkoutSet({
@@ -182,6 +183,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       rpe: null,
       is_completed: false,
       notes: null,
+      exercise_order: blockExerciseOrder,
     });
 
     updateBlockSets(blockIdx, (sets) => {
@@ -194,6 +196,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
         rpe: '',
         tag: 'working',
         is_completed: false,
+        exercise_order: blockExerciseOrder,
         previous: previousSets[newSetNumber - 1] ?? null,
       });
       return sets;
