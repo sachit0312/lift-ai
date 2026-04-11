@@ -60,6 +60,7 @@ interface SyncWorkoutRow {
   coach_notes: string | null;
   exercise_coach_notes: string | null;
   session_notes: string | null;
+  planned_exercise_ids: string | null;
 }
 
 /** Workout set row for sync — is_completed is 0/1 integer in SQLite */
@@ -78,6 +79,7 @@ interface SyncWorkoutSetRow {
   target_reps: number | null;
   target_rpe: number | null;
   exercise_order: number;
+  programmed_order: number | null;
 }
 
 export async function syncToSupabase(): Promise<void> {
@@ -170,7 +172,7 @@ export async function syncToSupabase(): Promise<void> {
 
     // Workouts (only finished) — select specific columns
     let workoutsOk = true;
-    const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes FROM workouts WHERE finished_at IS NOT NULL');
+    const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids FROM workouts WHERE finished_at IS NOT NULL');
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({
         ...w,
@@ -187,7 +189,7 @@ export async function syncToSupabase(): Promise<void> {
     // Workout sets — only attempt if workouts upsert succeeded (FK dependency on workout_id)
     if (workoutsOk) {
       const workoutSets = await db.getAllAsync<SyncWorkoutSetRow>(
-        `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed, ws.target_weight, ws.target_reps, ws.target_rpe, ws.exercise_order
+        `SELECT ws.id, ws.workout_id, ws.exercise_id, ws.set_number, ws.reps, ws.weight, ws.tag, ws.rpe, ws.notes, ws.is_completed, ws.target_weight, ws.target_reps, ws.target_rpe, ws.exercise_order, ws.programmed_order
          FROM workout_sets ws
          JOIN workouts w ON ws.workout_id = w.id
          WHERE w.finished_at IS NOT NULL`
@@ -466,6 +468,7 @@ interface PullWorkoutRow {
   coach_notes: string | null;
   exercise_coach_notes: string | null;
   session_notes: string | null;
+  planned_exercise_ids: string | null;
 }
 
 /** Workout set row from Supabase (is_completed is boolean in Supabase) */
@@ -484,6 +487,7 @@ interface PullWorkoutSetRow {
   target_reps: number | null;
   target_rpe: number | null;
   exercise_order: number;
+  programmed_order: number | null;
 }
 
 export async function pullWorkoutHistory(): Promise<void> {
@@ -508,14 +512,15 @@ export async function pullWorkoutHistory(): Promise<void> {
     // Upsert workouts into local SQLite
     for (const w of workouts as PullWorkoutRow[]) {
       await db.runAsync(
-        `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            user_id=excluded.user_id, template_id=excluded.template_id,
            upcoming_workout_id=excluded.upcoming_workout_id,
            started_at=excluded.started_at, finished_at=excluded.finished_at,
-           coach_notes=excluded.coach_notes, exercise_coach_notes=excluded.exercise_coach_notes, session_notes=excluded.session_notes`,
-        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, w.exercise_coach_notes, w.session_notes,
+           coach_notes=excluded.coach_notes, exercise_coach_notes=excluded.exercise_coach_notes, session_notes=excluded.session_notes,
+           planned_exercise_ids=excluded.planned_exercise_ids`,
+        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, w.exercise_coach_notes, w.session_notes, w.planned_exercise_ids ?? null,
       );
     }
 
@@ -530,16 +535,16 @@ export async function pullWorkoutHistory(): Promise<void> {
 
     for (const s of (sets ?? []) as PullWorkoutSetRow[]) {
       await db.runAsync(
-        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
            set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
            tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes,
            target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe,
-           exercise_order=excluded.exercise_order`,
+           exercise_order=excluded.exercise_order, programmed_order=excluded.programmed_order`,
         s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
-        s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null, s.exercise_order ?? 0,
+        s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null, s.exercise_order ?? 0, s.programmed_order ?? null,
       );
     }
 

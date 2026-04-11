@@ -497,6 +497,52 @@ describe('syncToSupabase', () => {
     expect(setsBuilder.upsert).toHaveBeenCalledTimes(1);
   });
 
+  it('push includes programmed_order in workout_sets upsert payload', async () => {
+    setSessionAuthenticated();
+
+    const mockSets = [
+      { id: 'ws-1', workout_id: 'w-1', exercise_id: 'ex-1', set_number: 1, reps: 10, weight: 135, tag: 'working', rpe: null, is_completed: 1, notes: null, target_weight: null, target_reps: null, target_rpe: null, exercise_order: 1, programmed_order: 2 },
+    ];
+
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // workouts
+    __mockDb.getAllAsync.mockResolvedValueOnce(mockSets);
+
+    const setsBuilder = mockQueryBuilder();
+    mockFromHandlers['workout_sets'] = setsBuilder;
+
+    await syncToSupabase();
+
+    const [payload] = setsBuilder.upsert.mock.calls[0];
+    expect(payload[0].programmed_order).toBe(2);
+  });
+
+  it('push includes planned_exercise_ids in workouts upsert payload', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', template_id: 'tpl-1', upcoming_workout_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: '["ex-a","ex-b"]' },
+    ];
+
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // user_exercise_notes
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // templates
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // template_exercises
+    __mockDb.getAllAsync.mockResolvedValueOnce(mockWorkouts);
+    __mockDb.getAllAsync.mockResolvedValueOnce([]); // workout_sets
+
+    const workoutBuilder = mockQueryBuilder();
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    await syncToSupabase();
+
+    const [payload] = workoutBuilder.upsert.mock.calls[0];
+    expect(payload[0].planned_exercise_ids).toBe('["ex-a","ex-b"]');
+  });
+
   it('calls supabase.from with the correct table names in order', async () => {
     setSessionAuthenticated();
 
@@ -1561,6 +1607,62 @@ describe('pullWorkoutHistory', () => {
     expect(__mockDb.runAsync).not.toHaveBeenCalled();
     // Should not attempt to fetch workout_sets
     expect(mockFrom).not.toHaveBeenCalledWith('workout_sets');
+  });
+
+  it('pull writes programmed_order to SQLite for workout_sets', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null },
+    ];
+
+    const mockSets = [
+      { id: 'ws-1', workout_id: 'w-1', exercise_id: 'ex-1', set_number: 1, reps: 10, weight: 135, tag: 'working', rpe: null, is_completed: true, notes: null, target_weight: null, target_reps: null, target_rpe: null, exercise_order: 1, programmed_order: 3 },
+    ];
+
+    const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    const setsBuilder = mockQueryBuilder(mockSets, null);
+    mockFromHandlers['workout_sets'] = setsBuilder;
+
+    await pullWorkoutHistory();
+
+    const setInsertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets'),
+    );
+    expect(setInsertCall).toBeDefined();
+    // programmed_order is the last binding (after exercise_order)
+    const bindings = setInsertCall!.slice(1);
+    expect(bindings[bindings.length - 1]).toBe(3);
+    // Also verify the SQL includes programmed_order column
+    expect(setInsertCall![0]).toContain('programmed_order');
+  });
+
+  it('pull writes planned_exercise_ids to SQLite for workouts', async () => {
+    setSessionAuthenticated();
+
+    const mockWorkouts = [
+      { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: '["ex-a"]' },
+    ];
+
+    const workoutBuilder = mockQueryBuilder(mockWorkouts, null);
+    mockFromHandlers['workouts'] = workoutBuilder;
+
+    const setsBuilder = mockQueryBuilder([], null);
+    mockFromHandlers['workout_sets'] = setsBuilder;
+
+    await pullWorkoutHistory();
+
+    const workoutInsertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workouts'),
+    );
+    expect(workoutInsertCall).toBeDefined();
+    // planned_exercise_ids is the last binding
+    const bindings = workoutInsertCall!.slice(1);
+    expect(bindings[bindings.length - 1]).toBe('["ex-a"]');
+    // Also verify the SQL includes planned_exercise_ids column
+    expect(workoutInsertCall![0]).toContain('planned_exercise_ids');
   });
 
   it('catches unexpected errors and reports to Sentry', async () => {
