@@ -35,6 +35,11 @@ import {
   getUserExerciseNotes,
   getUserExerciseNotesBatch,
   updateWorkoutCoachNotes,
+  addWorkoutSetsBatch,
+  getWorkoutSets,
+  setPlannedExerciseIds,
+  getPlannedExerciseIds,
+  insertSkippedPlaceholderSets,
 } from '../database';
 import type { TemplateUpdatePlan } from '../../utils/setDiff';
 
@@ -566,5 +571,238 @@ describe('getE1RMWithConfidence', () => {
     // The 200x3 set should win on raw value
     expect(result!.value).toBeGreaterThan(225);
     expect(result!.confidence).toBe('high');
+  });
+});
+
+describe('addWorkoutSetsBatch', () => {
+  it('persists programmed_order when provided', async () => {
+    const w = await startWorkout(null);
+    const [set] = await addWorkoutSetsBatch([
+      {
+        workout_id: w.id,
+        exercise_id: 'ex-1',
+        set_number: 1,
+        reps: null,
+        weight: null,
+        tag: 'working',
+        rpe: null,
+        is_completed: false,
+        notes: null,
+        exercise_order: 3,
+        programmed_order: 3,
+      },
+    ]);
+    // Mock getWorkoutSets return with programmed_order included
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        id: set.id,
+        workout_id: w.id,
+        exercise_id: 'ex-1',
+        set_number: 1,
+        reps: null,
+        weight: null,
+        tag: 'working',
+        rpe: null,
+        is_completed: 0,
+        notes: null,
+        target_weight: null,
+        target_reps: null,
+        target_rpe: null,
+        exercise_order: 3,
+        programmed_order: 3,
+      },
+    ]);
+    const rows = await getWorkoutSets(w.id);
+    expect(rows[0].id).toBe(set.id);
+    expect(rows[0].exercise_order).toBe(3);
+    expect(rows[0].programmed_order).toBe(3);
+  });
+
+  it('leaves programmed_order null when not provided', async () => {
+    const w = await startWorkout(null);
+    await addWorkoutSetsBatch([
+      {
+        workout_id: w.id,
+        exercise_id: 'ex-2',
+        set_number: 1,
+        reps: null,
+        weight: null,
+        tag: 'working',
+        rpe: null,
+        is_completed: false,
+        notes: null,
+      },
+    ]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        id: 'set-x',
+        workout_id: w.id,
+        exercise_id: 'ex-2',
+        set_number: 1,
+        reps: null,
+        weight: null,
+        tag: 'working',
+        rpe: null,
+        is_completed: 0,
+        notes: null,
+        target_weight: null,
+        target_reps: null,
+        target_rpe: null,
+        exercise_order: 0,
+        programmed_order: null,
+      },
+    ]);
+    const rows = await getWorkoutSets(w.id);
+    expect(rows[0].programmed_order).toBeNull();
+  });
+
+  it('sends 15-column INSERT SQL including programmed_order', async () => {
+    await addWorkoutSetsBatch([
+      {
+        workout_id: 'w-1',
+        exercise_id: 'ex-1',
+        set_number: 1,
+        reps: 5,
+        weight: 100,
+        tag: 'working',
+        rpe: null,
+        is_completed: false,
+        notes: null,
+        programmed_order: 2,
+      },
+    ]);
+    const insertCall = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets')
+    );
+    expect(insertCall).toBeDefined();
+    expect(insertCall![0]).toContain('programmed_order');
+    // 15 placeholders per row
+    expect(insertCall![0]).toContain('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  });
+});
+
+describe('getWorkoutSets ORDER BY', () => {
+  it('uses exercise_order, set_number without rowid', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([]);
+    await getWorkoutSets('w-1');
+    const call = __mockDb.getAllAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('workout_sets')
+    );
+    expect(call).toBeDefined();
+    expect(call![0]).toContain('ORDER BY exercise_order, set_number');
+    expect(call![0]).not.toContain('rowid');
+  });
+});
+
+describe('planned_exercise_ids', () => {
+  it('round-trips a JSON array', async () => {
+    const w = await startWorkout(null);
+    await setPlannedExerciseIds(w.id, ['ex-a', 'ex-b', 'ex-c']);
+    __mockDb.getFirstAsync.mockResolvedValueOnce({ planned_exercise_ids: '["ex-a","ex-b","ex-c"]' });
+    const ids = await getPlannedExerciseIds(w.id);
+    expect(ids).toEqual(['ex-a', 'ex-b', 'ex-c']);
+  });
+
+  it('stores null when called with null', async () => {
+    const w = await startWorkout(null);
+    await setPlannedExerciseIds(w.id, null);
+    __mockDb.getFirstAsync.mockResolvedValueOnce({ planned_exercise_ids: null });
+    const ids = await getPlannedExerciseIds(w.id);
+    expect(ids).toBeNull();
+  });
+
+  it('returns null for a workout with no plan stored', async () => {
+    const w = await startWorkout(null);
+    __mockDb.getFirstAsync.mockResolvedValueOnce({ planned_exercise_ids: null });
+    const ids = await getPlannedExerciseIds(w.id);
+    expect(ids).toBeNull();
+  });
+
+  it('writes the correct UPDATE SQL for setPlannedExerciseIds', async () => {
+    await setPlannedExerciseIds('w-99', ['ex-1', 'ex-2']);
+    const call = __mockDb.runAsync.mock.calls.find(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('planned_exercise_ids')
+    );
+    expect(call).toBeDefined();
+    expect(call![0]).toContain('UPDATE workouts SET planned_exercise_ids');
+    expect(call![1]).toBe('["ex-1","ex-2"]');
+    expect(call![2]).toBe('w-99');
+  });
+});
+
+describe('insertSkippedPlaceholderSets', () => {
+  it('inserts one ghost row per skipped exercise', async () => {
+    const w = await startWorkout(null);
+    await insertSkippedPlaceholderSets(w.id, [
+      { exercise_id: 'ex-skip-1', programmed_order: 2 },
+      { exercise_id: 'ex-skip-2', programmed_order: 4 },
+    ]);
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      {
+        id: 'ghost-1',
+        workout_id: w.id,
+        exercise_id: 'ex-skip-1',
+        set_number: 1,
+        reps: 0,
+        weight: 0,
+        tag: 'working',
+        rpe: null,
+        is_completed: 0,
+        notes: null,
+        target_weight: null,
+        target_reps: null,
+        target_rpe: null,
+        exercise_order: 0,
+        programmed_order: 2,
+      },
+      {
+        id: 'ghost-2',
+        workout_id: w.id,
+        exercise_id: 'ex-skip-2',
+        set_number: 1,
+        reps: 0,
+        weight: 0,
+        tag: 'working',
+        rpe: null,
+        is_completed: 0,
+        notes: null,
+        target_weight: null,
+        target_reps: null,
+        target_rpe: null,
+        exercise_order: 0,
+        programmed_order: 4,
+      },
+    ]);
+    const rows = await getWorkoutSets(w.id);
+    const skipRows = rows.filter(r => r.exercise_id.startsWith('ex-skip-'));
+    expect(skipRows).toHaveLength(2);
+    for (const r of skipRows) {
+      expect(r.set_number).toBe(1);
+      expect(r.reps).toBe(0);
+      expect(r.weight).toBe(0);
+      expect(r.tag).toBe('working');
+      expect(r.rpe).toBeNull();
+      expect(r.is_completed).toBe(false);
+      expect(r.exercise_order).toBe(0);
+    }
+    const byOrder = new Map(skipRows.map(r => [r.exercise_id, r.programmed_order]));
+    expect(byOrder.get('ex-skip-1')).toBe(2);
+    expect(byOrder.get('ex-skip-2')).toBe(4);
+    // Verify transaction was used
+    expect(__mockDb.withTransactionAsync).toHaveBeenCalled();
+    // Verify 2 INSERT calls were made
+    const insertCalls = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets')
+    );
+    expect(insertCalls).toHaveLength(2);
+  });
+
+  it('no-ops on an empty array', async () => {
+    const w = await startWorkout(null);
+    await insertSkippedPlaceholderSets(w.id, []);
+    const insertCalls = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets')
+    );
+    expect(insertCalls).toHaveLength(0);
   });
 });

@@ -42,6 +42,7 @@ interface WorkoutRow {
   coach_notes: string | null;
   exercise_coach_notes: string | null;
   session_notes: string | null;
+  planned_exercise_ids: string | null;
   template_name?: string;
 }
 
@@ -61,6 +62,7 @@ interface WorkoutSetRow {
   target_reps: number | null;
   target_rpe: number | null;
   exercise_order: number;
+  programmed_order: number | null;
 }
 
 /** Row from template_exercises joined with exercises table */
@@ -192,6 +194,7 @@ function mapWorkoutSetRow(r: WorkoutSetRow): WorkoutSet {
     tag: r.tag as SetTag,
     is_completed: !!r.is_completed,
     exercise_order: r.exercise_order ?? 0,
+    programmed_order: r.programmed_order ?? null,
   };
 }
 
@@ -736,7 +739,7 @@ export function startWorkout(templateId: string | null, upcomingWorkoutId?: stri
       'INSERT INTO workouts (id, template_id, upcoming_workout_id, started_at) VALUES (?, ?, ?, ?)',
       id, templateId, upcomingWorkoutId ?? null, now,
     );
-    return { id, user_id: 'local', template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, coach_notes: null, exercise_coach_notes: null, session_notes: null };
+    return { id, user_id: 'local', template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null };
   });
 }
 
@@ -789,7 +792,7 @@ export function deleteWorkout(id: string): Promise<void> {
 export function getWorkoutSets(workoutId: string): Promise<WorkoutSet[]> {
   return withDb('getWorkoutSets', async (database) => {
     const rows = await database.getAllAsync<WorkoutSetRow>(
-      'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_order, rowid, set_number',
+      'SELECT * FROM workout_sets WHERE workout_id = ? ORDER BY exercise_order, set_number',
       workoutId,
     );
     return rows.map(mapWorkoutSetRow);
@@ -812,16 +815,22 @@ export function addWorkoutSetsBatch(sets: Omit<WorkoutSet, 'id'>[]): Promise<Wor
   if (sets.length === 0) return Promise.resolve([]);
   return withDb('addWorkoutSetsBatch', async (database) => {
     const ids = sets.map(() => uuid());
-    const placeholderGroup = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    const placeholderGroup = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
     const placeholders = sets.map(() => placeholderGroup).join(', ');
     const values: (string | number | null)[] = [];
     for (let i = 0; i < sets.length; i++) {
       const set = sets[i];
-      values.push(ids[i], set.workout_id, set.exercise_id, set.set_number, set.reps, set.weight, set.tag, set.rpe, set.is_completed ? 1 : 0, set.notes,
-        set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null, set.exercise_order ?? 0);
+      values.push(
+        ids[i], set.workout_id, set.exercise_id, set.set_number,
+        set.reps, set.weight, set.tag, set.rpe,
+        set.is_completed ? 1 : 0, set.notes,
+        set.target_weight ?? null, set.target_reps ?? null, set.target_rpe ?? null,
+        set.exercise_order ?? 0,
+        set.programmed_order ?? null,
+      );
     }
     await database.runAsync(
-      `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order) VALUES ${placeholders}`,
+      `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order) VALUES ${placeholders}`,
       ...values,
     );
     return sets.map((set, i) => ({ id: ids[i], ...set }));
@@ -863,6 +872,54 @@ export function stampExerciseOrder(workoutId: string, entries: Array<{ id: strin
         await database.runAsync(
           'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
           order, id,
+        );
+      }
+    });
+  });
+}
+
+export function setPlannedExerciseIds(workoutId: string, exerciseIds: string[] | null): Promise<void> {
+  return withDb('setPlannedExerciseIds', async (database) => {
+    const json = exerciseIds === null ? null : JSON.stringify(exerciseIds);
+    await database.runAsync(
+      'UPDATE workouts SET planned_exercise_ids = ? WHERE id = ?',
+      json, workoutId,
+    );
+  });
+}
+
+export function getPlannedExerciseIds(workoutId: string): Promise<string[] | null> {
+  return withDb('getPlannedExerciseIds', async (database) => {
+    const row = await database.getFirstAsync<{ planned_exercise_ids: string | null }>(
+      'SELECT planned_exercise_ids FROM workouts WHERE id = ?',
+      workoutId,
+    );
+    if (!row?.planned_exercise_ids) return null;
+    try {
+      const parsed = JSON.parse(row.planned_exercise_ids);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+export function insertSkippedPlaceholderSets(
+  workoutId: string,
+  skipped: Array<{ exercise_id: string; programmed_order: number }>,
+): Promise<void> {
+  if (skipped.length === 0) return Promise.resolve();
+  return withDb('insertSkippedPlaceholderSets', async (database) => {
+    await database.withTransactionAsync(async () => {
+      for (const { exercise_id, programmed_order } of skipped) {
+        const id = uuid();
+        await database.runAsync(
+          `INSERT INTO workout_sets
+             (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe,
+              is_completed, notes, target_weight, target_reps, target_rpe,
+              exercise_order, programmed_order)
+           VALUES (?, ?, ?, 1, 0, 0, 'working', NULL, 0, NULL, NULL, NULL, NULL, 0, ?)`,
+          id, workoutId, exercise_id, programmed_order,
         );
       }
     });
@@ -956,6 +1013,7 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
             coach_notes: r.w_coach_notes,
             exercise_coach_notes: r.w_exercise_coach_notes,
             session_notes: r.w_session_notes,
+            planned_exercise_ids: null,
           },
           sets: [],
         });
@@ -976,6 +1034,7 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
         target_reps: null,
         target_rpe: null,
         exercise_order: 0,
+        programmed_order: null,
       }));
     }
 
