@@ -50,6 +50,7 @@ export interface Workout {
   coach_notes: string | null;
   exercise_coach_notes: string | null;
   session_notes: string | null;
+  planned_exercise_ids: string | null;  // JSON array of exercise_ids in plan order
   template_name?: string;
 }
 
@@ -68,6 +69,7 @@ export interface WorkoutSet {
   target_reps?: number | null;
   target_rpe?: number | null;
   exercise_order?: number;  // 0 = unknown (historical), 1+ = sequence position
+  programmed_order?: number | null;  // null = user-added mid-workout or historical
 }
 
 export interface UpcomingWorkout {
