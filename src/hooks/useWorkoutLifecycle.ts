@@ -209,8 +209,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     setCount: number,
     restSec?: number,
     tagOverrides?: SetTag[],
+    programmedOrder?: number | null,
   ): Promise<ExerciseBlock> {
     const tags: SetTag[] = Array.from({ length: setCount }, (_, i) => tagOverrides?.[i] ?? 'working');
+    const exerciseOrderValue = programmedOrder != null ? programmedOrder + 1 : 0;
+    const programmedOrderValue = programmedOrder != null ? programmedOrder + 1 : null;
     const setsToInsert = tags.map((tag, i) => ({
       workout_id: workoutId,
       exercise_id: exercise.id,
@@ -221,6 +224,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       rpe: null,
       is_completed: false,
       notes: null,
+      exercise_order: exerciseOrderValue,
+      programmed_order: programmedOrderValue,
     }));
     const [{ previousSets, lastTime }, bestE1RMRaw, inserted, userNotes] = await Promise.all([
       getExerciseHistoryData(exercise.id),
