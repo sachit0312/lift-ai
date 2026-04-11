@@ -60,6 +60,7 @@ export function createMockWorkout(overrides: Partial<Workout> = {}): Workout {
     coach_notes: null,
     exercise_coach_notes: null,
     session_notes: null,
+    planned_exercise_ids: null,
     ...overrides,
   };
 }
