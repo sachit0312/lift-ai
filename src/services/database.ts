@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import * as Sentry from '@sentry/react-native';
+import { supabase } from './supabase';
 import uuid from '../utils/uuid';
 import { calculateEstimated1RM, calculateE1RM, FRESHNESS_HALF_LIFE_DAYS } from '../utils/oneRepMax';
 import type { E1RMResult } from '../types/oneRepMax';
@@ -240,6 +241,32 @@ let currentUserId = 'local';
 export function setCurrentUserId(id: string) { currentUserId = id; }
 export function getCurrentUserId(): string { return currentUserId; }
 
+/**
+ * Returns the effective user id for DB reads/writes.
+ *
+ * If the module global is a real id, returns it. Otherwise consults the live
+ * Supabase session and self-heals the global. Returns 'local' only when there
+ * is genuinely no session (logged out / offline first run).
+ *
+ * Defense in depth: AuthContext is supposed to keep currentUserId in sync,
+ * but if a write fires before that propagation (cold-start race, future code
+ * path we forgot), this prevents silent 'local' orphans.
+ */
+async function resolveUserId(): Promise<string> {
+  if (currentUserId && currentUserId !== 'local') return currentUserId;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const id = session?.user?.id;
+    if (id) {
+      currentUserId = id;
+      return id;
+    }
+  } catch (err) {
+    Sentry.captureException(err);
+  }
+  return 'local';
+}
+
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
   if (!dbInitPromise) {
@@ -458,15 +485,16 @@ export function getAllExercises(): Promise<Exercise[]> {
   });
 }
 
-export function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'created_at'>): Promise<Exercise> {
+export async function createExercise(e: Omit<Exercise, 'id' | 'user_id' | 'created_at'>): Promise<Exercise> {
+  const userId = await resolveUserId();
   return withDb('createExercise', async (database) => {
     const id = uuid();
     const now = new Date().toISOString();
     await database.runAsync(
       'INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      id, currentUserId, e.name, e.type, JSON.stringify(e.muscle_groups), e.training_goal, e.description, now,
+      id, userId, e.name, e.type, JSON.stringify(e.muscle_groups), e.training_goal, e.description, now,
     );
-    return { id, user_id: currentUserId, name: e.name, type: e.type, muscle_groups: e.muscle_groups, training_goal: e.training_goal, description: e.description, created_at: now };
+    return { id, user_id: userId, name: e.name, type: e.type, muscle_groups: e.muscle_groups, training_goal: e.training_goal, description: e.description, created_at: now };
   });
 }
 
@@ -483,8 +511,8 @@ export function getBulkExercises(ids: string[]): Promise<Exercise[]> {
 
 // ─── User Exercise Notes ───
 
-export function getUserExerciseNotes(exerciseId: string): Promise<ExerciseNotes | null> {
-  const userId = currentUserId;
+export async function getUserExerciseNotes(exerciseId: string): Promise<ExerciseNotes | null> {
+  const userId = await resolveUserId();
   return withDb('getUserExerciseNotes', async (database) => {
     const rows = await database.getAllAsync<ExerciseNotesRow>(
       'SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id = ?',
@@ -495,9 +523,9 @@ export function getUserExerciseNotes(exerciseId: string): Promise<ExerciseNotes 
   });
 }
 
-export function getUserExerciseNotesBatch(exerciseIds: string[]): Promise<Map<string, ExerciseNotes>> {
-  if (exerciseIds.length === 0) return Promise.resolve(new Map());
-  const userId = currentUserId;
+export async function getUserExerciseNotesBatch(exerciseIds: string[]): Promise<Map<string, ExerciseNotes>> {
+  if (exerciseIds.length === 0) return new Map();
+  const userId = await resolveUserId();
   return withDb('getUserExerciseNotesBatch', async (database) => {
     const placeholders = exerciseIds.map(() => '?').join(',');
     const rows = await database.getAllAsync<ExerciseNotesRow>(
@@ -514,9 +542,9 @@ export function getUserExerciseNotesBatch(exerciseIds: string[]): Promise<Map<st
 
 const VALID_NOTE_FIELDS = new Set(['notes', 'form_notes', 'machine_notes'] as const);
 
-export function upsertExerciseNote(exerciseId: string, field: 'notes' | 'form_notes' | 'machine_notes', value: string | null): Promise<void> {
+export async function upsertExerciseNote(exerciseId: string, field: 'notes' | 'form_notes' | 'machine_notes', value: string | null): Promise<void> {
   if (!VALID_NOTE_FIELDS.has(field)) throw new Error(`Invalid note field: ${field}`);
-  const userId = currentUserId;
+  const userId = await resolveUserId();
   return withDb('upsertExerciseNote', async (database) => {
     await database.runAsync(
       `INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)

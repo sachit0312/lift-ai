@@ -1,3 +1,11 @@
+jest.mock('../supabase', () => ({
+  supabase: {
+    auth: {
+      getSession: jest.fn(() => Promise.resolve({ data: { session: null } })),
+    },
+  },
+}));
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { __mockDb } = require('expo-sqlite') as { __mockDb: {
   getAllAsync: jest.Mock;
