@@ -440,6 +440,9 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 
   // Migration: exercise_order for workout history sequence tracking
   await database.runAsync('ALTER TABLE workout_sets ADD COLUMN exercise_order INTEGER NOT NULL DEFAULT 0').catch(() => {});
+  await database.runAsync('ALTER TABLE workout_sets ADD COLUMN programmed_order INTEGER').catch(() => {});
+  await database.runAsync('CREATE INDEX IF NOT EXISTS workout_sets_workout_programmed_idx ON workout_sets(workout_id, programmed_order)').catch(() => {});
+  await database.runAsync('ALTER TABLE workouts ADD COLUMN planned_exercise_ids TEXT').catch(() => {});
 
   // Migration: rename workouts.notes → session_notes for clarity
   await database.runAsync('ALTER TABLE workouts RENAME COLUMN notes TO session_notes').catch(() => {});
