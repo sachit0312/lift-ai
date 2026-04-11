@@ -52,6 +52,8 @@ import {
   getBestE1RM,
   stampExerciseOrder,
   setPlannedExerciseIds,
+  getPlannedExerciseIds,
+  insertSkippedPlaceholderSets,
   applyWorkoutChangesToTemplate,
   updateWorkoutSessionNotes,
   clearLocalUpcomingWorkout,
@@ -801,6 +803,29 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     // FIX-2: Use blocksRef.current instead of exerciseBlocks (React state) to
     // avoid a stale closure if sets were completed while the Finish modal was open.
     const currentBlocks = blocksRef.current;
+
+    // FIX-3: Before stamping performed order, insert ghost rows for any planned
+    // exercise that is missing from the current blocks (user removed it mid-workout
+    // or never engaged with it). Ghosts carry programmed_order so the coach can
+    // detect "planned but skipped" after finish.
+    try {
+      const plannedIds = await getPlannedExerciseIds(workout.id);
+      if (plannedIds && plannedIds.length > 0) {
+        const presentIds = new Set(currentBlocks.map(b => b.exercise.id));
+        const skipped: Array<{ exercise_id: string; programmed_order: number }> = [];
+        plannedIds.forEach((exerciseId, i) => {
+          if (!presentIds.has(exerciseId)) {
+            skipped.push({ exercise_id: exerciseId, programmed_order: i + 1 });
+          }
+        });
+        if (skipped.length > 0) {
+          await insertSkippedPlaceholderSets(workout.id, skipped);
+        }
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('Failed to insert skipped placeholder sets:', e);
+      Sentry.captureException(e);
+    }
 
     const setOrderEntries: Array<{ id: string; order: number }> = [];
     currentBlocks.forEach((block, blockIdx) => {

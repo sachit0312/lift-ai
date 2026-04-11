@@ -25,6 +25,8 @@ jest.mock('../../services/database', () => ({
   getLastPerformedByTemplate: (...args: unknown[]) => mockGetLastPerformedByTemplate(...args),
   finishWorkout: (...args: unknown[]) => mockFinishWorkout(...args),
   stampExerciseOrder: (...args: unknown[]) => mockStampExerciseOrder(...args),
+  getPlannedExerciseIds: jest.fn().mockResolvedValue(null),
+  insertSkippedPlaceholderSets: jest.fn().mockResolvedValue(undefined),
   updateWorkoutSessionNotes: jest.fn().mockResolvedValue(undefined),
   getUpcomingWorkoutForToday: jest.fn().mockResolvedValue(null),
   getWorkoutSets: jest.fn().mockResolvedValue([]),
