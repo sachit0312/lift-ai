@@ -92,6 +92,36 @@ export async function syncToSupabase(): Promise<void> {
 
     const db = await getDb();
 
+    // Self-healing rescue: any rows written under the default 'local' user
+    // (e.g., during a race with AuthContext propagation) get rewritten to the
+    // real session user id so they're picked up by the push queries below.
+    try {
+      // user_exercise_notes has PRIMARY KEY (user_id, exercise_id). If a row
+      // already exists for the real user id on the same exercise, the UPDATE
+      // below would violate the unique constraint. Prefer the 'local' row
+      // (it's the more recent user edit) by deleting any conflicting real-user
+      // rows first, then renaming the local rows to the real user id.
+      await db.runAsync(
+        `DELETE FROM user_exercise_notes
+         WHERE user_id = ?
+           AND exercise_id IN (
+             SELECT exercise_id FROM user_exercise_notes WHERE user_id = 'local'
+           )`,
+        session.user.id,
+      );
+      await db.runAsync(
+        `UPDATE user_exercise_notes SET user_id = ? WHERE user_id = 'local'`,
+        session.user.id,
+      );
+      // exercises.id is the sole primary key, so user_id can be rewritten freely.
+      await db.runAsync(
+        `UPDATE exercises SET user_id = ? WHERE user_id = 'local'`,
+        session.user.id,
+      );
+    } catch (err) {
+      handleSyncError('rescue local rows', err);
+    }
+
     // Each sync step runs independently — one step's failure must not block others.
     // Exercises — only push custom exercises (global exercises have user_id = NULL)
     const exercises = await db.getAllAsync<SyncExerciseRow>(
