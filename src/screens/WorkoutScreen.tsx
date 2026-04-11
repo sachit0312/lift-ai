@@ -132,6 +132,7 @@ export default function WorkoutScreen() {
     originalBestE1RMRef,
     currentBestE1RMRef,
     lastActiveBlockRef,
+    workoutRef,
     startRestTimer,
     syncWidgetState,
     onConfetti,

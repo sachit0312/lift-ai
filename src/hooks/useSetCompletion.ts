@@ -3,8 +3,9 @@ import { LayoutAnimation, Vibration } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 import type { ExerciseBlock } from '../types/workout';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet, Exercise } from '../types/database';
-import { updateWorkoutSet } from '../services/database';
+import { updateWorkoutSet, stampExerciseOrder } from '../services/database';
 import { calculateE1RM, getPRGatingMargin } from '../utils/oneRepMax';
+import type { Workout } from '../types/database';
 // ─── Types ───
 
 export interface UseSetCompletionOptions {
@@ -15,6 +16,7 @@ export interface UseSetCompletionOptions {
   originalBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
   currentBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
   lastActiveBlockRef: React.MutableRefObject<number>;
+  workoutRef: React.MutableRefObject<Workout | null>;
   startRestTimer: (seconds: number, exerciseName: string) => void;
   syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void;
   onConfetti: () => void;
@@ -38,6 +40,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
     originalBestE1RMRef,
     currentBestE1RMRef,
     lastActiveBlockRef,
+    workoutRef,
     startRestTimer,
     syncWidgetState,
     onConfetti,
@@ -219,6 +222,31 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
     // It will be cleared on the next handleToggleComplete call for this set,
     // once blocksRef.current reflects the updated is_completed state (post re-render).
 
+    // Persist auto-reorder to DB so reload preserves the new sequence.
+    // Without this, exercise_order rows would still reflect the original
+    // insert-time plan order, and loadActiveWorkout would revert visually
+    // after a tab switch or app relaunch.
+    // NOTE: blocksRef.current still holds the PRE-UPDATE list here (ref-sync
+    // useEffect hasn't fired yet), so we apply the same splice to a local copy
+    // to derive the correct post-reorder layout.
+    if (shouldReorder && workoutRef.current) {
+      const workoutId = workoutRef.current.id;
+      const preBlocks = blocksRef.current;
+      const reordered = [...preBlocks];
+      const currentIdx = reordered.findIndex(b => b.exercise.id === block.exercise.id);
+      if (currentIdx > reorderInsertIdx) {
+        const [moved] = reordered.splice(currentIdx, 1);
+        reordered.splice(reorderInsertIdx, 0, moved);
+      }
+      const entries: Array<{ id: string; order: number }> = [];
+      reordered.forEach((b, idx) => {
+        for (const s of b.sets) {
+          entries.push({ id: s.id, order: idx + 1 });
+        }
+      });
+      stampExerciseOrder(workoutId, entries).catch(e => Sentry.captureException(e));
+    }
+
     // DB write (fire-and-forget)
     updateWorkoutSet(set.id, {
       is_completed: newCompleted,
@@ -265,7 +293,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       }
       syncWidgetState();
     }
-  }, [blocksRef, setExerciseBlocks, upcomingTargetsRef, prSetIdsRef, originalBestE1RMRef, currentBestE1RMRef, lastActiveBlockRef, startRestTimer, syncWidgetState, onConfetti]);
+  }, [blocksRef, setExerciseBlocks, upcomingTargetsRef, prSetIdsRef, originalBestE1RMRef, currentBestE1RMRef, lastActiveBlockRef, workoutRef, startRestTimer, syncWidgetState, onConfetti]);
 
   return {
     validationErrors,
