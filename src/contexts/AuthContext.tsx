@@ -27,6 +27,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then(({ data: { session } }) => {
         previousUserIdRef.current = session?.user?.id ?? null;
         setSession(session);
+        // Keep the database module's currentUserId in sync with the rehydrated session.
+        // Without this, cold-start writes to user_exercise_notes land under 'local'
+        // and are never pushed to Supabase.
+        setCurrentUserId(session?.user?.id ?? 'local');
         if (session?.user) {
           Sentry.setUser({ email: session.user.email, id: session.user.id });
         }
@@ -45,13 +49,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const newUserId = newSession?.user?.id ?? null;
         setSession(newSession);
 
+        // Always mirror the session into the database module, regardless of event type.
+        // INITIAL_SESSION / TOKEN_REFRESHED / USER_UPDATED / SIGNED_IN all count.
+        setCurrentUserId(newUserId ?? 'local');
+
         if (event === 'SIGNED_IN') {
           if (newSession?.user) {
             Sentry.setUser({ email: newSession.user.email, id: newSession.user.id });
           }
           if (newUserId !== prevUserId) {
             setSyncing(true);
-            setCurrentUserId(newSession!.user.id);
             try {
               await Promise.race([
                 (async () => {
@@ -76,7 +83,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else if (event === 'SIGNED_OUT') {
           Sentry.setUser(null);
-          setCurrentUserId('local');
         }
 
         previousUserIdRef.current = newUserId;
