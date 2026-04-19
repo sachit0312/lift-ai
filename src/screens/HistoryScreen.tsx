@@ -182,12 +182,6 @@ export default function HistoryScreen() {
                   })}
                 </View>
               ))}
-              {item.coach_notes ? (
-                <View style={styles.coachNotes}>
-                  <Ionicons name="sparkles" size={12} color={colors.primaryLight} style={{ marginRight: 6 }} />
-                  <Text style={styles.coachNotesText}>{item.coach_notes}</Text>
-                </View>
-              ) : null}
             </View>
           )}
 
@@ -369,21 +363,6 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 9,
     fontWeight: fontWeight.bold,
-  },
-  coachNotes: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  coachNotesText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    lineHeight: 18,
-    flex: 1,
-    fontStyle: 'italic',
   },
   expandHint: {
     alignItems: 'center',
