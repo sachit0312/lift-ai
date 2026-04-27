@@ -64,7 +64,7 @@ describe('ExerciseDetailModal', () => {
 
   it('renders form notes textarea with initial value from exercise', async () => {
     const exercise = createMockExercise({});
-    (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ notes: null, form_notes: 'Keep elbows tucked', machine_notes: null });
+    (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ form_notes: 'Keep elbows tucked', machine_notes: null });
 
     const { findByTestId } = render(
       <ExerciseDetailModal
@@ -80,7 +80,7 @@ describe('ExerciseDetailModal', () => {
 
   it('renders machine notes textarea with initial value from exercise', async () => {
     const exercise = createMockExercise({});
-    (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ notes: null, form_notes: null, machine_notes: 'Seat 5' });
+    (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ form_notes: null, machine_notes: 'Seat 5' });
 
     const { findByTestId } = render(
       <ExerciseDetailModal

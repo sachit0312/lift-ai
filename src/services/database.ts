@@ -26,7 +26,6 @@ interface ExerciseRow {
 
 interface ExerciseNotesRow {
   exercise_id: string;
-  notes: string | null;
   form_notes: string | null;
   machine_notes: string | null;
 }
@@ -425,9 +424,6 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   await database.runAsync('ALTER TABLE template_exercises DROP COLUMN default_weight').catch(() => {});
   await database.runAsync('ALTER TABLE template_exercises ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 150').catch(() => {});
 
-  // Migration: add notes column to exercises table for sticky notes
-  await database.runAsync('ALTER TABLE exercises ADD COLUMN notes TEXT').catch(() => {});
-
   // Migration: add target_rpe column for MCP-prescribed RPE per set
   await database.runAsync('ALTER TABLE upcoming_workout_sets ADD COLUMN target_rpe REAL').catch(() => {});
 
@@ -466,12 +462,16 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
     CREATE TABLE IF NOT EXISTS user_exercise_notes (
       user_id TEXT NOT NULL,
       exercise_id TEXT NOT NULL,
-      notes TEXT,
       form_notes TEXT,
       machine_notes TEXT,
       PRIMARY KEY (user_id, exercise_id)
     )
   `);
+
+  // Migration (2026-04-26): remove AI-coach scratchpad notes — replaced by external agent knowledge.
+  // See docs/superpowers/specs/2026-04-26-remove-mcp-coach-notes-design.md
+  await database.runAsync('ALTER TABLE user_exercise_notes DROP COLUMN notes').catch(() => {});
+  await database.runAsync('ALTER TABLE exercises DROP COLUMN notes').catch(() => {});
 }
 
 // ─── Exercises ───
@@ -521,11 +521,11 @@ export async function getUserExerciseNotes(exerciseId: string): Promise<Exercise
   const userId = await resolveUserId();
   return withDb('getUserExerciseNotes', async (database) => {
     const rows = await database.getAllAsync<ExerciseNotesRow>(
-      'SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id = ?',
+      'SELECT exercise_id, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id = ?',
       userId, exerciseId,
     );
     if (rows.length === 0) return null;
-    return { notes: rows[0].notes, form_notes: rows[0].form_notes, machine_notes: rows[0].machine_notes };
+    return { form_notes: rows[0].form_notes, machine_notes: rows[0].machine_notes };
   });
 }
 
@@ -535,34 +535,30 @@ export async function getUserExerciseNotesBatch(exerciseIds: string[]): Promise<
   return withDb('getUserExerciseNotesBatch', async (database) => {
     const placeholders = exerciseIds.map(() => '?').join(',');
     const rows = await database.getAllAsync<ExerciseNotesRow>(
-      `SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id IN (${placeholders})`,
+      `SELECT exercise_id, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id IN (${placeholders})`,
       userId, ...exerciseIds,
     );
     const map = new Map<string, ExerciseNotes>();
     for (const r of rows) {
-      map.set(r.exercise_id, { notes: r.notes, form_notes: r.form_notes, machine_notes: r.machine_notes });
+      map.set(r.exercise_id, { form_notes: r.form_notes, machine_notes: r.machine_notes });
     }
     return map;
   });
 }
 
-const VALID_NOTE_FIELDS = new Set(['notes', 'form_notes', 'machine_notes'] as const);
+const VALID_NOTE_FIELDS = new Set(['form_notes', 'machine_notes'] as const);
 
-export async function upsertExerciseNote(exerciseId: string, field: 'notes' | 'form_notes' | 'machine_notes', value: string | null): Promise<void> {
+export async function upsertExerciseNote(exerciseId: string, field: 'form_notes' | 'machine_notes', value: string | null): Promise<void> {
   if (!VALID_NOTE_FIELDS.has(field)) throw new Error(`Invalid note field: ${field}`);
   const userId = await resolveUserId();
   return withDb('upsertExerciseNote', async (database) => {
     await database.runAsync(
-      `INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
-       VALUES (?, ?, NULL, NULL, NULL)
+      `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
+       VALUES (?, ?, NULL, NULL)
        ON CONFLICT(user_id, exercise_id) DO UPDATE SET ${field} = ?`,
       userId, exerciseId, value,
     );
   });
-}
-
-export function updateExerciseNotes(exerciseId: string, notes: string | null): Promise<void> {
-  return upsertExerciseNote(exerciseId, 'notes', notes);
 }
 
 export function updateExerciseFormNotes(exerciseId: string, formNotes: string | null): Promise<void> {
@@ -1344,16 +1340,3 @@ export function clearAllLocalData(): Promise<void> {
   });
 }
 
-// ─── Migration: Exercise Notes to User Table ───
-
-/** One-time migration: copy notes from legacy exercises columns to user_exercise_notes.
- *  Must be called after auth provides a real userId. Idempotent via INSERT OR IGNORE. */
-export function migrateExerciseNotesToUserTable(userId: string): Promise<void> {
-  return withDb('migrateExerciseNotesToUserTable', async (database) => {
-    await database.runAsync(`
-      INSERT OR IGNORE INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
-      SELECT ?, id, notes, form_notes, machine_notes FROM exercises
-      WHERE (notes IS NOT NULL OR form_notes IS NOT NULL OR machine_notes IS NOT NULL)
-    `, userId);
-  });
-}

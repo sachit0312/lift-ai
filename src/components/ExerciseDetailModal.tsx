@@ -31,7 +31,7 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
   const [formNotes, setFormNotes] = useState('');
   const [machineNotes, setMachineNotes] = useState('');
   const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
-  const [loadedNotes, setLoadedNotes] = useState<ExerciseNotes>({ notes: null, form_notes: null, machine_notes: null });
+  const [loadedNotes, setLoadedNotes] = useState<ExerciseNotes>({ form_notes: null, machine_notes: null });
 
   const formNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const machineNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,7 +47,7 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
     if (!visible || !exercise) return;
     setActiveTab('details');
     getUserExerciseNotes(exercise.id).then(n => {
-      const notes = n ?? { notes: null, form_notes: null, machine_notes: null };
+      const notes = n ?? { form_notes: null, machine_notes: null };
       setLoadedNotes(notes);
       setFormNotes(notes.form_notes ?? '');
       setMachineNotes(notes.machine_notes ?? '');

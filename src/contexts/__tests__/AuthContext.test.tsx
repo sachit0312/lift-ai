@@ -23,7 +23,6 @@ jest.mock('../../services/supabase', () => ({
 jest.mock('../../services/database', () => ({
   resetDatabase: jest.fn().mockResolvedValue(undefined),
   setCurrentUserId: jest.fn(),
-  migrateExerciseNotesToUserTable: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -35,7 +34,7 @@ jest.mock('../../services/sync', () => ({
 // Sentry is mocked globally via moduleNameMapper, but we import it to assert on calls
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../../services/supabase';
-import { resetDatabase, setCurrentUserId, migrateExerciseNotesToUserTable } from '../../services/database';
+import { resetDatabase, setCurrentUserId } from '../../services/database';
 import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../../services/sync';
 import { AuthProvider, useAuth } from '../AuthContext';
 
@@ -329,8 +328,6 @@ describe('AuthContext', () => {
     expect(resetDatabase).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
     expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
-    expect(migrateExerciseNotesToUserTable).toHaveBeenCalledTimes(1);
-    expect(migrateExerciseNotesToUserTable).toHaveBeenCalledWith('user-new');
     expect(pullUpcomingWorkout).toHaveBeenCalledTimes(1);
   });
 
@@ -499,7 +496,6 @@ describe('AuthContext', () => {
     expect(resetDatabase).toHaveBeenCalledTimes(1);
     expect(pullExercisesAndTemplates).toHaveBeenCalledTimes(1);
     expect(pullWorkoutHistory).toHaveBeenCalledTimes(1);
-    expect(migrateExerciseNotesToUserTable).toHaveBeenCalledWith('user-B');
     expect(pullUpcomingWorkout).toHaveBeenCalledTimes(1);
   });
 

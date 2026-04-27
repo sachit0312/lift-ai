@@ -27,7 +27,6 @@ interface SyncExerciseRow {
 /** User exercise notes row for sync */
 interface SyncExerciseNotesRow {
   exercise_id: string;
-  notes: string | null;
   form_notes: string | null;
   machine_notes: string | null;
 }
@@ -140,14 +139,13 @@ export async function syncToSupabase(): Promise<void> {
 
     // User exercise notes — push all (use session.user.id, not getCurrentUserId(), to avoid stale 'local' on token refresh)
     const noteRows = await db.getAllAsync<SyncExerciseNotesRow>(
-      'SELECT exercise_id, notes, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ?',
+      'SELECT exercise_id, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ?',
       session.user.id,
     );
     if (noteRows.length > 0) {
       const mappedNotes = noteRows.map(n => ({
         user_id: session.user.id,
         exercise_id: n.exercise_id,
-        notes: n.notes,
         form_notes: n.form_notes,
         machine_notes: n.machine_notes,
       }));
@@ -354,18 +352,18 @@ async function pullExercises(): Promise<void> {
   // Pull user's exercise notes
   const { data: notes, error: notesErr } = await supabase
     .from('user_exercise_notes')
-    .select('exercise_id, notes, form_notes, machine_notes')
+    .select('exercise_id, form_notes, machine_notes')
     .eq('user_id', session.user.id);
 
   if (notesErr) { handleSyncError('pull exercise notes', notesErr); }
   else if (notes && notes.length > 0) {
     for (const n of notes) {
       await db.runAsync(
-        `INSERT INTO user_exercise_notes (user_id, exercise_id, notes, form_notes, machine_notes)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(user_id, exercise_id) DO UPDATE SET
-           notes=excluded.notes, form_notes=excluded.form_notes, machine_notes=excluded.machine_notes`,
-        session.user.id, n.exercise_id, n.notes ?? null, n.form_notes ?? null, n.machine_notes ?? null,
+           form_notes=excluded.form_notes, machine_notes=excluded.machine_notes`,
+        session.user.id, n.exercise_id, n.form_notes ?? null, n.machine_notes ?? null,
       );
     }
   }

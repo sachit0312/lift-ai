@@ -6,12 +6,10 @@ import { Text } from 'react-native';
 
 const mockSetCurrentUserId = jest.fn();
 const mockClearAllLocalData = jest.fn().mockResolvedValue(undefined);
-const mockMigrateExerciseNotesToUserTable = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('../services/database', () => ({
   setCurrentUserId: (...args: any[]) => mockSetCurrentUserId(...args),
   clearAllLocalData: (...args: any[]) => mockClearAllLocalData(...args),
-  migrateExerciseNotesToUserTable: (...args: any[]) => mockMigrateExerciseNotesToUserTable(...args),
 }));
 
 jest.mock('../services/sync', () => ({
@@ -53,7 +51,6 @@ describe('AuthContext -> currentUserId propagation', () => {
   beforeEach(() => {
     mockSetCurrentUserId.mockClear();
     mockClearAllLocalData.mockClear();
-    mockMigrateExerciseNotesToUserTable.mockClear();
     mockInitialSession = null;
     authStateListeners.length = 0;
   });

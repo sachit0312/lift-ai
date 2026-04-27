@@ -22,7 +22,6 @@ import {
   startWorkout,
   updateWorkoutSet,
   getPRsThisWeek,
-  updateExerciseNotes,
   getExerciseById,
   getExerciseHistory,
   getLastPerformedByTemplate,
@@ -149,28 +148,6 @@ describe('getPRsThisWeek', () => {
 
     const result = await getPRsThisWeek();
     expect(result).toBe(0);
-  });
-});
-
-describe('updateExerciseNotes', () => {
-  it('upserts notes via user_exercise_notes table', async () => {
-    await updateExerciseNotes('ex-1', 'Focus on form');
-
-    const call = __mockDb.runAsync.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes('user_exercise_notes')
-    );
-    expect(call).toBeDefined();
-    expect(call![0]).toContain('ON CONFLICT');
-    expect(call![0]).toContain('notes');
-  });
-
-  it('clears notes when passed null', async () => {
-    await updateExerciseNotes('ex-1', null);
-
-    const call = __mockDb.runAsync.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes('user_exercise_notes')
-    );
-    expect(call).toBeDefined();
   });
 });
 

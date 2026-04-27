@@ -143,7 +143,7 @@ export default function WorkoutScreen() {
 
   // Update exercise blocks when notes change in detail modal
   const handleExerciseUpdated = useCallback((updated: ExerciseWithNotes) => {
-    const { notes, form_notes, machine_notes, ...exercise } = updated;
+    const { form_notes, machine_notes, ...exercise } = updated;
     setExerciseBlocks(prev => prev.map(block =>
       block.exercise.id === updated.id
         ? { ...block, exercise, machineNotes: machine_notes ?? '' }

@@ -16,7 +16,6 @@ export function createMockExercise(overrides: Partial<Exercise> = {}): Exercise 
 
 export function createMockExerciseNotes(overrides: Partial<ExerciseNotes> = {}): ExerciseNotes {
   return {
-    notes: null,
     form_notes: null,
     machine_notes: null,
     ...overrides,

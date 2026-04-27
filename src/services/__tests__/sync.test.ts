@@ -1149,7 +1149,7 @@ describe('pullExercisesAndTemplates', () => {
     ];
 
     const mockNotes = [
-      { exercise_id: 'ex-1', notes: null, form_notes: 'keep back straight', machine_notes: 'Use seat 3' },
+      { exercise_id: 'ex-1', form_notes: 'keep back straight', machine_notes: 'Use seat 3' },
     ];
 
     const exerciseBuilder = mockQueryBuilder(mockExercises, null);
@@ -1168,10 +1168,13 @@ describe('pullExercisesAndTemplates', () => {
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO user_exercise_notes'),
     );
     expect(notesInsertCall).toBeDefined();
-    expect(notesInsertCall![0]).toMatch(/ON CONFLICT.*notes=excluded\.notes/s);
+    // Confirm form_notes is still being upserted
+    expect(notesInsertCall![0]).toMatch(/ON CONFLICT.*form_notes=excluded\.form_notes/s);
+    // Confirm the bare `notes` column is gone (boundary class avoids matching `form_notes=excluded.form_notes` substring)
+    expect(notesInsertCall![0]).not.toMatch(/[\s,(]notes=excluded\.notes/);
     expect(notesInsertCall![2]).toBe('ex-1'); // exercise_id param
-    expect(notesInsertCall![4]).toBe('keep back straight'); // form_notes
-    expect(notesInsertCall![5]).toBe('Use seat 3'); // machine_notes
+    expect(notesInsertCall![3]).toBe('keep back straight'); // form_notes
+    expect(notesInsertCall![4]).toBe('Use seat 3'); // machine_notes
   });
 
   it('converts muscle_groups JSONB array to JSON string', async () => {

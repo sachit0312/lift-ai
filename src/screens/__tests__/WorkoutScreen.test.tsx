@@ -895,7 +895,7 @@ describe('WorkoutScreen', () => {
     it('pre-expands notes when exercise has sticky notes', async () => {
       // Override getUserExerciseNotes to return existing machine notes
       const { getUserExerciseNotes } = require('../../services/database');
-      (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ notes: null, form_notes: null, machine_notes: 'Existing note' });
+      (getUserExerciseNotes as jest.Mock).mockResolvedValueOnce({ form_notes: null, machine_notes: 'Existing note' });
 
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);

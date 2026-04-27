@@ -81,7 +81,7 @@ export default function ExercisesScreen() {
   }, []);
 
   const handleExerciseUpdated = useCallback((updated: ExerciseWithNotes) => {
-    const { notes, form_notes, machine_notes, ...exercise } = updated;
+    const { form_notes, machine_notes, ...exercise } = updated;
     setExercises(prev => prev.map(e => e.id === exercise.id ? exercise : e));
     setSelectedExercise(exercise);
   }, []);

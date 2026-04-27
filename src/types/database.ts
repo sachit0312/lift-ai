@@ -14,7 +14,6 @@ export interface Exercise {
 }
 
 export interface ExerciseNotes {
-  notes: string | null;
   form_notes: string | null;
   machine_notes: string | null;
 }

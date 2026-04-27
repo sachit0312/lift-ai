@@ -36,7 +36,7 @@ describe('syncToSupabase — rescue local rows', () => {
     __mockDb.getAllAsync.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM exercises')) return [];
       if (sql.includes('FROM user_exercise_notes')) {
-        return [{ exercise_id: 'e1', notes: null, form_notes: null, machine_notes: 'pin 4' }];
+        return [{ exercise_id: 'e1', form_notes: null, machine_notes: 'pin 4' }];
       }
       if (sql.includes('FROM templates')) return [];
       if (sql.includes('FROM template_exercises')) return [];
