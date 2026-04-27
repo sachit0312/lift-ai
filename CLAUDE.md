@@ -63,7 +63,7 @@ Orchestrates hooks and renders UI. Logic in `useExerciseBlocks`, `useSetCompleti
 ### Other Screens
 - **TemplatesScreen**: Lists templates with exercise counts. Create (modal) / delete (swipe). Uses `getTemplateExerciseCountsBatch()`. Navigates to TemplateDetailScreen.
 - **TemplateDetailScreen**: Drag-to-reorder exercises (long-press drag handle, `react-native-draggable-flatlist`). Three inline steppers per exercise — warmup sets (±1), working sets (±1), rest timer (±15s). TestIDs: `drag-handle-{idx}`, `warmup-value-{idx}`, `sets-value-{idx}`, `rest-value-{idx}` (plus `-increase-`/`-decrease-` variants). Reorder persists to SQLite (`updateTemplateExerciseOrder`) + fire-and-forget sync. Optimistic UI with rollback on failure.
-- **ExercisesScreen**: Tap = ExerciseDetailModal (notes, history). Long-press = edit modal (name, type chips, muscle group chips — no notes field, coach notes hidden). Syncs to Supabase on save.
+- **ExercisesScreen**: Tap = ExerciseDetailModal (notes, history). Long-press = edit modal (name, type chips, muscle group chips — no notes fields). Syncs to Supabase on save.
 - **ExercisePickerScreen**: Search bar hidden when create form expanded. Muscle groups: Chest, Back, Shoulders, Biceps, Triceps, Quads, Hamstrings, Glutes, Calves, Abs, Forearms.
 - **HistoryScreen**: FlatList of past workouts with expandable set details. Pull-to-refresh. Tap exercise name opens ExerciseHistoryModal. Uses `getWorkoutHistory()` + `getWorkoutSets()`. Groups sets by exercise with tag labels/colors.
 - **LoginScreen** / **SignupScreen**: Email/password auth forms. LoginScreen also has Google OAuth via `expo-web-browser`. Both use `AuthStackParamList` navigation.

@@ -449,7 +449,7 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // Migration: null out RPE on failure sets (failure = implicit RPE 10, no need to store it)
   await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
 
-  // Migration: split notes into three types (form_notes, machine_notes, existing notes)
+  // Migration: add form_notes and machine_notes to exercises (pre-user_exercise_notes era; later moved to user_exercise_notes table)
   await database.runAsync('ALTER TABLE exercises ADD COLUMN form_notes TEXT').catch(() => {});
   await database.runAsync('ALTER TABLE exercises ADD COLUMN machine_notes TEXT').catch(() => {});
 
