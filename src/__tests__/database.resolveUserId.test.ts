@@ -32,7 +32,7 @@ describe('database.upsertExerciseNote — user id resolution', () => {
     await db.upsertExerciseNote('exercise-1', 'machine_notes', 'pin 4, seat 3');
 
     const upsertCall = __mockDb.runAsync.mock.calls.find(
-      (call: any[]) => typeof call[0] === 'string' && call[0].includes('user_exercise_notes'),
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO user_exercise_notes'),
     );
     expect(upsertCall).toBeDefined();
     // First bound arg after the SQL should be the resolved user id
@@ -48,7 +48,7 @@ describe('database.upsertExerciseNote — user id resolution', () => {
     await db.upsertExerciseNote('exercise-2', 'machine_notes', 'notes');
 
     const upsertCall = __mockDb.runAsync.mock.calls.find(
-      (call: any[]) => typeof call[0] === 'string' && call[0].includes('user_exercise_notes'),
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO user_exercise_notes'),
     );
     expect(upsertCall![1]).toBe('already-set-user');
   });
@@ -60,7 +60,7 @@ describe('database.upsertExerciseNote — user id resolution', () => {
     await db.upsertExerciseNote('exercise-3', 'machine_notes', 'offline note');
 
     const upsertCall = __mockDb.runAsync.mock.calls.find(
-      (call: any[]) => typeof call[0] === 'string' && call[0].includes('user_exercise_notes'),
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO user_exercise_notes'),
     );
     expect(upsertCall![1]).toBe('local');
   });

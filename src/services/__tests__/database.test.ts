@@ -183,12 +183,11 @@ describe('getUserExerciseNotes', () => {
   it('returns notes when they exist', async () => {
     const { getUserExerciseNotes } = require('../database');
     __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', notes: 'coach note', form_notes: 'form note', machine_notes: 'machine note' },
+      { exercise_id: 'ex-1', form_notes: 'form note', machine_notes: 'machine note' },
     ]);
 
     const result = await getUserExerciseNotes('ex-1');
     expect(result).toEqual({
-      notes: 'coach note',
       form_notes: 'form note',
       machine_notes: 'machine note',
     });
@@ -205,13 +204,13 @@ describe('getUserExerciseNotesBatch', () => {
   it('returns map of exercise notes', async () => {
     const { getUserExerciseNotesBatch } = require('../database');
     __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', notes: null, form_notes: 'form1', machine_notes: null },
-      { exercise_id: 'ex-2', notes: null, form_notes: null, machine_notes: 'machine2' },
+      { exercise_id: 'ex-1', form_notes: 'form1', machine_notes: null },
+      { exercise_id: 'ex-2', form_notes: null, machine_notes: 'machine2' },
     ]);
 
     const result = await getUserExerciseNotesBatch(['ex-1', 'ex-2']);
-    expect(result.get('ex-1')).toEqual({ notes: null, form_notes: 'form1', machine_notes: null });
-    expect(result.get('ex-2')).toEqual({ notes: null, form_notes: null, machine_notes: 'machine2' });
+    expect(result.get('ex-1')).toEqual({ form_notes: 'form1', machine_notes: null });
+    expect(result.get('ex-2')).toEqual({ form_notes: null, machine_notes: 'machine2' });
   });
 });
 
