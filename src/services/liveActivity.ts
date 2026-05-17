@@ -168,9 +168,15 @@ export async function updateWorkoutActivityForRest(
     currentExerciseName = exerciseName;
     currentSetNumber = setNumber;
     currentTotalSets = totalSets;
-    // Only set on initial rest start — re-syncs from useWidgetBridge pass remaining
-    // seconds (not total), which would shrink the progress bar denominator.
-    if (currentMaxRestSeconds === 0) currentMaxRestSeconds = totalSeconds;
+    // If currentMaxRestSeconds is 0 (cold-start or post-OTA reload), try to
+    // restore it from the persisted WorkoutState — that's where Task 1 stamps
+    // the original max via syncStateToWidget. Only fall back to totalSeconds
+    // (which on re-sync is *remaining* seconds, not total) when no persisted
+    // max is available.
+    if (currentMaxRestSeconds === 0) {
+      const persisted = readPersistedMaxRestSeconds();
+      currentMaxRestSeconds = persisted > 0 ? persisted : totalSeconds;
+    }
 
     safeUpdateActivity({
       title: exerciseName,
@@ -376,6 +382,17 @@ function doUpdate(contentState: LiveActivityState, json: string): void {
       currentActivityId = null;
     }
     // Transient/rate-limit errors: preserve currentActivityId so future updates still work
+  }
+}
+
+function readPersistedMaxRestSeconds(): number {
+  try {
+    const raw = getItem('liftai_workout_state');
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw) as { restMaxSeconds?: number };
+    return typeof parsed.restMaxSeconds === 'number' ? parsed.restMaxSeconds : 0;
+  } catch {
+    return 0;
   }
 }
 
