@@ -203,6 +203,9 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   // regardless of React's async state batching (same pattern as blocksRef).
   const workoutNotesRef = useRef('');
   workoutNotesRef.current = workoutNotes;
+  // Set to true by handleCancelWorkout. Checked by start handlers before
+  // calling activateWorkout, so a late continuation can't undo the cancel.
+  const cancelledRef = useRef(false);
 
   // ─── Helpers ───
 
@@ -478,6 +481,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
   async function handleStartFromTemplate(template: Template) {
     try {
+      cancelledRef.current = false;
       setStartingTemplateId(template.id);
       await historyPulledRef.current;
       const workout = await startWorkout(template.id);
@@ -504,6 +508,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           })
       );
 
+      if (cancelledRef.current) return;
       activateWorkout(workout, blocks, template.name);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start workout', e);
@@ -531,10 +536,12 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
   async function handleStartEmpty() {
     try {
+      cancelledRef.current = false;
       setLoading(true);
       const workout = await startWorkout(null);
       // No plan to persist — planned_exercise_ids defaults to NULL in the DB.
       // confirmFinish guards with `if (plannedIds && plannedIds.length > 0)`.
+      if (cancelledRef.current) return;
       activateWorkout(workout, []);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start empty workout', e);
@@ -548,6 +555,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   async function handleStartFromUpcoming() {
     if (!upcomingWorkout) return;
     try {
+      cancelledRef.current = false;
       setLoading(true);
       await historyPulledRef.current;
       const workout = await startWorkout(upcomingWorkout.workout.template_id, upcomingWorkout.workout.id);
@@ -624,6 +632,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       }
 
       setUpcomingTargets(upcomingWorkout.exercises);
+      if (cancelledRef.current) return;
       activateWorkout(workout, blocks);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start upcoming workout', e);
@@ -766,6 +775,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           text: 'Discard',
           style: 'destructive',
           onPress: async () => {
+            cancelledRef.current = true;
             const workout = workoutRef.current;
             if (sessionNotesDebounceRef.current) {
               clearTimeout(sessionNotesDebounceRef.current);
