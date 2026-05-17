@@ -23,7 +23,7 @@ describe('Batch 2 Task 5: useNotesDebounce unmount flush', () => {
     jest.useRealTimers();
   });
 
-  it('persists pending notes when the hook unmounts before the 500ms debounce fires', () => {
+  it('persists pending notes when the hook unmounts before the 500ms debounce fires', async () => {
     const { result, unmount } = renderHook(() => useNotesDebounce());
 
     act(() => {
@@ -35,12 +35,13 @@ describe('Batch 2 Task 5: useNotesDebounce unmount flush', () => {
 
     // Unmount BEFORE the timer fires
     unmount();
+    await act(async () => { await Promise.resolve(); });
 
     // Write should have been flushed synchronously by the cleanup
     expect(db.updateExerciseMachineNotes).toHaveBeenCalledWith('ex-1', 'new note text');
   });
 
-  it('does not double-fire on unmount if the timer already fired', () => {
+  it('does not double-fire on unmount if the timer already fired', async () => {
     const { result, unmount } = renderHook(() => useNotesDebounce());
 
     act(() => {
@@ -53,10 +54,11 @@ describe('Batch 2 Task 5: useNotesDebounce unmount flush', () => {
 
     // Unmount after — should NOT re-fire
     unmount();
+    await act(async () => { await Promise.resolve(); });
     expect(db.updateExerciseMachineNotes).toHaveBeenCalledTimes(1);
   });
 
-  it('persists empty string as null', () => {
+  it('persists empty string as null', async () => {
     const { result, unmount } = renderHook(() => useNotesDebounce());
 
     act(() => {
@@ -64,6 +66,7 @@ describe('Batch 2 Task 5: useNotesDebounce unmount flush', () => {
     });
 
     unmount();
+    await act(async () => { await Promise.resolve(); });
 
     expect(db.updateExerciseMachineNotes).toHaveBeenCalledWith('ex-1', null);
   });

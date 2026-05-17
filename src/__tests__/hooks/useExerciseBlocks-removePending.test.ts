@@ -70,6 +70,10 @@ describe('Batch 2 Task 2: handleRemoveExercise cancels pending writes', () => {
     act(() => {
       result.current.handleSetChange(0, 0, 'weight', '100');
     });
+    // ADD: type into s2 as well so BOTH pending writes need to be cancelled
+    act(() => {
+      result.current.handleSetChange(0, 1, 'weight', '200');
+    });
 
     // Stub Alert.alert to immediately invoke the "Remove" button
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
@@ -93,5 +97,7 @@ describe('Batch 2 Task 2: handleRemoveExercise cancels pending writes', () => {
     // updateWorkoutSet should NOT have been called with s1 (its pending write was cancelled)
     const updateCalls = (db.updateWorkoutSet as jest.Mock).mock.calls;
     expect(updateCalls.find(([id]) => id === 's1')).toBeUndefined();
+    // BOTH s1 and s2 pending writes must have been cancelled
+    expect(updateCalls.find(([id]) => id === 's2')).toBeUndefined();
   });
 });

@@ -24,6 +24,10 @@ export function useNotesDebounce(): UseNotesDebounceReturn {
           Sentry.captureException(e),
         );
       }
+      // Match the debounce timer path: trigger Supabase sync after note writes.
+      if (pendingNotesRef.current.size > 0) {
+        fireAndForgetSync();
+      }
       pendingNotesRef.current.clear();
       for (const timerId of notesTimerRef.current.values()) {
         clearTimeout(timerId);

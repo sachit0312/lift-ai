@@ -53,9 +53,9 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
   // Debounced DB writes for set input changes (weight/reps/RPE)
   const pendingSetWritesRef = useRef<Map<string, { timer: ReturnType<typeof setTimeout>; data: Record<string, unknown> }>>(new Map());
 
-  // Guard against rapid-succession handleDeleteSet calls that would read
-  // stale blocksRef.current. Second concurrent tap bails out.
-  const deletingSetRef = useRef(false);
+  // Tracks set IDs currently being deleted. Per-set granularity means
+  // unrelated deletes (e.g., on different exercises) can proceed in parallel.
+  const deletingSetIdsRef = useRef<Set<string>>(new Set());
 
   // Keep ref in sync
   blocksRef.current = exerciseBlocks;
@@ -208,13 +208,13 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
   }, [workoutRef, updateBlockSets]);
 
   const handleDeleteSet = useCallback(async (blockIdx: number, setIdx: number) => {
-    if (deletingSetRef.current) return; // concurrent delete in flight — drop this tap
-    deletingSetRef.current = true;
+    const block = blocksRef.current[blockIdx];
+    const set = block?.sets[setIdx];
+    if (!set) return;
+    if (deletingSetIdsRef.current.has(set.id)) return;
+    deletingSetIdsRef.current.add(set.id);
+    const setId = set.id;
     try {
-      const block = blocksRef.current[blockIdx];
-      const set = block?.sets[setIdx];
-      if (!set) return;
-
       // Don't allow deleting the last set
       if (block.sets.length <= 1) return;
 
@@ -260,11 +260,11 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       });
 
       // Persist renumbered set_numbers to SQLite
-      for (let i = 0; i < remainingSets.length; i++) {
-        await updateWorkoutSet(remainingSets[i].id, { set_number: i + 1 });
-      }
+      await Promise.all(
+        remainingSets.map((s, i) => updateWorkoutSet(s.id, { set_number: i + 1 })),
+      );
     } finally {
-      deletingSetRef.current = false;
+      deletingSetIdsRef.current.delete(setId);
     }
   }, [updateBlockSets]);
 

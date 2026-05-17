@@ -71,5 +71,33 @@ describe('Batch 2 Task 4: handleDeleteSet rapid-succession guard', () => {
     // Only one delete should have fired for s1
     const deletesS1 = (db.deleteWorkoutSet as jest.Mock).mock.calls.filter(([id]) => id === 's1');
     expect(deletesS1.length).toBe(1);
+    // State should reflect exactly one deletion (2 sets remain, not 1)
+    expect(result.current.exerciseBlocks[0].sets.length).toBe(2);
+  });
+
+  it('allows concurrent deletes on different sets (per-set guard)', async () => {
+    const block = makeBlock();
+    const blocksRef = { current: [block] };
+
+    const { result } = renderHook(() =>
+      useExerciseBlocks({
+        workoutRef: { current: { id: 'w1' } as any },
+        blocksRef,
+        lastActiveBlockRef: { current: 0 },
+        debouncedSaveNotes: jest.fn(),
+      }),
+    );
+
+    act(() => { result.current.setExerciseBlocks([block]); });
+
+    await act(async () => {
+      const p1 = result.current.handleDeleteSet(0, 0);
+      const p2 = result.current.handleDeleteSet(0, 1);
+      await Promise.all([p1, p2]);
+    });
+
+    // Both deletes should fire because they target different sets
+    expect(db.deleteWorkoutSet).toHaveBeenCalledWith('s1');
+    expect(db.deleteWorkoutSet).toHaveBeenCalledWith('s2');
   });
 });
