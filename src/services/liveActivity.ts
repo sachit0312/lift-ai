@@ -4,7 +4,7 @@ import type { LiveActivityState } from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
-import { getItem, removeItem } from '../../modules/shared-user-defaults';
+import { getItem, getItemAndRemove } from '../../modules/shared-user-defaults';
 import { colors } from '../theme';
 
 // ─── Module-level state (singleton) ───
@@ -300,9 +300,8 @@ export function stopRestTimerActivity(): void {
 export function applyPendingWidgetActions(): number {
   if (Platform.OS !== 'ios') return 0;
   try {
-    const raw = getItem('liftai_action_queue');
+    const raw = getItemAndRemove('liftai_action_queue');
     if (!raw) return 0;
-    removeItem('liftai_action_queue');
     const actions: { type: string; delta?: number; ts: number }[] = JSON.parse(raw);
     let totalDelta = 0;
     for (const action of actions) {

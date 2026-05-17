@@ -16,3 +16,7 @@ export function getItem(key: string): string | null {
 export function removeItem(key: string): void {
   SharedUserDefaultsNative?.removeItem(key);
 }
+
+export function getItemAndRemove(key: string): string | null {
+  return SharedUserDefaultsNative?.getItemAndRemove(key) ?? null;
+}

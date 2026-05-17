@@ -12,6 +12,12 @@ export const removeItem = jest.fn((key: string) => {
   delete store[key];
 });
 
+export const getItemAndRemove = jest.fn((key: string): string | null => {
+  const value = store[key] ?? null;
+  delete store[key];
+  return value;
+});
+
 // Test helper to reset the store
 export function __resetStore() {
   for (const key of Object.keys(store)) {
