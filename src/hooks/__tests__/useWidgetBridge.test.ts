@@ -13,6 +13,7 @@ jest.mock('../../services/workoutBridge', () => ({
 jest.mock('../../services/liveActivity', () => ({
   updateWorkoutActivityForSet: jest.fn().mockResolvedValue(undefined),
   updateWorkoutActivityForRest: jest.fn().mockResolvedValue(undefined),
+  getCurrentMaxRestSeconds: jest.fn(() => 0),
 }));
 
 import { syncStateToWidget } from '../../services/workoutBridge';

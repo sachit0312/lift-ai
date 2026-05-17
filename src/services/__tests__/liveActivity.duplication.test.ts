@@ -23,7 +23,7 @@ import {
   adjustRestTimerActivity,
   applyPendingWidgetActions,
 } from '../liveActivity';
-import { setItem, removeItem } from '../../../modules/shared-user-defaults';
+import { setItem, getItemAndRemove } from '../../../modules/shared-user-defaults';
 
 // __resetStore is a test helper only in the mock (src/__mocks__/shared-user-defaults.ts)
 const { __resetStore } = require('modules/shared-user-defaults') as { __resetStore: () => void };
@@ -207,7 +207,7 @@ describe('Live Activity duplication bugs', () => {
       ]));
 
       applyPendingWidgetActions();
-      expect(removeItem).toHaveBeenCalledWith('liftai_action_queue');
+      expect(getItemAndRemove).toHaveBeenCalledWith('liftai_action_queue');
     });
 
     it('returns 0 on Android', () => {

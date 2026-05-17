@@ -59,6 +59,7 @@ jest.mock('../../services/liveActivity', () => ({
   stopRestTimerActivity: jest.fn(),
   requestNotificationPermissions: jest.fn(),
   getRestTimerRemainingSeconds: jest.fn().mockReturnValue(null),
+  getCurrentMaxRestSeconds: jest.fn(() => 0),
   startWorkoutActivity: jest.fn(),
   updateWorkoutActivityForSet: jest.fn().mockResolvedValue(undefined),
   updateWorkoutActivityForRest: jest.fn().mockResolvedValue(undefined),
