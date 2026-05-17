@@ -23,6 +23,9 @@ let lastUpdateTimestamp = 0;
 let pendingUpdate: { contentState: LiveActivityState; timeoutId: ReturnType<typeof setTimeout> } | null = null;
 const MIN_UPDATE_INTERVAL_MS = 500;
 
+let pendingNotificationReschedule: { endTime: number; timeoutId: ReturnType<typeof setTimeout> } | null = null;
+const NOTIFICATION_DEBOUNCE_MS = 300;
+
 // ─── Configure notification handler ───
 
 Notifications.setNotificationHandler({
@@ -120,6 +123,10 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
     if (pendingUpdate) {
       clearTimeout(pendingUpdate.timeoutId);
       pendingUpdate = null;
+    }
+    if (pendingNotificationReschedule) {
+      clearTimeout(pendingNotificationReschedule.timeoutId);
+      pendingNotificationReschedule = null;
     }
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to start workout Live Activity', e);
@@ -221,6 +228,10 @@ export async function stopWorkoutActivity(): Promise<void> {
       clearTimeout(pendingUpdate.timeoutId);
       pendingUpdate = null;
     }
+    if (pendingNotificationReschedule) {
+      clearTimeout(pendingNotificationReschedule.timeoutId);
+      pendingNotificationReschedule = null;
+    }
     serializedNotificationOp(() => cancelTimerEndNotification());
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to stop workout Live Activity', e);
@@ -249,21 +260,29 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
     currentEndTime = newEndTime;
     if (deltaSeconds > 0) currentMaxRestSeconds += deltaSeconds;
 
-    const remainingSeconds = Math.max(0, Math.round((newEndTime - Date.now()) / 1000));
-
     safeUpdateActivity({
       title: currentExerciseName,
       subtitle: `Set ${currentSetNumber}/${currentTotalSets}|${currentMaxRestSeconds}`,
       progressBar: { date: newEndTime },
     });
 
-    // Reschedule notification via serialized queue to prevent stacking
-    serializedNotificationOp(async () => {
-      await cancelTimerEndNotification();
-      if (remainingSeconds > 0) {
-        await scheduleTimerEndNotification(remainingSeconds);
-      }
-    });
+    // Debounce the notification reschedule. Rapid +/-15s taps would otherwise
+    // fire one cancel + one schedule per tap; we only need the FINAL position
+    // reflected in the system notification.
+    if (pendingNotificationReschedule) {
+      clearTimeout(pendingNotificationReschedule.timeoutId);
+    }
+    const timeoutId = setTimeout(() => {
+      pendingNotificationReschedule = null;
+      const remainingSeconds = Math.max(0, Math.round((currentEndTime - Date.now()) / 1000));
+      serializedNotificationOp(async () => {
+        await cancelTimerEndNotification();
+        if (remainingSeconds > 0) {
+          await scheduleTimerEndNotification(remainingSeconds);
+        }
+      });
+    }, NOTIFICATION_DEBOUNCE_MS);
+    pendingNotificationReschedule = { endTime: newEndTime, timeoutId };
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to adjust rest timer', e);
     Sentry.captureException(e);
@@ -274,6 +293,10 @@ export function stopRestTimerActivity(): void {
   if (Platform.OS !== 'ios') return;
   // Cancel notification even if activity was dismissed — must run above !currentActivityId guard
   serializedNotificationOp(() => cancelTimerEndNotification());
+  if (pendingNotificationReschedule) {
+    clearTimeout(pendingNotificationReschedule.timeoutId);
+    pendingNotificationReschedule = null;
+  }
   currentMaxRestSeconds = 0;
   if (!currentActivityId) return;
   try {
