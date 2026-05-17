@@ -9,6 +9,7 @@ jest.mock('../../../modules/shared-user-defaults', () => ({
   getItem: jest.fn(),
   setItem: jest.fn(),
   removeItem: jest.fn(),
+  getItemAndRemove: jest.fn(),
 }));
 
 jest.mock('expo-live-activity', () => ({

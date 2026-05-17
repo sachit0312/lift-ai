@@ -107,7 +107,7 @@ class WorkoutUserDefaultsHelper {
      * AppIntent invocations because each invocation runs on its own task and
      * synchronize() flushes the UserDefaults backing store before the next
      * call observes it. The corresponding JS-side drain (applyPendingWidgetActions)
-     * is NOT atomic — see Task 5 for the matching native getItemAndRemove fix.
+     * uses getItemAndRemove (added in Batch 3) for matching atomicity.
      */
     func readAndClearActions() -> [WorkoutAction] {
         defaults?.synchronize()

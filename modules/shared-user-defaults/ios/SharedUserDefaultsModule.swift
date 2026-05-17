@@ -26,7 +26,6 @@ public class SharedUserDefaultsModule: Module {
 
     Function("getItemAndRemove") { (key: String) -> String? in
       let defaults = UserDefaults(suiteName: self.appGroupID)
-      defaults?.synchronize()
       let value = defaults?.string(forKey: key)
       if value != nil {
         defaults?.removeObject(forKey: key)

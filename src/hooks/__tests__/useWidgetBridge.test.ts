@@ -17,7 +17,7 @@ jest.mock('../../services/liveActivity', () => ({
 }));
 
 import { syncStateToWidget } from '../../services/workoutBridge';
-import { updateWorkoutActivityForSet, updateWorkoutActivityForRest } from '../../services/liveActivity';
+import { updateWorkoutActivityForSet, updateWorkoutActivityForRest, getCurrentMaxRestSeconds } from '../../services/liveActivity';
 
 // ─── Helpers ───
 
@@ -222,6 +222,20 @@ describe('useWidgetBridge', () => {
       expect(syncStateToWidget).toHaveBeenCalledTimes(1);
       const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
       expect(writtenState.current.exerciseName).toBe('Bench Press');
+    });
+
+    it('propagates non-zero restMaxSeconds from liveActivity into widget state', () => {
+      (getCurrentMaxRestSeconds as jest.Mock).mockReturnValueOnce(180);
+      const options = makeOptions();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      act(() => {
+        result.current.syncWidgetState(options.blocksRef.current, false, 0);
+      });
+
+      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
+      const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
+      expect(writtenState.restMaxSeconds).toBe(180);
     });
   });
 

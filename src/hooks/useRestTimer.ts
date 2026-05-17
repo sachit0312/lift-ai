@@ -140,6 +140,9 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
           }
           if (delta !== 0) {
             currentEndTimeRef.current += delta * 1000;
+            setCurrentEndTime(currentEndTimeRef.current);
+            // sync Live Activity + notification through the debounced path
+            adjustRestTimerActivity(delta);
           }
 
           const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));

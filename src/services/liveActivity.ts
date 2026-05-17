@@ -57,6 +57,10 @@ export function getRestTimerRemainingSeconds(): number | null {
 }
 
 export function getCurrentMaxRestSeconds(): number {
+  if (currentMaxRestSeconds === 0) {
+    const persisted = readPersistedMaxRestSeconds();
+    if (persisted > 0) currentMaxRestSeconds = persisted;
+  }
   return currentMaxRestSeconds;
 }
 
@@ -175,15 +179,10 @@ export async function updateWorkoutActivityForRest(
     currentExerciseName = exerciseName;
     currentSetNumber = setNumber;
     currentTotalSets = totalSets;
-    // If currentMaxRestSeconds is 0 (cold-start or post-OTA reload), try to
-    // restore it from the persisted WorkoutState — that's where Task 1 stamps
-    // the original max via syncStateToWidget. Only fall back to totalSeconds
-    // (which on re-sync is *remaining* seconds, not total) when no persisted
-    // max is available.
-    if (currentMaxRestSeconds === 0) {
-      const persisted = readPersistedMaxRestSeconds();
-      currentMaxRestSeconds = persisted > 0 ? persisted : totalSeconds;
-    }
+    // Trigger eager restore from persisted state (no-op if currentMaxRestSeconds is non-zero).
+    // After that, this is just the fallback for a fresh rest with no previously-persisted state.
+    getCurrentMaxRestSeconds();
+    if (currentMaxRestSeconds === 0) currentMaxRestSeconds = totalSeconds;
 
     safeUpdateActivity({
       title: exerciseName,
@@ -274,6 +273,9 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
     }
     const timeoutId = setTimeout(() => {
       pendingNotificationReschedule = null;
+      // If stopRestTimerActivity ran between the adjust and this fire,
+      // currentEndTime is 0 and there's no rest to schedule for.
+      if (!currentEndTime) return;
       const remainingSeconds = Math.max(0, Math.round((currentEndTime - Date.now()) / 1000));
       serializedNotificationOp(async () => {
         await cancelTimerEndNotification();
@@ -351,6 +353,17 @@ function serializedNotificationOp(fn: () => Promise<void>): void {
 
 // ─── Internal helpers ───
 
+function readPersistedMaxRestSeconds(): number {
+  try {
+    const raw = getItem('liftai_workout_state');
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw) as { restMaxSeconds?: number };
+    return typeof parsed.restMaxSeconds === 'number' ? parsed.restMaxSeconds : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Wrapper around LiveActivity.updateActivity with deduplication, throttling,
  * and resilient error handling.
@@ -404,17 +417,6 @@ function doUpdate(contentState: LiveActivityState, json: string): void {
       currentActivityId = null;
     }
     // Transient/rate-limit errors: preserve currentActivityId so future updates still work
-  }
-}
-
-function readPersistedMaxRestSeconds(): number {
-  try {
-    const raw = getItem('liftai_workout_state');
-    if (!raw) return 0;
-    const parsed = JSON.parse(raw) as { restMaxSeconds?: number };
-    return typeof parsed.restMaxSeconds === 'number' ? parsed.restMaxSeconds : 0;
-  } catch {
-    return 0;
   }
 }
 

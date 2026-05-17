@@ -135,26 +135,36 @@ describe('Live Activity duplication bugs', () => {
       await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
       scheduleRestNotification(120);
 
-      // Rapid sequence: adjust +15, adjust +15, then stop
-      jest.advanceTimersByTime(600); // past throttle
-      await adjustRestTimerActivity(15);
-      await adjustRestTimerActivity(15);
-      stopRestTimerActivity();
+      // Drain the initial schedule via the serialized queue
+      jest.useRealTimers();
+      await flushNotificationChain();
+      jest.clearAllMocks();
+      jest.useFakeTimers();
 
-      // Flush all queued operations
+      // Rapid sequence: adjust +15, adjust +15 — should coalesce to one debounced reschedule
+      jest.advanceTimersByTime(600); // past safeUpdateActivity throttle
+      await adjustRestTimerActivity(15);
+      await adjustRestTimerActivity(15);
+
+      // Advance past the 300ms debounce so the coalesced reschedule fires
+      jest.advanceTimersByTime(350);
+
+      // Drain the serialized notification chain
       jest.useRealTimers();
       await flushNotificationChain();
 
-      // The final state should be: notification cancelled, no orphaned scheduled notifications
+      // Debounce coalesced both taps into ONE schedule call
+      expect((Notifications.scheduleNotificationAsync as jest.Mock).mock.calls.length).toBe(1);
+
+      // Now stop — should cancel the pending notification
+      stopRestTimerActivity();
+      await flushNotificationChain();
+
       const cancelCalls = (Notifications.cancelScheduledNotificationAsync as jest.Mock).mock.calls.length;
       const scheduleCalls = (Notifications.scheduleNotificationAsync as jest.Mock).mock.calls.length;
 
-      // Cancel should have been called at least as many times as schedule
-      // (initial schedule + reschedules - final cancel)
+      // Every scheduled notification was eventually cancelled
       expect(cancelCalls).toBeGreaterThanOrEqual(scheduleCalls);
-
-      jest.useFakeTimers();
-      jest.useRealTimers();
     });
   });
 
