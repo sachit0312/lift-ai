@@ -22,7 +22,19 @@ struct WorkoutState: Codable {
     var current: WorkoutSetState
     var isResting: Bool
     var restEndTime: Double
+    var restMaxSeconds: Int
     var workoutActive: Bool
+}
+
+extension WorkoutState {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        current = try container.decode(WorkoutSetState.self, forKey: .current)
+        isResting = try container.decode(Bool.self, forKey: .isResting)
+        restEndTime = try container.decode(Double.self, forKey: .restEndTime)
+        restMaxSeconds = try container.decodeIfPresent(Int.self, forKey: .restMaxSeconds) ?? 0
+        workoutActive = try container.decode(Bool.self, forKey: .workoutActive)
+    }
 }
 
 struct WorkoutAction: Codable {

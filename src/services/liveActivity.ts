@@ -53,6 +53,10 @@ export function getRestTimerRemainingSeconds(): number | null {
   return Math.max(0, Math.round((currentEndTime - Date.now()) / 1000));
 }
 
+export function getCurrentMaxRestSeconds(): number {
+  return currentMaxRestSeconds;
+}
+
 export async function requestNotificationPermissions(): Promise<void> {
   if (Platform.OS !== 'ios') return;
   try {
