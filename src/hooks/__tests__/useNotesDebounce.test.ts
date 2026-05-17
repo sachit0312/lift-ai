@@ -189,21 +189,25 @@ describe('useNotesDebounce', () => {
     expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-2', 'notes for ex2');
   });
 
-  it('cleans up timers on unmount', () => {
+  it('flushes pending writes and cancels timers on unmount', () => {
     const { result, unmount } = renderHook(() => useNotesDebounce());
 
     act(() => {
       result.current.debouncedSaveNotes('ex-1', 'notes');
     });
 
-    // Unmount clears timers
+    // Unmount flushes pending writes synchronously, then cancels timers
     unmount();
 
-    // Advance timers — should NOT trigger saves since cleanup ran
+    // The pending write should have fired exactly once on unmount
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledTimes(1);
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledWith('ex-1', 'notes');
+
+    // Advance timers — should NOT trigger a second save since timer was cancelled
     act(() => {
       jest.advanceTimersByTime(1000);
     });
 
-    expect(mockUpdateExerciseMachineNotes).not.toHaveBeenCalled();
+    expect(mockUpdateExerciseMachineNotes).toHaveBeenCalledTimes(1);
   });
 });

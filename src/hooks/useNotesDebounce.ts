@@ -13,12 +13,22 @@ export function useNotesDebounce(): UseNotesDebounceReturn {
   const pendingNotesRef = useRef<Map<string, { notes: string }>>(new Map());
   const notesTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  // Clean up timers on unmount
+  // On unmount: flush pending writes BEFORE cancelling timers, so notes
+  // typed within the debounce window aren't lost. Writes are fire-and-forget
+  // because the cleanup function cannot be async — SQLite operations resolve
+  // on their own and Sentry catches any errors.
   useEffect(() => {
     return () => {
+      for (const [exerciseId, { notes }] of pendingNotesRef.current.entries()) {
+        updateExerciseMachineNotes(exerciseId, notes || null).catch(e =>
+          Sentry.captureException(e),
+        );
+      }
+      pendingNotesRef.current.clear();
       for (const timerId of notesTimerRef.current.values()) {
         clearTimeout(timerId);
       }
+      notesTimerRef.current.clear();
     };
   }, []);
 
