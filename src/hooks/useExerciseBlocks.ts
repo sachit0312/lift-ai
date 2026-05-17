@@ -300,6 +300,15 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
             // Re-read from ref at onPress time for latest set IDs
             const currentBlock = blocksRef.current[blockIdx];
             const setsToDelete = currentBlock ? currentBlock.sets : block.sets;
+            // Cancel any pending debounced writes for sets being deleted, otherwise
+            // they fire after deleteWorkoutSet and hit nonexistent rows.
+            for (const set of setsToDelete) {
+              const pending = pendingSetWritesRef.current.get(set.id);
+              if (pending) {
+                clearTimeout(pending.timer);
+                pendingSetWritesRef.current.delete(set.id);
+              }
+            }
             // Clean up PR state for any PR sets in this block
             const prIdsToRemove = setsToDelete.filter(s => prSetIdsRef.current.has(s.id));
             if (prIdsToRemove.length > 0) {
