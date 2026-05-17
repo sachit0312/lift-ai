@@ -102,6 +102,13 @@ class WorkoutUserDefaultsHelper {
         logger.debug("appendAction: queued action type=\(action.type)")
     }
 
+    /**
+     * Atomically read and remove the action queue. Safe to call from concurrent
+     * AppIntent invocations because each invocation runs on its own task and
+     * synchronize() flushes the UserDefaults backing store before the next
+     * call observes it. The corresponding JS-side drain (applyPendingWidgetActions)
+     * is NOT atomic — see Task 5 for the matching native getItemAndRemove fix.
+     */
     func readAndClearActions() -> [WorkoutAction] {
         defaults?.synchronize()
         guard let jsonString = defaults?.string(forKey: actionQueueKey),
