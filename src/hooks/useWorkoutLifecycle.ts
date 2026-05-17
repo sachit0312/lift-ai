@@ -808,7 +808,10 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   // ─── Finish workout ───
 
   function handleFinish() {
-    const totalCompleted = exerciseBlocks.reduce(
+    // Read from blocksRef.current — not exerciseBlocks state — to avoid stale
+    // validation when Finish fires inside the 300ms debounce window. Matches
+    // confirmFinish, which also reads the ref.
+    const totalCompleted = blocksRef.current.reduce(
       (sum, b) => sum + b.sets.filter(s => s.is_completed).length, 0
     );
     if (totalCompleted === 0) {
