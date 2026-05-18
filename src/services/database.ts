@@ -1359,6 +1359,63 @@ export function getE1RMWithConfidence(exerciseId: string): Promise<E1RMResult | 
   });
 }
 
+// ─── Combined 1RM summary (single-scan) ───
+
+export interface E1RMSummary {
+  /** Best raw estimated 1RM across all completed sets (no decay). */
+  best: number;
+  /** Freshness-weighted estimated 1RM (6-week half-life decay). */
+  current: number;
+  /** Best e1RM with confidence tier + margin (Tuchscherer / ensemble engine). */
+  confidence: E1RMResult;
+}
+
+/**
+ * Combined 1RM query: returns best (raw), current (freshness-weighted), and
+ * confidence-tier result in ONE JOIN scan. Replaces three separate calls
+ * (getBestE1RM + getCurrentE1RM + getE1RMWithConfidence) that ExerciseHistoryContent
+ * used to fire back-to-back on every modal open.
+ */
+export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> {
+  return withDb('getE1RMSummary', async (database) => {
+    const rows = await database.getAllAsync<PRSetWithDateRow>(
+      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe, w.finished_at
+       FROM workout_sets ws
+       JOIN workouts w ON ws.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND ws.exercise_id = ?
+         AND ws.is_completed = 1
+         AND ws.weight IS NOT NULL AND ws.weight > 0
+         AND ws.reps IS NOT NULL AND ws.reps > 0`,
+      exerciseId,
+    );
+    if (rows.length === 0) return null;
+
+    const now = Date.now();
+    let best = 0;
+    let current = 0;
+    let confidence: E1RMResult | null = null;
+
+    for (const r of rows) {
+      const rawE1RM = calculateEstimated1RM(r.weight, r.reps, r.rpe);
+      if (rawE1RM > best) best = rawE1RM;
+
+      const daysAgo = (now - new Date(r.finished_at).getTime()) / (1000 * 60 * 60 * 24);
+      const decayFactor = Math.exp(-0.693 * daysAgo / FRESHNESS_HALF_LIFE_DAYS);
+      const weighted = rawE1RM * decayFactor;
+      if (weighted > current) current = weighted;
+
+      const result = calculateE1RM(r.weight, r.reps, r.rpe);
+      if (!confidence || result.value > confidence.value) {
+        confidence = result;
+      }
+    }
+
+    if (best <= 0 || !confidence) return null;
+    return { best, current, confidence };
+  });
+}
+
 // ─── Clear Upcoming Workout ───
 
 export function clearLocalUpcomingWorkout(): Promise<void> {
