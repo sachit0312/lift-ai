@@ -365,24 +365,18 @@ describe('getBestE1RM', () => {
 });
 
 describe('stampExerciseOrder', () => {
-  it('updates exercise_order for each entry in a transaction', async () => {
+  it('issues a single batched UPDATE for all entries in a transaction', async () => {
     await stampExerciseOrder('w1', [
       { id: 'set-1', order: 1 },
       { id: 'set-2', order: 2 },
     ]);
 
     expect(__mockDb.withTransactionAsync).toHaveBeenCalled();
-    expect(__mockDb.runAsync).toHaveBeenCalledTimes(2);
-    expect(__mockDb.runAsync).toHaveBeenNthCalledWith(
-      1,
-      'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
-      1, 'set-1',
-    );
-    expect(__mockDb.runAsync).toHaveBeenNthCalledWith(
-      2,
-      'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
-      2, 'set-2',
-    );
+    // Batched to a single CASE WHEN UPDATE rather than N separate statements.
+    expect(__mockDb.runAsync).toHaveBeenCalledTimes(1);
+    const call = __mockDb.runAsync.mock.calls[0];
+    expect(call[0]).toMatch(/UPDATE workout_sets SET exercise_order = CASE id/i);
+    expect(call.slice(1)).toEqual(['set-1', 1, 'set-2', 2, 'set-1', 'set-2']);
   });
 });
 

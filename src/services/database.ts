@@ -882,14 +882,31 @@ export function deleteWorkoutSet(id: string): Promise<void> {
   });
 }
 
-/** Stamp exercise_order on all sets for a finished workout based on block positions */
+/** Stamp exercise_order on all sets for a finished workout based on block positions.
+ *  Issues a single CASE WHEN UPDATE instead of N separate statements — meaningful
+ *  on workout finish where 30-50 sets are common. SQLite parameter limit is 999;
+ *  guard for safety even though typical workouts are well below. */
 export function stampExerciseOrder(workoutId: string, entries: Array<{ id: string; order: number }>): Promise<void> {
   return withDb('stampExerciseOrder', async (database) => {
+    if (entries.length === 0) return;
+    // Each entry contributes 3 binds: WHEN ?, THEN ?, IN (..., ?, ...).
+    // SQLite's parameter limit is 999 — chunk defensively.
+    const MAX_PER_CHUNK = 300;
     await database.withTransactionAsync(async () => {
-      for (const { id, order } of entries) {
+      for (let i = 0; i < entries.length; i += MAX_PER_CHUNK) {
+        const chunk = entries.slice(i, i + MAX_PER_CHUNK);
+        const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+        const placeholders = chunk.map(() => '?').join(',');
+        const binds: unknown[] = [];
+        for (const { id, order } of chunk) {
+          binds.push(id, order);
+        }
+        for (const { id } of chunk) {
+          binds.push(id);
+        }
         await database.runAsync(
-          'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
-          order, id,
+          `UPDATE workout_sets SET exercise_order = CASE id ${whens} END WHERE id IN (${placeholders})`,
+          ...binds,
         );
       }
     });
