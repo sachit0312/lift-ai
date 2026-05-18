@@ -37,6 +37,10 @@ export default function TemplateDetailScreen() {
   const { templateId } = route.params;
 
   const [exercises, setExercises] = useState<TemplateExercise[]>([]);
+  // Mirror of exercises for refs-based snapshots that must see the LIVE value,
+  // not a closure-captured snapshot from a previous render.
+  const exercisesRef = useRef<TemplateExercise[]>([]);
+  exercisesRef.current = exercises;
   const [templateName, setTemplateName] = useState(route.params.templateName);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnce = useRef(false);
@@ -132,7 +136,10 @@ export default function TemplateDetailScreen() {
   }, [loadExercises]);
 
   const handleDragEnd = useCallback(({ data }: { data: TemplateExercise[] }) => {
-    const previous = exercises;
+    // Snapshot ONLY the previous order, not the full row data. If a stepper
+    // write completes between the drag start and a failed reorder, we want to
+    // preserve that data update — only the order needs rolling back.
+    const previousOrder = exercisesRef.current.map((e) => e.id);
     setExercises(data);
     const orderedIds = data.map((e) => e.id);
     updateTemplateExerciseOrder(templateId, orderedIds)
@@ -140,9 +147,14 @@ export default function TemplateDetailScreen() {
       .catch((e) => {
         if (__DEV__) console.error('Failed to update exercise order', e);
         Sentry.captureException(e);
-        setExercises(previous);
+        // Rebuild from current data, restoring only the order.
+        const byId = new Map(exercisesRef.current.map((row) => [row.id, row]));
+        const rolledBack = previousOrder
+          .map((id) => byId.get(id))
+          .filter((row): row is TemplateExercise => row !== undefined);
+        setExercises(rolledBack);
       });
-  }, [templateId, exercises]);
+  }, [templateId]);
 
   const renderItem = useCallback(({ item, getIndex, drag, isActive }: RenderItemParams<TemplateExercise>) => {
     const index = getIndex() ?? 0;
