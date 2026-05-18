@@ -65,8 +65,8 @@ jest.mock('../../contexts/AuthContext', () => ({
 import RootNavigator from '../RootNavigator';
 
 describe('RootNavigator', () => {
-  it('shows ActivityIndicator when loading is true', () => {
-    mockUseAuth.mockReturnValue({ session: null, loading: true, syncing: false });
+  it('shows ActivityIndicator when authPhase is initializing', () => {
+    mockUseAuth.mockReturnValue({ session: null, authPhase: 'initializing' });
 
     const { UNSAFE_getByType, queryByText } = render(
       <NavigationContainer>
@@ -81,11 +81,10 @@ describe('RootNavigator', () => {
     expect(queryByText('TabNavigator')).toBeNull();
   });
 
-  it('shows ActivityIndicator when syncing is true', () => {
+  it('shows ActivityIndicator when authPhase is syncing', () => {
     mockUseAuth.mockReturnValue({
       session: { access_token: 'test-token', user: { id: 'user-1' } },
-      loading: false,
-      syncing: true,
+      authPhase: 'syncing',
     });
 
     const { UNSAFE_getByType, queryByText } = render(
@@ -100,8 +99,8 @@ describe('RootNavigator', () => {
     expect(queryByText('TabNavigator')).toBeNull();
   });
 
-  it('shows Login screen when session is null and loading is false', () => {
-    mockUseAuth.mockReturnValue({ session: null, loading: false, syncing: false });
+  it('shows Login screen when session is null and authPhase is ready', () => {
+    mockUseAuth.mockReturnValue({ session: null, authPhase: 'ready' });
 
     const { getByText } = render(
       <NavigationContainer>
@@ -112,11 +111,10 @@ describe('RootNavigator', () => {
     expect(getByText('Login')).toBeTruthy();
   });
 
-  it('shows TabNavigator when session exists and loading is false', () => {
+  it('shows TabNavigator when session exists and authPhase is ready', () => {
     mockUseAuth.mockReturnValue({
       session: { access_token: 'test-token', user: { id: 'user-1' } },
-      loading: false,
-      syncing: false,
+      authPhase: 'ready',
     });
 
     const { getByText } = render(
@@ -131,8 +129,7 @@ describe('RootNavigator', () => {
   it('does not render Login or Signup when logged in', () => {
     mockUseAuth.mockReturnValue({
       session: { access_token: 'test-token', user: { id: 'user-1' } },
-      loading: false,
-      syncing: false,
+      authPhase: 'ready',
     });
 
     const { queryByText } = render(

@@ -50,11 +50,15 @@ function makeSession(userId: string, email: string) {
 
 /** A consumer component that renders the auth context values for assertions. */
 function AuthConsumer() {
-  const { session, user, loading, syncing } = useAuth();
+  const { session, user, authPhase } = useAuth();
+  // Derive legacy boolean test IDs from authPhase to keep assertions readable.
+  const loading = authPhase === 'initializing';
+  const syncing = authPhase === 'syncing';
   return (
     <>
       <Text testID="loading">{String(loading)}</Text>
       <Text testID="syncing">{String(syncing)}</Text>
+      <Text testID="authPhase">{authPhase}</Text>
       <Text testID="user-email">{user?.email ?? 'none'}</Text>
       <Text testID="user-id">{user?.id ?? 'none'}</Text>
       <Text testID="has-session">{session ? 'yes' : 'no'}</Text>

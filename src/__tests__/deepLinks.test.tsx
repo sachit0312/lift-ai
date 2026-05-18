@@ -28,7 +28,7 @@ jest.mock('../contexts/AuthContext', () => {
     useAuth: jest.fn(() => ({
       session: { user: { id: 'u1' } },
       user: { id: 'u1', email: 'test@test.com' },
-      loading: false,
+      authPhase: 'ready',
     })),
   };
 });

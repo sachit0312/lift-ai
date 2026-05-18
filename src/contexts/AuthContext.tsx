@@ -7,19 +7,19 @@ import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } fr
 
 const SYNC_TIMEOUT_MS = 30000;
 
+export type AuthPhase = 'initializing' | 'syncing' | 'ready';
+
 interface AuthContextValue {
   session: Session | null;
   user: User | null;
-  loading: boolean;
-  syncing: boolean;
+  authPhase: AuthPhase;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  const [authPhase, setAuthPhase] = useState<AuthPhase>('initializing');
   const previousUserIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (__DEV__) console.error('Failed to get session:', error);
       })
       .finally(() => {
-        setLoading(false);
+        setAuthPhase('ready');
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             Sentry.setUser({ email: newSession.user.email, id: newSession.user.id });
           }
           if (newUserId !== prevUserId) {
-            setSyncing(true);
+            setAuthPhase('syncing');
             try {
               await Promise.race([
                 (async () => {
@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               Sentry.captureException(error);
               if (__DEV__) console.error('Failed to sync data on sign in:', error);
             } finally {
-              setSyncing(false);
+              setAuthPhase('ready');
             }
           }
         } else if (event === 'SIGNED_OUT') {
@@ -93,8 +93,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, user: session?.user ?? null, loading, syncing }),
-    [session, loading, syncing]
+    () => ({ session, user: session?.user ?? null, authPhase }),
+    [session, authPhase]
   );
 
   return (
