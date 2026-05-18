@@ -35,6 +35,13 @@ function textToJsonb(value: string | null): unknown {
   try { return JSON.parse(value); } catch { return null; }
 }
 
+/**
+ * PostgREST's default URL length cap is ~8KB. At 36 chars per UUID plus
+ * encoding, ~50 IDs per .in() is a safe upper bound that leaves headroom
+ * for other query params and headers.
+ */
+const IN_CHUNK_SIZE = 50;
+
 export function fireAndForgetSync(): void {
   syncToSupabase().catch(() => {});
 }
@@ -554,16 +561,23 @@ export async function pullWorkoutHistory(): Promise<void> {
       );
     }
 
-    // Fetch workout_sets for those workouts
+    // Fetch workout_sets for those workouts in chunks to stay under PostgREST's
+    // URL length cap (~8KB; 200 UUIDs at 36 chars each can exceed it).
     const workoutIds = (workouts as PullWorkoutRow[]).map(w => w.id);
-    const { data: sets, error: sErr } = await supabase
-      .from('workout_sets')
-      .select('*')
-      .in('workout_id', workoutIds);
+    const allSets: PullWorkoutSetRow[] = [];
+    for (let i = 0; i < workoutIds.length; i += IN_CHUNK_SIZE) {
+      const chunk = workoutIds.slice(i, i + IN_CHUNK_SIZE);
+      const { data: chunkSets, error: chunkErr } = await supabase
+        .from('workout_sets')
+        .select('*')
+        .in('workout_id', chunk);
 
-    if (sErr) { handleSyncError('pull workout_sets', sErr); return; }
+      if (chunkErr) { handleSyncError('pull workout_sets', chunkErr); return; }
+      if (chunkSets) allSets.push(...(chunkSets as PullWorkoutSetRow[]));
+    }
+    const sets = allSets;
 
-    for (const s of (sets ?? []) as PullWorkoutSetRow[]) {
+    for (const s of sets) {
       await db.runAsync(
         `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
