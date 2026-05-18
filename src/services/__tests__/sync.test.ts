@@ -203,7 +203,14 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     expect(workoutBuilder.upsert).toHaveBeenCalledWith(
-      [{ ...mockWorkouts[0], user_id: 'user-123', upcoming_workout_id: null }],
+      [{
+        ...mockWorkouts[0],
+        user_id: 'user-123',
+        upcoming_workout_id: null,
+        // Batch 4 Task 4: JSONB columns are normalized to JS values (null here).
+        exercise_coach_notes: null,
+        planned_exercise_ids: null,
+      }],
       { onConflict: 'id' },
     );
   });
@@ -252,7 +259,10 @@ describe('syncToSupabase', () => {
 
     const [payload] = workoutBuilder.upsert.mock.calls[0];
     expect(payload[0].coach_notes).toBe('Focus on form');
-    expect(payload[0].exercise_coach_notes).toBe('{"ex-1":"Keep elbows in"}');
+    // Batch 4 Task 4: exercise_coach_notes is sent to Supabase as a parsed
+    // JS object (the SQLite TEXT is JSON.parse'd via textToJsonb), not as
+    // a stringified blob.
+    expect(payload[0].exercise_coach_notes).toEqual({ 'ex-1': 'Keep elbows in' });
   });
 
   it('syncs workout_sets with is_completed converted to boolean', async () => {
@@ -542,7 +552,9 @@ describe('syncToSupabase', () => {
     await syncToSupabase();
 
     const [payload] = workoutBuilder.upsert.mock.calls[0];
-    expect(payload[0].planned_exercise_ids).toBe('["ex-a","ex-b"]');
+    // Batch 4 Task 4: planned_exercise_ids is sent as a parsed JS array,
+    // not the stringified JSON stored in SQLite.
+    expect(payload[0].planned_exercise_ids).toEqual(['ex-a', 'ex-b']);
   });
 
   it('calls supabase.from with the correct table names in order', async () => {
