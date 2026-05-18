@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,10 @@ import {
   getUserExerciseNotes,
 } from '../services/database';
 import { fireAndForgetSync } from '../services/sync';
-import ExerciseHistoryContent from './ExerciseHistoryContent';
+// Lazy: ExerciseHistoryContent pulls react-native-chart-kit (+ react-native-svg).
+// Loading at mount would parse those into every modal-opening tab. Defer until
+// the user activates the History tab inside the modal.
+const ExerciseHistoryContent = React.lazy(() => import('./ExerciseHistoryContent'));
 import type { Exercise, ExerciseNotes, ExerciseWithNotes } from '../types/database';
 
 interface Props {
@@ -222,7 +225,9 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
 
           {/* History tab — always mounted to avoid re-fetch on tab switch */}
           <View style={activeTab !== 'history' ? styles.hiddenTab : styles.visibleTab}>
-            <ExerciseHistoryContent exercise={exercise} />
+            <Suspense fallback={null}>
+              <ExerciseHistoryContent exercise={exercise} />
+            </Suspense>
           </View>
         </View>
       </View>
