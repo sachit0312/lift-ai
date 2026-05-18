@@ -1132,28 +1132,41 @@ async function buildUpcomingExercises(
     workoutId,
   );
 
-  const exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] = [];
+  if (exerciseRows.length === 0) return [];
 
-  for (const r of exerciseRows) {
-    const rawSets = await database.getAllAsync<UpcomingWorkoutSetRow>(
-      'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
-      r.id,
-    );
-    const sets: UpcomingWorkoutSet[] = rawSets.map(mapUpcomingWorkoutSetRow);
+  // Batched sets fetch: one IN query for all upcoming_exercise_ids, then group
+  // by upcoming_exercise_id in memory. Replaces an N+1 of one query per
+  // exercise — which was 8-15 sequential round-trips on workout-start.
+  const ueIds = exerciseRows.map((r) => r.id);
+  const placeholders = ueIds.map(() => '?').join(',');
+  const rawSets = await database.getAllAsync<UpcomingWorkoutSetRow>(
+    `SELECT * FROM upcoming_workout_sets
+     WHERE upcoming_exercise_id IN (${placeholders})
+     ORDER BY upcoming_exercise_id, set_number`,
+    ...ueIds,
+  );
 
-    exercises.push({
-      id: r.id,
-      upcoming_workout_id: r.upcoming_workout_id,
-      exercise_id: r.exercise_id,
-      order: r.sort_order,
-      rest_seconds: r.rest_seconds,
-      notes: r.notes,
-      exercise: parseExerciseFromJoin(r),
-      sets,
-    });
+  const setsByExerciseId = new Map<string, UpcomingWorkoutSet[]>();
+  for (const row of rawSets) {
+    const mapped = mapUpcomingWorkoutSetRow(row);
+    const bucket = setsByExerciseId.get(row.upcoming_exercise_id);
+    if (bucket) {
+      bucket.push(mapped);
+    } else {
+      setsByExerciseId.set(row.upcoming_exercise_id, [mapped]);
+    }
   }
 
-  return exercises;
+  return exerciseRows.map((r) => ({
+    id: r.id,
+    upcoming_workout_id: r.upcoming_workout_id,
+    exercise_id: r.exercise_id,
+    order: r.sort_order,
+    rest_seconds: r.rest_seconds,
+    notes: r.notes,
+    exercise: parseExerciseFromJoin(r),
+    sets: setsByExerciseId.get(r.id) ?? [],
+  }));
 }
 
 export function getUpcomingWorkoutForToday(): Promise<{
