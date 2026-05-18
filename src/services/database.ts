@@ -610,12 +610,16 @@ export function getAllTemplates(): Promise<Template[]> {
   );
 }
 
-export function createTemplate(name: string): Promise<Template> {
+export async function createTemplate(name: string): Promise<Template> {
+  const userId = await resolveUserId();
   return withDb('createTemplate', async (database) => {
     const id = uuid();
     const now = new Date().toISOString();
-    await database.runAsync('INSERT INTO templates (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)', id, name, now, now);
-    return { id, user_id: 'local', name, created_at: now, updated_at: now };
+    await database.runAsync(
+      'INSERT INTO templates (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      id, userId, name, now, now,
+    );
+    return { id, user_id: userId, name, created_at: now, updated_at: now };
   });
 }
 
