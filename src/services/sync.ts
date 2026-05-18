@@ -7,6 +7,34 @@ function handleSyncError(label: string, error: unknown): void {
   Sentry.captureException(error);
 }
 
+/**
+ * Serialize a JSONB-shaped value into the TEXT representation SQLite expects.
+ * Supabase returns JSONB columns as parsed JS (arrays/objects); naive binding
+ * coerces them via toString to "[object Object]" or "a,b,c". This normalizes:
+ *   - null/undefined → null
+ *   - strings (already JSON) → unchanged
+ *   - everything else → JSON.stringify(value)
+ */
+function jsonbToText(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Inverse of jsonbToText: parse a SQLite TEXT value into a JS value before
+ * sending to Supabase, so the JSONB column receives a real object/array
+ * (not a stringified blob). Returns null for null/empty/invalid input.
+ */
+function textToJsonb(value: string | null): unknown {
+  if (value == null) return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
 export function fireAndForgetSync(): void {
   syncToSupabase().catch(() => {});
 }
@@ -179,6 +207,10 @@ export async function syncToSupabase(): Promise<void> {
         // and may have been deleted by create_upcoming_workout before this sync runs,
         // which would cause an FK constraint violation on insert.
         upcoming_workout_id: null,
+        // JSONB columns must be sent as JS values, not stringified text, so
+        // Supabase stores structured data (not a quoted blob).
+        exercise_coach_notes: textToJsonb(w.exercise_coach_notes),
+        planned_exercise_ids: textToJsonb(w.planned_exercise_ids),
       }));
       const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
       if (error) { handleSyncError('workouts', error); workoutsOk = false; }
@@ -518,7 +550,7 @@ export async function pullWorkoutHistory(): Promise<void> {
            started_at=excluded.started_at, finished_at=excluded.finished_at,
            coach_notes=excluded.coach_notes, exercise_coach_notes=excluded.exercise_coach_notes, session_notes=excluded.session_notes,
            planned_exercise_ids=excluded.planned_exercise_ids`,
-        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, w.exercise_coach_notes, w.session_notes, w.planned_exercise_ids ?? null,
+        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, jsonbToText(w.exercise_coach_notes), w.session_notes, jsonbToText(w.planned_exercise_ids),
       );
     }
 
