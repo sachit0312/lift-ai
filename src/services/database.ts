@@ -731,7 +731,7 @@ export function updateTemplateExerciseOrder(templateId: string, orderedIds: stri
         const chunk = orderedIds.slice(start, start + MAX_PER_CHUNK);
         const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
         const placeholders = chunk.map(() => '?').join(',');
-        const binds: unknown[] = [];
+        const binds: (string | number)[] = [];
         for (let i = 0; i < chunk.length; i++) {
           binds.push(chunk[i], start + i);
         }
@@ -912,7 +912,7 @@ export function stampExerciseOrder(workoutId: string, entries: Array<{ id: strin
         const chunk = entries.slice(i, i + MAX_PER_CHUNK);
         const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
         const placeholders = chunk.map(() => '?').join(',');
-        const binds: unknown[] = [];
+        const binds: (string | number)[] = [];
         for (const { id, order } of chunk) {
           binds.push(id, order);
         }
