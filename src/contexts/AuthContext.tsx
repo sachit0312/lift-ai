@@ -40,7 +40,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (__DEV__) console.error('Failed to get session:', error);
       })
       .finally(() => {
-        setAuthPhase('ready');
+        // Only transition out of 'initializing'. If onAuthStateChange already
+        // moved us to 'syncing' (SIGNED_IN with new user), don't stomp it back
+        // to 'ready' while the sync is still in flight.
+        setAuthPhase(prev => prev === 'initializing' ? 'ready' : prev);
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(

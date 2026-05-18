@@ -23,7 +23,8 @@ describe('Batch 7 Task 4: AuthContext authPhase enum', () => {
       path.join(__dirname, '../../navigation/RootNavigator.tsx'),
       'utf8',
     );
-    expect(src).toMatch(/authPhase/);
+    // Specifically verify the branching predicate uses authPhase !== 'ready'
+    expect(src).toMatch(/authPhase\s*!==\s*['"]ready['"]/);
     // The old `loading || syncing` predicate should be gone
     expect(src).not.toMatch(/loading\s*\|\|\s*syncing/);
     expect(src).not.toMatch(/syncing\s*\|\|\s*loading/);

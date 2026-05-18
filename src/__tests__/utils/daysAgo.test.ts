@@ -46,4 +46,37 @@ describe('Batch 7 Task 3: daysAgo', () => {
       global.Date = realDate;
     }
   });
+
+  it('returns 1 across a DST spring-forward boundary (where naive ms math would give 0)', () => {
+    // US spring forward 2026: 2am Sunday March 8 → 3am.
+    // Pick midnight March 9 as "now" and 11pm March 8 as "yesterday at 11pm" — local time.
+    // Naive ms math: (March 9 00:00 local - March 8 23:00 local) in UTC = 0 hours
+    // because the clock skipped 2-3am. Calendar math = 1 day.
+    const realDate = Date;
+    const fakeNow = new realDate(2026, 2, 9, 0, 0, 0); // Mar 9 00:00 local
+    const inputDate = new realDate(2026, 2, 8, 23, 0, 0); // Mar 8 23:00 local
+
+    global.Date = class extends realDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) {
+          super(fakeNow);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          super(...(args as [any]));
+        }
+      }
+      static now() { return fakeNow.getTime(); }
+    } as DateConstructor;
+
+    try {
+      expect(daysAgo(inputDate.toISOString())).toBe(1);
+    } finally {
+      global.Date = realDate;
+    }
+  });
+
+  it('clamps future timestamps to 0 (does not return a negative number)', () => {
+    const future = new Date(Date.now() + 86400000 * 2); // 2 days in the future
+    expect(daysAgo(future.toISOString())).toBe(0);
+  });
 });
