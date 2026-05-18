@@ -41,6 +41,11 @@ export default function TemplateDetailScreen() {
   // not a closure-captured snapshot from a previous render.
   const exercisesRef = useRef<TemplateExercise[]>([]);
   exercisesRef.current = exercises;
+  // Tracks template_exercise IDs currently writing to SQLite. A rapid double-tap
+  // on +/- buttons would otherwise issue two writes that race against each
+  // other's loadExercises; the second can resolve before the first commits
+  // and clobber the UI with stale row data.
+  const stepperInFlightRef = useRef<Set<string>>(new Set());
   const [templateName, setTemplateName] = useState(route.params.templateName);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnce = useRef(false);
@@ -98,9 +103,12 @@ export default function TemplateDetailScreen() {
         const current = getCurrent(item);
         const newValue = computeNew(current);
         if (newValue === current) return;
+        if (stepperInFlightRef.current.has(item.id)) return; // drop concurrent tap for same row
+        stepperInFlightRef.current.add(item.id);
         updateTemplateExerciseDefaults(item.id, { [field]: newValue })
           .then(() => { fireAndForgetSync(); return loadExercises(); })
-          .catch((e) => { if (__DEV__) console.error(`Failed to update ${field}`, e); Sentry.captureException(e); });
+          .catch((e) => { if (__DEV__) console.error(`Failed to update ${field}`, e); Sentry.captureException(e); })
+          .finally(() => { stepperInFlightRef.current.delete(item.id); });
       },
     [loadExercises],
   );
