@@ -451,8 +451,18 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // Migration: rename workouts.notes → session_notes for clarity
   await database.runAsync('ALTER TABLE workouts RENAME COLUMN notes TO session_notes').catch(() => {});
 
-  // Migration: null out RPE on failure sets (failure = implicit RPE 10, no need to store it)
-  await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
+  // Migration: null out RPE on failure sets (failure = implicit RPE 10, no need to store it).
+  // Cheap pre-check avoids a full-table UPDATE on every cold start once the migration
+  // has effectively converged. .catch swallows transient errors so initSchema never
+  // crashes the app on boot — matches the pattern used by every other ALTER above.
+  try {
+    const stale = await database.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM workout_sets WHERE tag = 'failure' AND rpe IS NOT NULL LIMIT 1"
+    );
+    if ((stale?.count ?? 0) > 0) {
+      await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
+    }
+  } catch {}
 
   // Migration: add form_notes and machine_notes to exercises (pre-user_exercise_notes era; later moved to user_exercise_notes table)
   await database.runAsync('ALTER TABLE exercises ADD COLUMN form_notes TEXT').catch(() => {});
