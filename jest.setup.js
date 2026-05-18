@@ -1,3 +1,13 @@
+// React 18+ Suspense fires error events via window.dispatchEvent in dev mode.
+// jest-expo doesn't set window in node env — stub it so Suspense fallbacks don't
+// crash test renderer. Only needed for tests that traverse lazy boundaries.
+if (typeof global.window === 'undefined') {
+  global.window = global;
+}
+if (typeof global.window.dispatchEvent !== 'function') {
+  global.window.dispatchEvent = () => true;
+}
+
 // Shared mock for @expo/vector-icons
 jest.mock('@expo/vector-icons', () => {
   const React = require('react');
