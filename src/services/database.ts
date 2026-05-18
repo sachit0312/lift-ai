@@ -118,6 +118,11 @@ interface ExerciseHistoryJoinRow {
   s_rpe: number | null;
   s_is_completed: number;
   s_notes: string | null;
+  s_target_weight: number | null;
+  s_target_reps: number | null;
+  s_target_rpe: number | null;
+  s_exercise_order: number;
+  s_programmed_order: number | null;
 }
 
 /** Row for PR calculation queries — exercise_id, weight, reps, rpe */
@@ -986,7 +991,9 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
          w.coach_notes as w_coach_notes, w.exercise_coach_notes as w_exercise_coach_notes, w.session_notes as w_session_notes,
          ws.id as s_id, ws.workout_id as s_workout_id, ws.exercise_id as s_exercise_id,
          ws.set_number as s_set_number, ws.reps as s_reps, ws.weight as s_weight,
-         ws.tag as s_tag, ws.rpe as s_rpe, ws.is_completed as s_is_completed, ws.notes as s_notes
+         ws.tag as s_tag, ws.rpe as s_rpe, ws.is_completed as s_is_completed, ws.notes as s_notes,
+         ws.target_weight as s_target_weight, ws.target_reps as s_target_reps, ws.target_rpe as s_target_rpe,
+         ws.exercise_order as s_exercise_order, ws.programmed_order as s_programmed_order
        FROM workouts w
        INNER JOIN workout_sets ws ON ws.workout_id = w.id
        WHERE w.id IN (${placeholders}) AND ws.exercise_id = ?
@@ -1027,11 +1034,11 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
         rpe: r.s_rpe,
         is_completed: r.s_is_completed,
         notes: r.s_notes,
-        target_weight: null,
-        target_reps: null,
-        target_rpe: null,
-        exercise_order: 0,
-        programmed_order: null,
+        target_weight: r.s_target_weight ?? null,
+        target_reps: r.s_target_reps ?? null,
+        target_rpe: r.s_target_rpe ?? null,
+        exercise_order: r.s_exercise_order ?? 0,
+        programmed_order: r.s_programmed_order ?? null,
       }));
     }
 
