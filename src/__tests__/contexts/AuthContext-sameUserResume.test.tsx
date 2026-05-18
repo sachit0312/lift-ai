@@ -6,6 +6,7 @@
  * Sourced from the original Batch 1-bash review (test gap #5).
  */
 import React from 'react';
+import { Text } from 'react-native';
 import { render, act } from '@testing-library/react-native';
 import { AuthProvider, useAuth } from '../../contexts/AuthContext';
 
@@ -47,8 +48,8 @@ const mockPullWorkoutHistory = pullWorkoutHistory as jest.Mock;
 const mockPullUpcomingWorkout = pullUpcomingWorkout as jest.Mock;
 
 function AuthConsumer() {
-  useAuth();
-  return null;
+  const { authPhase } = useAuth();
+  return <Text testID="authPhase">{authPhase}</Text>;
 }
 
 describe('AuthContext: SIGNED_IN with same user ID', () => {
@@ -62,26 +63,41 @@ describe('AuthContext: SIGNED_IN with same user ID', () => {
   });
 
   it('does NOT call resetDatabase when SIGNED_IN fires for the existing user', async () => {
-    render(<AuthProvider><AuthConsumer /></AuthProvider>);
+    const { getByTestId } = render(<AuthProvider><AuthConsumer /></AuthProvider>);
 
     // Wait for initial getSession + INITIAL_SESSION to settle
     await act(async () => { await Promise.resolve(); });
 
     expect(authStateCallback).not.toBeNull();
 
+    // After initial settle, before any SIGNED_IN, authPhase should be 'ready'
+    expect(getByTestId('authPhase').props.children).toBe('ready');
+
     // Initial SIGNED_IN with user-A (sets previousUserIdRef to user-A)
     await act(async () => {
       authStateCallback!('SIGNED_IN', { user: { id: 'user-A' } });
     });
+    // Wait for any pending sync to settle
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
     const firstResetCount = mockResetDatabase.mock.calls.length;
+    const firstPullExercisesCount = mockPullExercisesAndTemplates.mock.calls.length;
+    const firstPullWorkoutCount = mockPullWorkoutHistory.mock.calls.length;
+    const firstPullUpcomingCount = mockPullUpcomingWorkout.mock.calls.length;
 
     // Re-emit SIGNED_IN with SAME user-A — guard must skip resetDatabase + pulls
     await act(async () => {
       authStateCallback!('SIGNED_IN', { user: { id: 'user-A' } });
     });
+    await act(async () => { await Promise.resolve(); });
+
+    // authPhase stays 'ready' — no transient 'syncing' flash
+    expect(getByTestId('authPhase').props.children).toBe('ready');
 
     expect(mockResetDatabase.mock.calls.length).toBe(firstResetCount);
+    expect(mockPullExercisesAndTemplates.mock.calls.length).toBe(firstPullExercisesCount);
+    expect(mockPullWorkoutHistory.mock.calls.length).toBe(firstPullWorkoutCount);
+    expect(mockPullUpcomingWorkout.mock.calls.length).toBe(firstPullUpcomingCount);
     // setCurrentUserId is still called unconditionally on every auth event (per CLAUDE.md)
     expect(mockSetCurrentUserId).toHaveBeenCalledWith('user-A');
   });
@@ -101,6 +117,6 @@ describe('AuthContext: SIGNED_IN with same user ID', () => {
       authStateCallback!('SIGNED_IN', { user: { id: 'user-B' } });
     });
 
-    expect(mockResetDatabase.mock.calls.length).toBeGreaterThan(resetsAfterA);
+    expect(mockResetDatabase.mock.calls.length).toBe(resetsAfterA + 1);
   });
 });

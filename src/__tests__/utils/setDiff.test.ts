@@ -153,6 +153,17 @@ describe('computeOrderDiff', () => {
     // template has [a, b], workout only has [a]
     expect(computeOrderDiff(blocks, ['a', 'b'])).toBeNull();
   });
+
+  it('handles a duplicate exercise in the workout (dedup currentOrder by first-seen)', () => {
+    // Workout has exercise 'a' twice (mid-workout addition); template has [a, b]
+    const blocks = [
+      makeBlock({ exerciseId: 'a', warmupCount: 0, workingCount: 1 }),
+      makeBlock({ exerciseId: 'a', warmupCount: 0, workingCount: 1 }), // duplicate
+      makeBlock({ exerciseId: 'b', warmupCount: 0, workingCount: 1 }),
+    ];
+    // computeOrderDiff dedups currentOrder; should still see [a, b] order matches template — null
+    expect(computeOrderDiff(blocks, ['a', 'b'])).toBeNull();
+  });
 });
 
 describe('buildTemplateUpdatePlan', () => {
@@ -199,6 +210,21 @@ describe('buildTemplateUpdatePlan', () => {
     expect(plan).not.toBeNull();
     expect(plan!.setChanges).toEqual([]);
     expect(plan!.reorderedTemplateExerciseIds).toEqual(['te-b', 'te-a']);
+  });
+
+  it('reports warmup_sets change when only warmup count differs (working unchanged)', () => {
+    const blocks = [
+      makeBlock({
+        exerciseId: 'a', warmupCount: 2, workingCount: 3,
+        originalWarmupSets: 1, originalWorkingSets: 3,
+      }),
+    ];
+    const tes = [makeTE('a', 'te-a')];
+    const plan = buildTemplateUpdatePlan('t1', blocks, tes);
+    expect(plan).not.toBeNull();
+    expect(plan!.setChanges).toEqual([
+      { templateExerciseId: 'te-a', sets: undefined, warmup_sets: 2 },
+    ]);
   });
 
   it('reports both set count + order when both changed', () => {

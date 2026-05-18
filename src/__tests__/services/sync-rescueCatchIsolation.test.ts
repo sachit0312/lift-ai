@@ -53,13 +53,15 @@ describe('Batch 8: sync rescue catch isolation', () => {
     // Push-side reads return empty arrays — function still progresses past the rescue block.
     __mockDb.getAllAsync.mockResolvedValue([]);
 
+    const getAllAsyncCallsBefore = __mockDb.getAllAsync.mock.calls.length;
     await syncToSupabase();
+    const getAllAsyncCallsAfter = __mockDb.getAllAsync.mock.calls.length;
 
     // Sentry should have captured the rescue error
     expect(Sentry.captureException).toHaveBeenCalled();
 
-    // Downstream pushes proceeded — getAllAsync was called for at least one push read
-    expect(__mockDb.getAllAsync).toHaveBeenCalled();
+    // Push-side reads (custom exercises, notes, templates, template_exercises, workouts) should have fired
+    expect(getAllAsyncCallsAfter - getAllAsyncCallsBefore).toBeGreaterThanOrEqual(5);
   });
 
   it('happy-path rescue does not log to Sentry', async () => {

@@ -34,6 +34,12 @@ describe('getCurrentE1RM freshness decay', () => {
     __mockDb.getFirstAsync.mockResolvedValue(null);
   });
 
+  it('sanity: calculateEstimated1RM mock is intercepted by the database module', () => {
+    const { calculateEstimated1RM } = require('../../utils/oneRepMax');
+    // Mock formula: w * (1 + r/30) → 100 * (1 + 5/30) = 116.6...
+    expect(calculateEstimated1RM(100, 5)).toBeCloseTo(100 * (1 + 5/30), 2);
+  });
+
   it('returns null when no completed sets', async () => {
     __mockDb.getAllAsync.mockResolvedValueOnce([]);
     expect(await getCurrentE1RM('ex1')).toBeNull();

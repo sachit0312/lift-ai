@@ -72,7 +72,10 @@ describe('calculateE1RM', () => {
     it('uses ensemble formulas when RPE is null/undefined', () => {
       const r = calculateE1RM(200, 5);
       expect(r.method).toBe('ensemble');
-      expect(r.value).toBeGreaterThan(200); // any positive-rep 1RM exceeds load
+      // Ensemble for 200×5 with no RPE: brzycki(200,5)=225, epley(200,5)≈233.3, wathen(200,5)≈232.7.
+      // Weighted (0.50/0.20/0.30 for reps≤5): ≈ 225*0.50 + 233.3*0.20 + 232.7*0.30 ≈ 228.97
+      expect(r.value).toBeGreaterThan(220);
+      expect(r.value).toBeLessThan(240);
     });
 
     it('reps=1 without RPE is HIGH confidence (near-max single)', () => {
