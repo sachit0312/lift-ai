@@ -1379,36 +1379,6 @@ export function getCurrentE1RM(exerciseId: string): Promise<number | null> {
   });
 }
 
-/**
- * Get the best estimated 1RM with confidence metadata for an exercise.
- * Returns the highest e1RM result with its confidence tier and margin.
- */
-export function getE1RMWithConfidence(exerciseId: string): Promise<E1RMResult | null> {
-  return withDb('getE1RMWithConfidence', async (database) => {
-    const rows = await database.getAllAsync<PRSetRow>(
-      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe
-       FROM workout_sets ws
-       JOIN workouts w ON ws.workout_id = w.id
-       WHERE w.finished_at IS NOT NULL
-         AND ws.exercise_id = ?
-         AND ws.is_completed = 1
-         AND ws.weight IS NOT NULL AND ws.weight > 0
-         AND ws.reps IS NOT NULL AND ws.reps > 0`,
-      exerciseId,
-    );
-    if (rows.length === 0) return null;
-
-    let bestResult: E1RMResult | null = null;
-    for (const r of rows) {
-      const result = calculateE1RM(r.weight, r.reps, r.rpe);
-      if (!bestResult || result.value > bestResult.value) {
-        bestResult = result;
-      }
-    }
-    return bestResult && bestResult.value > 0 ? bestResult : null;
-  });
-}
-
 // ─── Combined 1RM summary (single-scan) ───
 
 export interface E1RMSummary {
@@ -1429,9 +1399,9 @@ export interface E1RMSummary {
  * are independent maxima — best/current/confidence may originate from different
  * rows because each uses a different scoring formula.
  *
- * The pre-existing single-purpose functions (getBestE1RM, getCurrentE1RM,
- * getE1RMWithConfidence) remain exported for callers that need only one value
- * (e.g., PR detection in useWorkoutLifecycle / useSetCompletion).
+ * The pre-existing single-purpose functions (getBestE1RM, getCurrentE1RM)
+ * remain exported for callers that need only one value (e.g., PR detection
+ * in useWorkoutLifecycle / useSetCompletion).
  */
 export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> {
   return withDb('getE1RMSummary', async (database) => {

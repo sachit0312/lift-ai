@@ -27,7 +27,6 @@ import {
   getLastPerformedByTemplate,
   getBestE1RM,
   getCurrentE1RM,
-  getE1RMWithConfidence,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
   upsertExerciseNote,
@@ -500,42 +499,6 @@ describe('getCurrentE1RM', () => {
     expect(result).not.toBeNull();
     // 200 / 0.863 ≈ 231.75, decay ≈ 1.0 for today → ~231.75
     expect(result).toBeGreaterThan(225);
-  });
-});
-
-describe('getE1RMWithConfidence', () => {
-  it('returns null when no completed sets exist', async () => {
-    __mockDb.getAllAsync.mockResolvedValueOnce([]);
-
-    const result = await getE1RMWithConfidence('ex-1');
-    expect(result).toBeNull();
-  });
-
-  it('returns E1RMResult with confidence tier for best set', async () => {
-    __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8 },
-    ]);
-
-    const result = await getE1RMWithConfidence('ex-1');
-    expect(result).not.toBeNull();
-    expect(result!.confidence).toBe('high');
-    expect(result!.method).toBe('rpe_table');
-    expect(result!.value).toBeGreaterThan(200);
-  });
-
-  it('selects highest absolute e1RM across multiple sets', async () => {
-    // Set 1: 200x3 @ RPE 8 → 200 / 0.863 ≈ 231.75 (high confidence)
-    // Set 2: 100x12 no RPE → ensemble ~140 (low confidence)
-    __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8 },
-      { exercise_id: 'ex-1', weight: 100, reps: 12, rpe: null },
-    ]);
-
-    const result = await getE1RMWithConfidence('ex-1');
-    expect(result).not.toBeNull();
-    // The 200x3 set should win on raw value
-    expect(result!.value).toBeGreaterThan(225);
-    expect(result!.confidence).toBe('high');
   });
 });
 
