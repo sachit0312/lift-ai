@@ -23,6 +23,10 @@ describe('Batch 5 Task 4: first-ever PRs count', () => {
     getAllAsync.mockReset();
     __mockDb.getFirstAsync.mockReset();
     __mockDb.getFirstAsync.mockResolvedValue(null);
+    // Defensive: restore baseline implementations so a future test failure
+    // can't poison the shared dbInitPromise singleton.
+    __mockDb.execAsync.mockResolvedValue(undefined);
+    __mockDb.runAsync.mockResolvedValue({ changes: 0 } as any);
   });
 
   it('counts a brand-new exercise as a PR (no prior history)', async () => {

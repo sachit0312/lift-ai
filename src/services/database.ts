@@ -121,7 +121,7 @@ interface ExerciseHistoryJoinRow {
   s_target_weight: number | null;
   s_target_reps: number | null;
   s_target_rpe: number | null;
-  s_exercise_order: number;
+  s_exercise_order: number | null;
   s_programmed_order: number | null;
 }
 
@@ -456,10 +456,12 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // has effectively converged. .catch swallows transient errors so initSchema never
   // crashes the app on boot — matches the pattern used by every other ALTER above.
   try {
-    const stale = await database.getFirstAsync<{ count: number }>(
-      "SELECT COUNT(*) as count FROM workout_sets WHERE tag = 'failure' AND rpe IS NOT NULL LIMIT 1"
+    // EXISTS-style short-circuit: returns the first matching row (or null) and stops scanning.
+    // COUNT(*) aggregates the entire matching set first, defeating the purpose of the guard.
+    const stale = await database.getFirstAsync<{ one: number }>(
+      "SELECT 1 as one FROM workout_sets WHERE tag = 'failure' AND rpe IS NOT NULL LIMIT 1"
     );
-    if ((stale?.count ?? 0) > 0) {
+    if (stale !== null && stale !== undefined) {
       await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
     }
   } catch {}
@@ -1115,22 +1117,29 @@ export function getPRsThisWeek(): Promise<number> {
       }
     }
 
-    // Calculate week best for each exercise and count PRs
+    // Pre-group week sets by exercise_id (single pass) so the per-exercise PR
+    // check below doesn't re-filter the full weekSets array E times.
+    const weekSetsByExercise = new Map<string, PRSetRow[]>();
+    for (const s of weekSets) {
+      const bucket = weekSetsByExercise.get(s.exercise_id);
+      if (bucket) bucket.push(s);
+      else weekSetsByExercise.set(s.exercise_id, [s]);
+    }
+
     let prCount = 0;
     for (const exId of exerciseIds) {
-      const weekBest = weekSets
-        .filter((s: PRSetRow) => s.exercise_id === exId)
-        .reduce((max: number, s: PRSetRow) => {
-          const e1rm = calculateEstimated1RM(s.weight, s.reps, s.rpe);
-          return e1rm > max ? e1rm : max;
-        }, 0);
+      const weekSetsForEx = weekSetsByExercise.get(exId) ?? [];
+      let weekBest = 0;
+      for (const s of weekSetsForEx) {
+        const e1rm = calculateEstimated1RM(s.weight, s.reps, s.rpe);
+        if (e1rm > weekBest) weekBest = e1rm;
+      }
 
       const priorBest = priorBestByExercise.get(exId) ?? 0;
 
       // weekBest is always > 0 here because the SELECT filters on weight + reps
       // being non-null and is_completed = 1. priorBest = 0 means the user has
-      // no prior history for this exercise — that first-ever lift IS a PR (matches
-      // WorkoutScreen's PR badge logic).
+      // no prior history for this exercise — that first-ever lift IS a PR.
       if (weekBest > priorBest) {
         prCount++;
       }

@@ -23,6 +23,10 @@ describe('Batch 5 Task 1: buildUpcomingExercises batched fetch', () => {
     // Also reset getFirstAsync since initSchema may invoke it.
     __mockDb.getFirstAsync.mockReset();
     __mockDb.getFirstAsync.mockResolvedValue(null);
+    // Defensive: restore baseline implementations so a future test failure
+    // can't poison the shared dbInitPromise singleton.
+    __mockDb.execAsync.mockResolvedValue(undefined);
+    __mockDb.runAsync.mockResolvedValue({ changes: 0 } as any);
   });
 
   it('issues exactly ONE upcoming_workout_sets query for N upcoming exercises', async () => {
@@ -31,7 +35,7 @@ describe('Batch 5 Task 1: buildUpcomingExercises batched fetch', () => {
     // 3rd call: SHOULD BE a single IN query, NOT N separate queries
     const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
     getAllAsync
-      .mockResolvedValueOnce([{ id: 'uw1', date: today, name: 'Today', notes: null, template_id: null, created_at: 't' }]) // upcoming_workouts
+      .mockResolvedValueOnce([{ id: 'uw1', date: today, notes: null, template_id: null, created_at: 't' }]) // upcoming_workouts
       .mockResolvedValueOnce([
         { id: 'ue1', upcoming_workout_id: 'uw1', exercise_id: 'ex1', sort_order: 0, rest_seconds: 90, notes: null, e_id: 'ex1', e_user_id: null, e_name: 'A', e_type: 'weighted', e_muscle_groups: '[]', e_training_goal: 'hypertrophy', e_description: '', e_created_at: 't' },
         { id: 'ue2', upcoming_workout_id: 'uw1', exercise_id: 'ex2', sort_order: 1, rest_seconds: 90, notes: null, e_id: 'ex2', e_user_id: null, e_name: 'B', e_type: 'weighted', e_muscle_groups: '[]', e_training_goal: 'hypertrophy', e_description: '', e_created_at: 't' },
@@ -56,7 +60,7 @@ describe('Batch 5 Task 1: buildUpcomingExercises batched fetch', () => {
   it('groups returned sets back to their parent exercise correctly', async () => {
     const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
     getAllAsync
-      .mockResolvedValueOnce([{ id: 'uw1', date: today, name: 'Today', notes: null, template_id: null, created_at: 't' }])
+      .mockResolvedValueOnce([{ id: 'uw1', date: today, notes: null, template_id: null, created_at: 't' }])
       .mockResolvedValueOnce([
         { id: 'ue1', upcoming_workout_id: 'uw1', exercise_id: 'ex1', sort_order: 0, rest_seconds: 90, notes: null, e_id: 'ex1', e_user_id: null, e_name: 'A', e_type: 'weighted', e_muscle_groups: '[]', e_training_goal: 'hypertrophy', e_description: '', e_created_at: 't' },
         { id: 'ue2', upcoming_workout_id: 'uw1', exercise_id: 'ex2', sort_order: 1, rest_seconds: 90, notes: null, e_id: 'ex2', e_user_id: null, e_name: 'B', e_type: 'weighted', e_muscle_groups: '[]', e_training_goal: 'hypertrophy', e_description: '', e_created_at: 't' },
@@ -72,5 +76,22 @@ describe('Batch 5 Task 1: buildUpcomingExercises batched fetch', () => {
     expect(result!.exercises[0].sets).toHaveLength(2); // ue1
     expect(result!.exercises[1].sets).toHaveLength(1); // ue2
     expect(result!.exercises[0].sets.map((s: { set_number: number }) => s.set_number)).toEqual([1, 2]); // sorted within group
+  });
+
+  it('returns empty array when the upcoming workout has zero exercises (avoids empty IN clause)', async () => {
+    const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    getAllAsync
+      .mockResolvedValueOnce([{ id: 'uw1', date: today, notes: null, template_id: null, created_at: 't' }])
+      .mockResolvedValueOnce([]); // zero exercises
+
+    const result = await getUpcomingWorkoutForToday();
+
+    expect(result).not.toBeNull();
+    expect(result!.exercises).toEqual([]);
+    // Crucially: NO third call for upcoming_workout_sets — the early return prevents the empty IN().
+    const setsCalls = getAllAsync.mock.calls.filter((call: unknown[]) =>
+      typeof call[0] === 'string' && /upcoming_workout_sets/i.test(call[0] as string),
+    );
+    expect(setsCalls.length).toBe(0);
   });
 });

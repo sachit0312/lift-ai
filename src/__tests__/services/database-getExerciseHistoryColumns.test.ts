@@ -20,6 +20,10 @@ describe('Batch 5 Task 2: getExerciseHistory surfaces all columns', () => {
     getAllAsync.mockReset();
     __mockDb.getFirstAsync.mockReset();
     __mockDb.getFirstAsync.mockResolvedValue(null);
+    // Defensive: restore baseline implementations so a future test failure
+    // can't poison the shared dbInitPromise singleton.
+    __mockDb.execAsync.mockResolvedValue(undefined);
+    __mockDb.runAsync.mockResolvedValue({ changes: 0 } as any);
   });
 
   it('returns exercise_order, programmed_order, and target_* from the underlying row', async () => {
@@ -60,7 +64,10 @@ describe('Batch 5 Task 2: getExerciseHistory surfaces all columns', () => {
       'utf8',
     );
     // Locate the getExerciseHistory body and check the JOIN SELECT
-    const fnMatch = src.match(/export function getExerciseHistory[\s\S]*?(?=export function|\Z)/);
+    // (?=export function) — getExerciseHistory is followed by another export.
+    // If it ever becomes last in file, the lookahead never matches and the lazy
+    // match would extend; switch the regex to greedy or anchor at $.
+    const fnMatch = src.match(/export function getExerciseHistory[\s\S]*?(?=export function)/);
     expect(fnMatch).not.toBeNull();
     const fnBody = fnMatch![0];
     expect(fnBody).toMatch(/ws\.exercise_order\s+as\s+s_exercise_order/);
