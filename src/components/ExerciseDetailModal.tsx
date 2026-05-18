@@ -7,6 +7,7 @@ import {
   ScrollView,
   TextInput,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
@@ -225,7 +226,11 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
 
           {/* History tab — always mounted to avoid re-fetch on tab switch */}
           <View style={activeTab !== 'history' ? styles.hiddenTab : styles.visibleTab}>
-            <Suspense fallback={null}>
+            <Suspense fallback={
+              <View style={styles.historyFallback}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            }>
               <ExerciseHistoryContent exercise={exercise} />
             </Suspense>
           </View>
@@ -384,5 +389,9 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     borderWidth: 1,
     borderColor: colors.borderSubtle,
+  },
+  historyFallback: {
+    paddingVertical: spacing.xl,
+    alignItems: 'center',
   },
 });

@@ -125,6 +125,13 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
         // Single-scan summary returns best + current + confidence in one JOIN.
         // Only `current` is consumed here, but the function is reusable for callers
         // that need the full triple (PR detection paths still use the separate fns).
+        //
+        // `summary.best` is intentionally NOT used as prValue here — the chart-window
+        // JS calc overrides RPE to 10 for `failure`-tagged sets (line 76 above),
+        // whereas the DB-side calculateEstimated1RM reads rpe directly (NULL for
+        // failure rows per migration). The values can diverge for users with
+        // failure-tagged history; keep the JS-derived prValue authoritative for
+        // the chart-aligned banner.
         const summary = await getE1RMSummary(exercise.id);
         if (summary && summary.current != null) currentE1rm = Math.round(summary.current);
       }

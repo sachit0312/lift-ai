@@ -43,9 +43,13 @@ describe('Batch 6 Task 4: getE1RMSummary single-scan', () => {
 
     const result = await getE1RMSummary('ex-bench');
     expect(result).not.toBeNull();
-    expect(result!.best).toBeGreaterThan(0);
+    // Mock: calculateEstimated1RM = w * (1 + r/30)
+    // Set 1 (200×5): 200 * (1 + 5/30) ≈ 233.33
+    // Set 2 (180×8): 180 * (1 + 8/30) = 228
+    expect(result!.best).toBeCloseTo(200 * (1 + 5 / 30), 1);
     expect(result!.current).toBeGreaterThan(0);
-    expect(result!.confidence).not.toBeNull();
+    expect(result!.confidenceResult.confidence).toBe('HIGH');
+    expect(result!.confidenceResult.value).toBeCloseTo(200 * (1 + 5 / 30), 1);
     expect(__mockDb.getAllAsync).toHaveBeenCalledTimes(1);
   });
 

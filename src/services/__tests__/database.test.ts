@@ -376,7 +376,7 @@ describe('stampExerciseOrder', () => {
     expect(__mockDb.runAsync).toHaveBeenCalledTimes(1);
     const call = __mockDb.runAsync.mock.calls[0];
     expect(call[0]).toMatch(/UPDATE workout_sets SET exercise_order = CASE id/i);
-    expect(call.slice(1)).toEqual(['set-1', 1, 'set-2', 2, 'set-1', 'set-2']);
+    expect(call.slice(1)).toEqual(['set-1', 1, 'set-2', 2, 'set-1', 'set-2', 'w1']);
   });
 });
 
@@ -418,24 +418,16 @@ describe('applyWorkoutChangesToTemplate', () => {
 
     await applyWorkoutChangesToTemplate(plan);
 
-    // Filter for sort_order UPDATE calls
+    // Filter for sort_order UPDATE calls — now a single batched CASE WHEN
     const sortCalls = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('SET sort_order')
     );
-    expect(sortCalls).toHaveLength(3);
-
-    // Final order: te-2 (0), te-1 (1), te-3 (2) — reordered first, remainder appended
-    expect(sortCalls[0]).toEqual([
-      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-      0, 'te-2', 't1',
-    ]);
-    expect(sortCalls[1]).toEqual([
-      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-      1, 'te-1', 't1',
-    ]);
-    expect(sortCalls[2]).toEqual([
-      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-      2, 'te-3', 't1',
+    expect(sortCalls).toHaveLength(1);
+    expect(sortCalls[0][0]).toMatch(/CASE\s+id\s+WHEN/i);
+    // Final order: te-2 (0), te-1 (1), te-3 (2) — reordered first, remainder appended.
+    // Bind layout: [whenId, thenIdx, whenId, thenIdx, whenId, thenIdx, inId, inId, inId, templateId]
+    expect(sortCalls[0].slice(1)).toEqual([
+      'te-2', 0, 'te-1', 1, 'te-3', 2, 'te-2', 'te-1', 'te-3', 't1',
     ]);
   });
 
@@ -462,11 +454,12 @@ describe('applyWorkoutChangesToTemplate', () => {
     );
     expect(setUpdateCall).toBeDefined();
 
-    // Sort order UPDATEs
+    // Sort order UPDATEs — single batched CASE WHEN
     const sortCalls = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('SET sort_order')
     );
-    expect(sortCalls).toHaveLength(2);
+    expect(sortCalls).toHaveLength(1);
+    expect(sortCalls[0][0]).toMatch(/CASE\s+id\s+WHEN/i);
   });
 });
 

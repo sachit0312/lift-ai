@@ -45,7 +45,17 @@ describe('Batch 6 Task 5: stampExerciseOrder batched UPDATE', () => {
       typeof c[0] === 'string' && /UPDATE workout_sets SET exercise_order/i.test(c[0] as string),
     );
     expect(call).toBeDefined();
-    // SQL is param 0; the rest are binds. For 2 entries: 2 (CASE WHEN ?) + 2 (THEN ?) + 2 (IN (?, ?)).
-    expect(call!.slice(1)).toEqual(['s1', 1, 's2', 2, 's1', 's2']);
+    // SQL is param 0; the rest are binds. For 2 entries: 2 (CASE WHEN ?) + 2 (THEN ?) + 2 (IN (?, ?)) + trailing workoutId.
+    expect(call!.slice(1)).toEqual(['s1', 1, 's2', 2, 's1', 's2', 'w1']);
+  });
+
+  it('chunks input at MAX_PER_CHUNK = 300 (301 entries → 2 calls)', async () => {
+    const entries = Array.from({ length: 301 }, (_, i) => ({ id: `s${i}`, order: i + 1 }));
+    await stampExerciseOrder('w1', entries);
+
+    const updateCalls = __mockDb.runAsync.mock.calls.filter((call: unknown[]) =>
+      typeof call[0] === 'string' && /UPDATE workout_sets SET exercise_order/i.test(call[0] as string),
+    );
+    expect(updateCalls.length).toBe(2);
   });
 });

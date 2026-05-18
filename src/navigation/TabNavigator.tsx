@@ -38,13 +38,17 @@ const fallbackStyles = StyleSheet.create({
 // React Navigation's tab routes mount the component eagerly when the tab is
 // selected; Suspense yields a fallback frame while the chunk parses.
 function lazyTabScreen<P extends object>(Component: React.LazyExoticComponent<React.ComponentType<P>>): React.ComponentType<P> {
-  return function LazyTabScreen(props: P) {
+  const LazyTabScreen = function LazyTabScreen(props: P) {
     return (
       <Suspense fallback={<TabScreenFallback />}>
         <Component {...props} />
       </Suspense>
     );
   };
+  // displayName helps with React DevTools and error boundaries
+  const inner = (Component as { displayName?: string; name?: string }).displayName ?? 'Tab';
+  LazyTabScreen.displayName = `LazyTab(${inner})`;
+  return LazyTabScreen;
 }
 
 const HistoryTab = lazyTabScreen(HistoryScreen);

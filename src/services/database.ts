@@ -919,8 +919,11 @@ export function stampExerciseOrder(workoutId: string, entries: Array<{ id: strin
         for (const { id } of chunk) {
           binds.push(id);
         }
+        // Scope to workoutId as defense in depth — a stray UUID collision
+        // can't update sets from a different workout.
+        binds.push(workoutId);
         await database.runAsync(
-          `UPDATE workout_sets SET exercise_order = CASE id ${whens} END WHERE id IN (${placeholders})`,
+          `UPDATE workout_sets SET exercise_order = CASE id ${whens} END WHERE id IN (${placeholders}) AND workout_id = ?`,
           ...binds,
         );
       }
@@ -1002,11 +1005,26 @@ export function applyWorkoutChangesToTemplate(plan: import('../utils/setDiff').T
         // This is intentional: the user skipped them this session, not permanently.
         const remainder = allRows.map(r => r.id).filter(id => !updatedSet.has(id));
         const finalOrder = [...plan.reorderedTemplateExerciseIds, ...remainder];
-        for (let i = 0; i < finalOrder.length; i++) {
-          await database.runAsync(
-            'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-            i, finalOrder[i], plan.templateId,
-          );
+        if (finalOrder.length > 0) {
+          // Same CASE WHEN pattern as updateTemplateExerciseOrder, inlined here
+          // because we're already inside a transaction (nested withTransactionAsync
+          // is not supported on a single SQLite connection).
+          const MAX_PER_CHUNK = 300;
+          for (let start = 0; start < finalOrder.length; start += MAX_PER_CHUNK) {
+            const chunk = finalOrder.slice(start, start + MAX_PER_CHUNK);
+            const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+            const placeholders = chunk.map(() => '?').join(',');
+            const binds: (string | number)[] = [];
+            for (let i = 0; i < chunk.length; i++) {
+              binds.push(chunk[i], start + i);
+            }
+            for (const id of chunk) binds.push(id);
+            binds.push(plan.templateId);
+            await database.runAsync(
+              `UPDATE template_exercises SET sort_order = CASE id ${whens} END WHERE id IN (${placeholders}) AND template_id = ?`,
+              ...binds,
+            );
+          }
         }
       }
     });
@@ -1399,14 +1417,21 @@ export interface E1RMSummary {
   /** Freshness-weighted estimated 1RM (6-week half-life decay). */
   current: number;
   /** Best e1RM with confidence tier + margin (Tuchscherer / ensemble engine). */
-  confidence: E1RMResult;
+  confidenceResult: E1RMResult;
 }
 
 /**
  * Combined 1RM query: returns best (raw), current (freshness-weighted), and
- * confidence-tier result in ONE JOIN scan. Replaces three separate calls
- * (getBestE1RM + getCurrentE1RM + getE1RMWithConfidence) that ExerciseHistoryContent
- * used to fire back-to-back on every modal open.
+ * confidence-tier result in ONE JOIN scan over workout_sets × workouts.
+ *
+ * Currently replaces ExerciseHistoryContent's single getCurrentE1RM call while
+ * also surfacing best and confidence for future callers. Note: the three values
+ * are independent maxima — best/current/confidence may originate from different
+ * rows because each uses a different scoring formula.
+ *
+ * The pre-existing single-purpose functions (getBestE1RM, getCurrentE1RM,
+ * getE1RMWithConfidence) remain exported for callers that need only one value
+ * (e.g., PR detection in useWorkoutLifecycle / useSetCompletion).
  */
 export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> {
   return withDb('getE1RMSummary', async (database) => {
@@ -1444,7 +1469,7 @@ export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> 
     }
 
     if (best <= 0 || !confidence) return null;
-    return { best, current, confidence };
+    return { best, current, confidenceResult: confidence };
   });
 }
 

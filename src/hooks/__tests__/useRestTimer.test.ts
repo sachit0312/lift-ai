@@ -170,6 +170,7 @@ describe('useRestTimer', () => {
     expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
 
     onRestUpdate.mockClear();
+    const beforeEndTime = result.current.currentEndTime;
 
     // Adjust -30
     act(() => {
@@ -179,6 +180,8 @@ describe('useRestTimer', () => {
     expect(result.current.restTotal).toBe(75); // restTotal never decreases (matches lock screen widget)
     expect(adjustRestTimerActivity).toHaveBeenCalledWith(-30);
     expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
+    // Verify currentEndTime actually moved backward by 30s
+    expect(result.current.currentEndTime).toBe(beforeEndTime - 30000);
   });
 
   it('adjustRestTimer to zero ends rest properly', () => {
