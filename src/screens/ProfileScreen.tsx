@@ -18,6 +18,7 @@ import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyle
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, deleteAccount } from '../services/supabase';
 import { getWorkoutHistory, getPRsThisWeek } from '../services/database';
+import { clearAllLocalData } from '../services/database';
 import { calculateStreak } from '../utils/streakCalculation';
 
 interface Stats {
@@ -116,6 +117,12 @@ export default function ProfileScreen() {
                     try {
                       await deleteAccount();
                       await supabase.auth.signOut();
+                      // Wipe local SQLite so the deleted account's data
+                      // isn't queryable on this device until the next sign-in.
+                      // SIGNED_OUT in AuthContext only resets the userId; it
+                      // does not clear the DB (other sign-outs preserve data
+                      // for the next sign-in).
+                      await clearAllLocalData();
                     } catch (e: unknown) {
                       Alert.alert(
                         'Error',
