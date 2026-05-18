@@ -26,7 +26,9 @@ if (__DEV__) {
 Sentry.init({
   dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
   enabled: !!process.env.EXPO_PUBLIC_SENTRY_DSN,
-  tracesSampleRate: __DEV__ ? 1.0 : 0.2,
+  // Dev: sample nothing so profiling isn't distorted. Re-enable selectively when
+  // actively investigating a perf issue by temporarily setting this to 1.0.
+  tracesSampleRate: __DEV__ ? 0 : 0.2,
   debug: __DEV__,
 });
 
