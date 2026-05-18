@@ -1123,7 +1123,11 @@ export function getPRsThisWeek(): Promise<number> {
 
       const priorBest = priorBestByExercise.get(exId) ?? 0;
 
-      if (weekBest > priorBest && priorBest > 0) {
+      // weekBest is always > 0 here because the SELECT filters on weight + reps
+      // being non-null and is_completed = 1. priorBest = 0 means the user has
+      // no prior history for this exercise — that first-ever lift IS a PR (matches
+      // WorkoutScreen's PR badge logic).
+      if (weekBest > priorBest) {
         prCount++;
       }
     }
