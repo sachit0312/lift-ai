@@ -23,9 +23,13 @@ describe('Batch 4 Task 3: delete account clears local data', () => {
     expect(deleteHandlerSlice).toMatch(/clearAllLocalData\(\)/);
 
     // clearAllLocalData appears AFTER signOut in source order.
+    const deleteAccountIdx = deleteHandlerSlice.indexOf('deleteAccount()');
     const signOutIdx = deleteHandlerSlice.indexOf('signOut()');
     const clearIdx = deleteHandlerSlice.indexOf('clearAllLocalData()');
+    expect(deleteAccountIdx).toBeGreaterThan(-1);
     expect(signOutIdx).toBeGreaterThan(-1);
-    expect(clearIdx).toBeGreaterThan(signOutIdx);
+    expect(clearIdx).toBeGreaterThan(-1);
+    expect(deleteAccountIdx).toBeLessThan(signOutIdx);
+    expect(signOutIdx).toBeLessThan(clearIdx);
   });
 });

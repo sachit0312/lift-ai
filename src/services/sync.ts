@@ -15,7 +15,7 @@ function handleSyncError(label: string, error: unknown): void {
  *   - strings (already JSON) → unchanged
  *   - everything else → JSON.stringify(value)
  */
-function jsonbToText(value: unknown): string | null {
+export function jsonbToText(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value === 'string') return value;
   try {
@@ -30,7 +30,7 @@ function jsonbToText(value: unknown): string | null {
  * sending to Supabase, so the JSONB column receives a real object/array
  * (not a stringified blob). Returns null for null/empty/invalid input.
  */
-function textToJsonb(value: string | null): unknown {
+export function textToJsonb(value: string | null): unknown {
   if (value == null) return null;
   try { return JSON.parse(value); } catch { return null; }
 }
@@ -503,9 +503,9 @@ interface PullWorkoutRow {
   started_at: string;
   finished_at: string;
   coach_notes: string | null;
-  exercise_coach_notes: string | null;
+  exercise_coach_notes: unknown; // Supabase JSONB → parsed JS object | null
   session_notes: string | null;
-  planned_exercise_ids: string | null;
+  planned_exercise_ids: unknown; // Supabase JSONB → parsed JS array | null
 }
 
 /** Workout set row from Supabase (is_completed is boolean in Supabase) */
@@ -534,6 +534,8 @@ export async function pullWorkoutHistory(): Promise<void> {
 
     const db = await getDb();
 
+    // ── Network phase: fetch everything first, then commit in one transaction ──
+
     // Fetch finished workouts from Supabase
     const { data: workouts, error: wErr } = await supabase
       .from('workouts')
@@ -545,21 +547,6 @@ export async function pullWorkoutHistory(): Promise<void> {
 
     if (wErr) { handleSyncError('pull workouts', wErr); return; }
     if (!workouts || workouts.length === 0) return;
-
-    // Upsert workouts into local SQLite
-    for (const w of workouts as PullWorkoutRow[]) {
-      await db.runAsync(
-        `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           user_id=excluded.user_id, template_id=excluded.template_id,
-           upcoming_workout_id=excluded.upcoming_workout_id,
-           started_at=excluded.started_at, finished_at=excluded.finished_at,
-           coach_notes=excluded.coach_notes, exercise_coach_notes=excluded.exercise_coach_notes, session_notes=excluded.session_notes,
-           planned_exercise_ids=excluded.planned_exercise_ids`,
-        w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, jsonbToText(w.exercise_coach_notes), w.session_notes, jsonbToText(w.planned_exercise_ids),
-      );
-    }
 
     // Fetch workout_sets for those workouts in chunks to stay under PostgREST's
     // URL length cap (~8KB; 200 UUIDs at 36 chars each can exceed it).
@@ -575,22 +562,38 @@ export async function pullWorkoutHistory(): Promise<void> {
       if (chunkErr) { handleSyncError('pull workout_sets', chunkErr); return; }
       if (chunkSets) allSets.push(...(chunkSets as PullWorkoutSetRow[]));
     }
-    const sets = allSets;
 
-    for (const s of sets) {
-      await db.runAsync(
-        `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
-           set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
-           tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes,
-           target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe,
-           exercise_order=excluded.exercise_order, programmed_order=excluded.programmed_order`,
-        s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
-        s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null, s.exercise_order ?? 0, s.programmed_order ?? null,
-      );
-    }
+    // ── Write phase: collapse thousands of per-row fsyncs into one commit ──
+    await db.withTransactionAsync(async () => {
+      for (const w of workouts as PullWorkoutRow[]) {
+        await db.runAsync(
+          `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             user_id=excluded.user_id, template_id=excluded.template_id,
+             upcoming_workout_id=excluded.upcoming_workout_id,
+             started_at=excluded.started_at, finished_at=excluded.finished_at,
+             coach_notes=excluded.coach_notes, exercise_coach_notes=excluded.exercise_coach_notes, session_notes=excluded.session_notes,
+             planned_exercise_ids=excluded.planned_exercise_ids`,
+          w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, jsonbToText(w.exercise_coach_notes), w.session_notes, jsonbToText(w.planned_exercise_ids),
+        );
+      }
+
+      for (const s of allSets) {
+        await db.runAsync(
+          `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
+             set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
+             tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes,
+             target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe,
+             exercise_order=excluded.exercise_order, programmed_order=excluded.programmed_order`,
+          s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
+          s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null, s.exercise_order ?? 0, s.programmed_order ?? null,
+        );
+      }
+    });
 
     if (__DEV__) console.log('Pull workout history complete');
   } catch (err) {

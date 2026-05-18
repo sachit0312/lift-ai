@@ -63,10 +63,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               await Promise.race([
                 (async () => {
                   await resetDatabase();
-                  await Promise.all([
-                    pullExercisesAndTemplates(),
-                    pullWorkoutHistory(),
-                  ]);
+                  // Run pulls sequentially so each can safely wrap its row writes in a single
+                  // SQLite transaction. The added network latency (~few hundred ms) is more
+                  // than offset by collapsing thousands of per-row fsyncs into one.
+                  await pullExercisesAndTemplates();
+                  await pullWorkoutHistory();
                   await pullUpcomingWorkout();
                 })(),
                 new Promise<void>((_, reject) =>

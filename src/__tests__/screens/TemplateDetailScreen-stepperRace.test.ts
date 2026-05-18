@@ -74,7 +74,9 @@ describe('Batch 4 Task 2: stepper in-flight guard', () => {
       path.join(__dirname, '../../screens/TemplateDetailScreen.tsx'),
       'utf8',
     );
-    // The fix introduces a Set ref for in-flight stepper writes.
-    expect(src).toMatch(/stepperInFlightRef|stepperInFlight/);
+    // Verify the guard is inside makeStepperHandler, not just declared somewhere.
+    expect(src).toMatch(/makeStepperHandler[\s\S]*?stepperInFlightRef\.current\.has\(/);
+    // And that the finally cleanup is present.
+    expect(src).toMatch(/stepperInFlightRef\.current\.delete\(/);
   });
 });

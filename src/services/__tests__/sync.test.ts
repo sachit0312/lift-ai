@@ -1606,11 +1606,17 @@ describe('pullWorkoutHistory', () => {
     await pullWorkoutHistory();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(setsError);
-    // Workouts should still have been inserted
+    // Workouts and sets are now committed in a single transaction AFTER all
+    // network fetches succeed. A chunk error aborts before the transaction
+    // starts, so neither workouts nor sets are written (atomic all-or-nothing).
     const workoutInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workouts'),
     );
-    expect(workoutInserts).toHaveLength(1);
+    expect(workoutInserts).toHaveLength(0);
+    const setInserts = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO workout_sets'),
+    );
+    expect(setInserts).toHaveLength(0);
   });
 
   it('does nothing when no finished workouts exist', async () => {

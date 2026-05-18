@@ -340,35 +340,46 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   }
 
   async function loadUpcomingWorkoutInBackground() {
-    historyPulledRef.current = Promise.race([
-      pullWorkoutHistory(),
-      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-    ]).catch((e) => {
-      if (__DEV__) console.error('pullWorkoutHistory failed or timed out', e);
-      Sentry.captureException(e);
-    });
+    // Run all pulls sequentially so each can safely wrap its writes in a
+    // single SQLite transaction (no concurrent transactions allowed).
+    // historyPulledRef is the promise the start handlers await before they
+    // begin building blocks; chain it through the full sequence so a start
+    // tap waits until ALL pulls are quiet.
+    historyPulledRef.current = (async () => {
+      try {
+        await Promise.race([
+          pullExercisesAndTemplates(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
+        ]);
+        const t = await getAllTemplates();
+        setTemplates(t);
+      } catch (e: unknown) {
+        if (__DEV__) console.error('pullExercisesAndTemplates failed or timed out', e);
+        Sentry.captureException(e);
+      }
 
-    try {
-      await Promise.race([
-        pullExercisesAndTemplates(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-      ]);
-      const t = await getAllTemplates();
-      setTemplates(t);
-    } catch (e: unknown) {
-      if (__DEV__) console.error('pullExercisesAndTemplates failed or timed out', e);
-      Sentry.captureException(e);
-    }
+      try {
+        await Promise.race([
+          pullWorkoutHistory(),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
+        ]);
+      } catch (e) {
+        if (__DEV__) console.error('pullWorkoutHistory failed or timed out', e);
+        Sentry.captureException(e);
+      }
 
-    try {
-      await Promise.race([
-        pullUpcomingWorkout(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-      ]);
-    } catch (e: unknown) {
-      if (__DEV__) console.error('pullUpcomingWorkout failed or timed out', e);
-      Sentry.captureException(e);
-    }
+      try {
+        await Promise.race([
+          pullUpcomingWorkout(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
+        ]);
+      } catch (e: unknown) {
+        if (__DEV__) console.error('pullUpcomingWorkout failed or timed out', e);
+        Sentry.captureException(e);
+      }
+    })();
+
+    await historyPulledRef.current;
 
     const upcoming = await getUpcomingWorkoutForToday();
     setUpcomingWorkout(upcoming);

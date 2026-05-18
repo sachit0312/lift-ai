@@ -18,6 +18,7 @@ jest.mock('../../services/database', () => ({
       return Promise.resolve();
     }),
     getAllAsync: jest.fn().mockResolvedValue([]),
+    withTransactionAsync: jest.fn().mockImplementation(async (cb: () => Promise<void>) => cb()),
   }),
 }));
 
@@ -114,5 +115,25 @@ describe('Batch 4 Task 4: JSONB round-trip on pull', () => {
     expect(workoutsInsert).toBeDefined();
     expect(workoutsInsert![8]).toBeNull();
     expect(workoutsInsert![10]).toBeNull();
+  });
+});
+
+describe('Batch 4 Task 4: serializer helpers', () => {
+  it('textToJsonb: null stays null', () => {
+    const { textToJsonb } = require('../../services/sync');
+    expect(textToJsonb(null)).toBeNull();
+  });
+  it('textToJsonb: valid JSON string parses to original value', () => {
+    const { textToJsonb } = require('../../services/sync');
+    expect(textToJsonb('["a","b"]')).toEqual(['a', 'b']);
+    expect(textToJsonb('{"x":1}')).toEqual({ x: 1 });
+  });
+  it('textToJsonb: invalid JSON returns null defensively', () => {
+    const { textToJsonb } = require('../../services/sync');
+    expect(textToJsonb('not-json')).toBeNull();
+  });
+  it('jsonbToText: passes through an already-stringified value', () => {
+    const { jsonbToText } = require('../../services/sync');
+    expect(jsonbToText('["a","b"]')).toBe('["a","b"]'); // already a string — no double-encode
   });
 });

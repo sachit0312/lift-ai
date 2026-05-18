@@ -17,8 +17,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, deleteAccount } from '../services/supabase';
-import { getWorkoutHistory, getPRsThisWeek } from '../services/database';
-import { clearAllLocalData } from '../services/database';
+import { getWorkoutHistory, getPRsThisWeek, clearAllLocalData } from '../services/database';
 import { calculateStreak } from '../utils/streakCalculation';
 
 interface Stats {
@@ -116,18 +115,24 @@ export default function ProfileScreen() {
                   onPress: async () => {
                     try {
                       await deleteAccount();
-                      await supabase.auth.signOut();
-                      // Wipe local SQLite so the deleted account's data
-                      // isn't queryable on this device until the next sign-in.
-                      // SIGNED_OUT in AuthContext only resets the userId; it
-                      // does not clear the DB (other sign-outs preserve data
-                      // for the next sign-in).
-                      await clearAllLocalData();
                     } catch (e: unknown) {
                       Alert.alert(
                         'Error',
                         e instanceof Error ? e.message : 'Failed to delete account. Please try again.',
                       );
+                      return;
+                    }
+                    // deleteAccount succeeded — Supabase account is gone.
+                    // signOut and clearAllLocalData are best-effort.
+                    try {
+                      await supabase.auth.signOut();
+                    } catch (signOutErr) {
+                      if (__DEV__) console.error('signOut after deleteAccount failed:', signOutErr);
+                    }
+                    try {
+                      await clearAllLocalData();
+                    } catch (clearErr) {
+                      if (__DEV__) console.error('clearAllLocalData after deleteAccount failed:', clearErr);
                     }
                   },
                 },
