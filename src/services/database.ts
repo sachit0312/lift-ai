@@ -719,14 +719,29 @@ export function removeExerciseFromTemplate(id: string): Promise<void> {
   });
 }
 
-/** Batch-update sort_order for template exercises. Takes junction-table row IDs (template_exercises.id), not exercise IDs. */
+/** Batch-update sort_order for template exercises. Takes junction-table row IDs (template_exercises.id), not exercise IDs.
+ *  Single CASE WHEN UPDATE — was N sequential UPDATEs. Templates rarely have >20 exercises so chunking is not needed,
+ *  but applied defensively for parity with stampExerciseOrder. */
 export function updateTemplateExerciseOrder(templateId: string, orderedIds: string[]): Promise<void> {
   return withDb('updateTemplateExerciseOrder', async (database) => {
+    if (orderedIds.length === 0) return;
+    const MAX_PER_CHUNK = 300;
     await database.withTransactionAsync(async () => {
-      for (let i = 0; i < orderedIds.length; i++) {
+      for (let start = 0; start < orderedIds.length; start += MAX_PER_CHUNK) {
+        const chunk = orderedIds.slice(start, start + MAX_PER_CHUNK);
+        const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+        const placeholders = chunk.map(() => '?').join(',');
+        const binds: unknown[] = [];
+        for (let i = 0; i < chunk.length; i++) {
+          binds.push(chunk[i], start + i);
+        }
+        for (const id of chunk) {
+          binds.push(id);
+        }
+        binds.push(templateId);
         await database.runAsync(
-          'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-          i, orderedIds[i], templateId,
+          `UPDATE template_exercises SET sort_order = CASE id ${whens} END WHERE id IN (${placeholders}) AND template_id = ?`,
+          ...binds,
         );
       }
     });
