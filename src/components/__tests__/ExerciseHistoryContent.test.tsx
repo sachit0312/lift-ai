@@ -4,7 +4,8 @@ import { createMockExercise, createMockSession } from '../../__tests__/helpers/f
 
 jest.mock('../../services/database', () => ({
   getExerciseHistory: jest.fn().mockResolvedValue([]),
-  getCurrentE1RM: jest.fn().mockResolvedValue(null),
+  // getE1RMSummary replaced the three legacy 1RM calls; mock returns null by default.
+  getE1RMSummary: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('react-native-chart-kit', () => {
@@ -15,7 +16,7 @@ jest.mock('react-native-chart-kit', () => {
 });
 
 import ExerciseHistoryContent from '../ExerciseHistoryContent';
-import { getExerciseHistory, getCurrentE1RM } from '../../services/database';
+import { getExerciseHistory, getE1RMSummary } from '../../services/database';
 
 const mockExercise = createMockExercise({ name: 'Bench Press' });
 
@@ -82,7 +83,7 @@ describe('ExerciseHistoryContent', () => {
 
   it('shows PR banner and chart with sufficient data', async () => {
     (getExerciseHistory as jest.Mock).mockResolvedValue(threeSessions);
-    (getCurrentE1RM as jest.Mock).mockResolvedValue(180);
+    (getE1RMSummary as jest.Mock).mockResolvedValue({ best: 200, current: 180, confidence: { value: 200, confidence: 'HIGH', margin: 0 } });
 
     const { findByText, findAllByText, getAllByTestId } = render(
       <ExerciseHistoryContent exercise={mockExercise} />

@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, Dimensions, ActivityIndicator } fro
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../theme';
-import { getExerciseHistory, getCurrentE1RM } from '../services/database';
+import { getExerciseHistory, getE1RMSummary } from '../services/database';
 import { calculateEstimated1RM } from '../utils/oneRepMax';
 import { getSetTagLabel, getSetTagColor } from '../utils/setTagUtils';
 import * as Sentry from '@sentry/react-native';
@@ -122,9 +122,18 @@ export default function ExerciseHistoryContent({ exercise }: Props) {
         prValue = prEntry.point.best1RM;
         prDateFormatted = prEntry.fullDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-        // Freshness-weighted "current" 1RM from canonical DB function
-        const freshE1rm = await getCurrentE1RM(exercise.id);
-        if (freshE1rm != null) currentE1rm = Math.round(freshE1rm);
+        // Single-scan summary returns best + current + confidence in one JOIN.
+        // Only `current` is consumed here, but the function is reusable for callers
+        // that need the full triple (PR detection paths still use the separate fns).
+        //
+        // `summary.best` is intentionally NOT used as prValue here — the chart-window
+        // JS calc overrides RPE to 10 for `failure`-tagged sets (line 76 above),
+        // whereas the DB-side calculateEstimated1RM reads rpe directly (NULL for
+        // failure rows per migration). The values can diverge for users with
+        // failure-tagged history; keep the JS-derived prValue authoritative for
+        // the chart-aligned banner.
+        const summary = await getE1RMSummary(exercise.id);
+        if (summary && summary.current != null) currentE1rm = Math.round(summary.current);
       }
 
       const recentSessions = history.slice(0, 5).map(h => {

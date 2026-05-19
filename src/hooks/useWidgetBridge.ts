@@ -7,6 +7,7 @@ import {
 import {
   updateWorkoutActivityForSet,
   updateWorkoutActivityForRest,
+  getCurrentMaxRestSeconds,
 } from '../services/liveActivity';
 import type { LocalSet, ExerciseBlock } from '../types/workout';
 
@@ -83,6 +84,7 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
           current: { exerciseName: 'Workout', exerciseBlockIndex: 0, setNumber: 1, totalSets: 1, restSeconds: 0, restEnabled: false },
           isResting: isRestingArg,
           restEndTime: restEnd,
+          restMaxSeconds: getCurrentMaxRestSeconds(),
           workoutActive: true,
         };
       }
@@ -103,6 +105,7 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
         current,
         isResting: isRestingArg,
         restEndTime: restEnd,
+        restMaxSeconds: getCurrentMaxRestSeconds(),
         workoutActive: true,
       };
     },

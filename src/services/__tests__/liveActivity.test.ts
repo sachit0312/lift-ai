@@ -188,6 +188,8 @@ describe('liveActivity service', () => {
       jest.clearAllMocks();
 
       await adjustRestTimerActivity(15);
+      // Wait past the 300ms notification debounce window
+      await new Promise(resolve => setTimeout(resolve, 350));
       // Flush serialized notification chain — use process.nextTick (never faked)
       for (let i = 0; i < 5; i++) {
         await new Promise(resolve => process.nextTick(resolve));

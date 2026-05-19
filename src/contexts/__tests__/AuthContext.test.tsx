@@ -50,11 +50,15 @@ function makeSession(userId: string, email: string) {
 
 /** A consumer component that renders the auth context values for assertions. */
 function AuthConsumer() {
-  const { session, user, loading, syncing } = useAuth();
+  const { session, user, authPhase } = useAuth();
+  // Derive legacy boolean test IDs from authPhase to keep assertions readable.
+  const loading = authPhase === 'initializing';
+  const syncing = authPhase === 'syncing';
   return (
     <>
       <Text testID="loading">{String(loading)}</Text>
       <Text testID="syncing">{String(syncing)}</Text>
+      <Text testID="authPhase">{authPhase}</Text>
       <Text testID="user-email">{user?.email ?? 'none'}</Text>
       <Text testID="user-id">{user?.id ?? 'none'}</Text>
       <Text testID="has-session">{session ? 'yes' : 'no'}</Text>
@@ -123,6 +127,7 @@ describe('AuthContext', () => {
     await waitFor(() => {
       expect(getByTestId('loading').props.children).toBe('false');
     });
+    expect(getByTestId('authPhase').props.children).toBe('ready');
   });
 
   // ---------------------------------------------------------------
@@ -556,6 +561,7 @@ describe('AuthContext', () => {
     await waitFor(() => {
       expect(getByTestId('syncing').props.children).toBe('true');
     });
+    expect(getByTestId('authPhase').props.children).toBe('syncing');
 
     // Resolve the pull
     await act(async () => {
@@ -737,5 +743,59 @@ describe('AuthContext', () => {
       expect(getByTestId('user-id').props.children).toBe('user-rapid-B');
       expect(getByTestId('user-email').props.children).toBe('rapidB@example.com');
     });
+  });
+
+  it('SIGNED_IN sync timeout sets authPhase back to ready after SYNC_TIMEOUT_MS', async () => {
+    jest.useFakeTimers();
+
+    // Mock pulls to never resolve so the Promise.race always loses to the timeout
+    (pullExercisesAndTemplates as jest.Mock).mockImplementation(
+      () => new Promise(() => {}),
+    );
+    (pullWorkoutHistory as jest.Mock).mockImplementation(
+      () => new Promise(() => {}),
+    );
+    (pullUpcomingWorkout as jest.Mock).mockImplementation(
+      () => new Promise(() => {}),
+    );
+
+    const { getByTestId } = render(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    );
+
+    // Wait for AuthProvider's getSession().finally to flip authPhase to 'ready'
+    // (getSession is mocked synchronously to resolve with null session)
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Fire SIGNED_IN with a new user to trigger the sync path (don't await — the
+    // event handler awaits Promise.race which won't resolve until we advance timers).
+    const newSession = makeSession('new-user', 'new@example.com');
+    act(() => {
+      authStateCallback!('SIGNED_IN', newSession);
+    });
+
+    // Flush microtasks so setAuthPhase('syncing') runs
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getByTestId('authPhase').props.children).toBe('syncing');
+
+    // Advance past the 30s timeout — this rejects the timeout promise,
+    // race loses, catch block runs, finally sets authPhase back to 'ready'.
+    await act(async () => {
+      jest.advanceTimersByTime(31000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getByTestId('authPhase').props.children).toBe('ready');
+
+    jest.useRealTimers();
   });
 });

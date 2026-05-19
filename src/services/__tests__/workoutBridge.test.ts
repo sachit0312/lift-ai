@@ -24,6 +24,7 @@ const createMockWidgetState = (overrides?: Partial<WidgetState>): WidgetState =>
   },
   isResting: false,
   restEndTime: 0,
+  restMaxSeconds: 0,
   workoutActive: true,
   ...overrides,
 });

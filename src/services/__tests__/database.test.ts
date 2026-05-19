@@ -27,7 +27,6 @@ import {
   getLastPerformedByTemplate,
   getBestE1RM,
   getCurrentE1RM,
-  getE1RMWithConfidence,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
   upsertExerciseNote,
@@ -365,24 +364,18 @@ describe('getBestE1RM', () => {
 });
 
 describe('stampExerciseOrder', () => {
-  it('updates exercise_order for each entry in a transaction', async () => {
+  it('issues a single batched UPDATE for all entries in a transaction', async () => {
     await stampExerciseOrder('w1', [
       { id: 'set-1', order: 1 },
       { id: 'set-2', order: 2 },
     ]);
 
     expect(__mockDb.withTransactionAsync).toHaveBeenCalled();
-    expect(__mockDb.runAsync).toHaveBeenCalledTimes(2);
-    expect(__mockDb.runAsync).toHaveBeenNthCalledWith(
-      1,
-      'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
-      1, 'set-1',
-    );
-    expect(__mockDb.runAsync).toHaveBeenNthCalledWith(
-      2,
-      'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
-      2, 'set-2',
-    );
+    // Batched to a single CASE WHEN UPDATE rather than N separate statements.
+    expect(__mockDb.runAsync).toHaveBeenCalledTimes(1);
+    const call = __mockDb.runAsync.mock.calls[0];
+    expect(call[0]).toMatch(/UPDATE workout_sets SET exercise_order = CASE id/i);
+    expect(call.slice(1)).toEqual(['set-1', 1, 'set-2', 2, 'set-1', 'set-2', 'w1']);
   });
 });
 
@@ -424,24 +417,16 @@ describe('applyWorkoutChangesToTemplate', () => {
 
     await applyWorkoutChangesToTemplate(plan);
 
-    // Filter for sort_order UPDATE calls
+    // Filter for sort_order UPDATE calls — now a single batched CASE WHEN
     const sortCalls = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('SET sort_order')
     );
-    expect(sortCalls).toHaveLength(3);
-
-    // Final order: te-2 (0), te-1 (1), te-3 (2) — reordered first, remainder appended
-    expect(sortCalls[0]).toEqual([
-      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-      0, 'te-2', 't1',
-    ]);
-    expect(sortCalls[1]).toEqual([
-      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-      1, 'te-1', 't1',
-    ]);
-    expect(sortCalls[2]).toEqual([
-      'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-      2, 'te-3', 't1',
+    expect(sortCalls).toHaveLength(1);
+    expect(sortCalls[0][0]).toMatch(/CASE\s+id\s+WHEN/i);
+    // Final order: te-2 (0), te-1 (1), te-3 (2) — reordered first, remainder appended.
+    // Bind layout: [whenId, thenIdx, whenId, thenIdx, whenId, thenIdx, inId, inId, inId, templateId]
+    expect(sortCalls[0].slice(1)).toEqual([
+      'te-2', 0, 'te-1', 1, 'te-3', 2, 'te-2', 'te-1', 'te-3', 't1',
     ]);
   });
 
@@ -468,11 +453,12 @@ describe('applyWorkoutChangesToTemplate', () => {
     );
     expect(setUpdateCall).toBeDefined();
 
-    // Sort order UPDATEs
+    // Sort order UPDATEs — single batched CASE WHEN
     const sortCalls = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('SET sort_order')
     );
-    expect(sortCalls).toHaveLength(2);
+    expect(sortCalls).toHaveLength(1);
+    expect(sortCalls[0][0]).toMatch(/CASE\s+id\s+WHEN/i);
   });
 });
 
@@ -513,42 +499,6 @@ describe('getCurrentE1RM', () => {
     expect(result).not.toBeNull();
     // 200 / 0.863 ≈ 231.75, decay ≈ 1.0 for today → ~231.75
     expect(result).toBeGreaterThan(225);
-  });
-});
-
-describe('getE1RMWithConfidence', () => {
-  it('returns null when no completed sets exist', async () => {
-    __mockDb.getAllAsync.mockResolvedValueOnce([]);
-
-    const result = await getE1RMWithConfidence('ex-1');
-    expect(result).toBeNull();
-  });
-
-  it('returns E1RMResult with confidence tier for best set', async () => {
-    __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8 },
-    ]);
-
-    const result = await getE1RMWithConfidence('ex-1');
-    expect(result).not.toBeNull();
-    expect(result!.confidence).toBe('high');
-    expect(result!.method).toBe('rpe_table');
-    expect(result!.value).toBeGreaterThan(200);
-  });
-
-  it('selects highest absolute e1RM across multiple sets', async () => {
-    // Set 1: 200x3 @ RPE 8 → 200 / 0.863 ≈ 231.75 (high confidence)
-    // Set 2: 100x12 no RPE → ensemble ~140 (low confidence)
-    __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8 },
-      { exercise_id: 'ex-1', weight: 100, reps: 12, rpe: null },
-    ]);
-
-    const result = await getE1RMWithConfidence('ex-1');
-    expect(result).not.toBeNull();
-    // The 200x3 set should win on raw value
-    expect(result!.value).toBeGreaterThan(225);
-    expect(result!.confidence).toBe('high');
   });
 });
 

@@ -4,7 +4,7 @@ import type { LiveActivityState } from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
-import { getItem, removeItem } from '../../modules/shared-user-defaults';
+import { getItem, getItemAndRemove } from '../../modules/shared-user-defaults';
 import { colors } from '../theme';
 
 // ─── Module-level state (singleton) ───
@@ -22,6 +22,9 @@ let lastContentStateJSON = '';
 let lastUpdateTimestamp = 0;
 let pendingUpdate: { contentState: LiveActivityState; timeoutId: ReturnType<typeof setTimeout> } | null = null;
 const MIN_UPDATE_INTERVAL_MS = 500;
+
+let pendingNotificationReschedule: { endTime: number; timeoutId: ReturnType<typeof setTimeout> } | null = null;
+const NOTIFICATION_DEBOUNCE_MS = 300;
 
 // ─── Configure notification handler ───
 
@@ -51,6 +54,14 @@ export function isRestNotificationScheduled(): boolean {
 export function getRestTimerRemainingSeconds(): number | null {
   if (!currentActivityId || currentEndTime === 0) return null;
   return Math.max(0, Math.round((currentEndTime - Date.now()) / 1000));
+}
+
+export function getCurrentMaxRestSeconds(): number {
+  if (currentMaxRestSeconds === 0) {
+    const persisted = readPersistedMaxRestSeconds();
+    if (persisted > 0) currentMaxRestSeconds = persisted;
+  }
+  return currentMaxRestSeconds;
 }
 
 export async function requestNotificationPermissions(): Promise<void> {
@@ -117,6 +128,10 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
       clearTimeout(pendingUpdate.timeoutId);
       pendingUpdate = null;
     }
+    if (pendingNotificationReschedule) {
+      clearTimeout(pendingNotificationReschedule.timeoutId);
+      pendingNotificationReschedule = null;
+    }
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to start workout Live Activity', e);
     Sentry.captureException(e);
@@ -164,8 +179,9 @@ export async function updateWorkoutActivityForRest(
     currentExerciseName = exerciseName;
     currentSetNumber = setNumber;
     currentTotalSets = totalSets;
-    // Only set on initial rest start — re-syncs from useWidgetBridge pass remaining
-    // seconds (not total), which would shrink the progress bar denominator.
+    // Trigger eager restore from persisted state (no-op if currentMaxRestSeconds is non-zero).
+    // After that, this is just the fallback for a fresh rest with no previously-persisted state.
+    getCurrentMaxRestSeconds();
     if (currentMaxRestSeconds === 0) currentMaxRestSeconds = totalSeconds;
 
     safeUpdateActivity({
@@ -211,6 +227,10 @@ export async function stopWorkoutActivity(): Promise<void> {
       clearTimeout(pendingUpdate.timeoutId);
       pendingUpdate = null;
     }
+    if (pendingNotificationReschedule) {
+      clearTimeout(pendingNotificationReschedule.timeoutId);
+      pendingNotificationReschedule = null;
+    }
     serializedNotificationOp(() => cancelTimerEndNotification());
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to stop workout Live Activity', e);
@@ -239,21 +259,32 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
     currentEndTime = newEndTime;
     if (deltaSeconds > 0) currentMaxRestSeconds += deltaSeconds;
 
-    const remainingSeconds = Math.max(0, Math.round((newEndTime - Date.now()) / 1000));
-
     safeUpdateActivity({
       title: currentExerciseName,
       subtitle: `Set ${currentSetNumber}/${currentTotalSets}|${currentMaxRestSeconds}`,
       progressBar: { date: newEndTime },
     });
 
-    // Reschedule notification via serialized queue to prevent stacking
-    serializedNotificationOp(async () => {
-      await cancelTimerEndNotification();
-      if (remainingSeconds > 0) {
-        await scheduleTimerEndNotification(remainingSeconds);
-      }
-    });
+    // Debounce the notification reschedule. Rapid +/-15s taps would otherwise
+    // fire one cancel + one schedule per tap; we only need the FINAL position
+    // reflected in the system notification.
+    if (pendingNotificationReschedule) {
+      clearTimeout(pendingNotificationReschedule.timeoutId);
+    }
+    const timeoutId = setTimeout(() => {
+      pendingNotificationReschedule = null;
+      // If stopRestTimerActivity ran between the adjust and this fire,
+      // currentEndTime is 0 and there's no rest to schedule for.
+      if (!currentEndTime) return;
+      const remainingSeconds = Math.max(0, Math.round((currentEndTime - Date.now()) / 1000));
+      serializedNotificationOp(async () => {
+        await cancelTimerEndNotification();
+        if (remainingSeconds > 0) {
+          await scheduleTimerEndNotification(remainingSeconds);
+        }
+      });
+    }, NOTIFICATION_DEBOUNCE_MS);
+    pendingNotificationReschedule = { endTime: newEndTime, timeoutId };
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to adjust rest timer', e);
     Sentry.captureException(e);
@@ -264,6 +295,10 @@ export function stopRestTimerActivity(): void {
   if (Platform.OS !== 'ios') return;
   // Cancel notification even if activity was dismissed — must run above !currentActivityId guard
   serializedNotificationOp(() => cancelTimerEndNotification());
+  if (pendingNotificationReschedule) {
+    clearTimeout(pendingNotificationReschedule.timeoutId);
+    pendingNotificationReschedule = null;
+  }
   currentMaxRestSeconds = 0;
   if (!currentActivityId) return;
   try {
@@ -290,9 +325,8 @@ export function stopRestTimerActivity(): void {
 export function applyPendingWidgetActions(): number {
   if (Platform.OS !== 'ios') return 0;
   try {
-    const raw = getItem('liftai_action_queue');
+    const raw = getItemAndRemove('liftai_action_queue');
     if (!raw) return 0;
-    removeItem('liftai_action_queue');
     const actions: { type: string; delta?: number; ts: number }[] = JSON.parse(raw);
     let totalDelta = 0;
     for (const action of actions) {
@@ -318,6 +352,17 @@ function serializedNotificationOp(fn: () => Promise<void>): void {
 }
 
 // ─── Internal helpers ───
+
+function readPersistedMaxRestSeconds(): number {
+  try {
+    const raw = getItem('liftai_workout_state');
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw) as { restMaxSeconds?: number };
+    return typeof parsed.restMaxSeconds === 'number' ? parsed.restMaxSeconds : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Wrapper around LiveActivity.updateActivity with deduplication, throttling,

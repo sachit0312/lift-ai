@@ -22,7 +22,19 @@ struct WorkoutState: Codable {
     var current: WorkoutSetState
     var isResting: Bool
     var restEndTime: Double
+    var restMaxSeconds: Int
     var workoutActive: Bool
+}
+
+extension WorkoutState {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        current = try container.decode(WorkoutSetState.self, forKey: .current)
+        isResting = try container.decode(Bool.self, forKey: .isResting)
+        restEndTime = try container.decode(Double.self, forKey: .restEndTime)
+        restMaxSeconds = try container.decodeIfPresent(Int.self, forKey: .restMaxSeconds) ?? 0
+        workoutActive = try container.decode(Bool.self, forKey: .workoutActive)
+    }
 }
 
 struct WorkoutAction: Codable {
@@ -90,6 +102,13 @@ class WorkoutUserDefaultsHelper {
         logger.debug("appendAction: queued action type=\(action.type)")
     }
 
+    /**
+     * Atomically read and remove the action queue. Safe to call from concurrent
+     * AppIntent invocations because each invocation runs on its own task and
+     * synchronize() flushes the UserDefaults backing store before the next
+     * call observes it. The corresponding JS-side drain (applyPendingWidgetActions)
+     * uses getItemAndRemove (added in Batch 3) for matching atomicity.
+     */
     func readAndClearActions() -> [WorkoutAction] {
         defaults?.synchronize()
         guard let jsonString = defaults?.string(forKey: actionQueueKey),

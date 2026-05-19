@@ -56,6 +56,7 @@ struct IncreaseRestIntent: LiveActivityIntent {
         }
 
         state.restEndTime += 15000
+        state.restMaxSeconds += 15  // Match JS-side adjustRestTimerActivity which grows the denominator on +deltas
 
         helper.writeWorkoutState(state)
 
@@ -125,9 +126,16 @@ private func refreshLiveActivity(state: WorkoutState) async {
 
     let contentState: LiveActivityAttributes.ContentState
     if state.isResting {
+        // Encode the original rest duration in the subtitle as "Set X/Y|D" so
+        // ParsedSetState.from() in the widget view can compute a proportional
+        // progress bar denominator. Without |D, the bar uses Date.now...endDate
+        // as its interval and resets to full-width after every +/-15s tap.
+        let subtitle = state.restMaxSeconds > 0
+            ? "Set \(state.current.setNumber)/\(state.current.totalSets)|\(state.restMaxSeconds)"
+            : "Set \(state.current.setNumber)/\(state.current.totalSets)"
         contentState = LiveActivityAttributes.ContentState(
             title: state.current.exerciseName,
-            subtitle: "Set \(state.current.setNumber)/\(state.current.totalSets)",
+            subtitle: subtitle,
             timerEndDateInMilliseconds: state.restEndTime,
             progress: nil,
             imageName: nil,

@@ -203,6 +203,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   // regardless of React's async state batching (same pattern as blocksRef).
   const workoutNotesRef = useRef('');
   workoutNotesRef.current = workoutNotes;
+  // Incremented on every cancel. Each start handler captures the current
+  // value before its first await; if the captured generation no longer matches
+  // when the handler is ready to call activateWorkout, the start has been
+  // superseded by a cancel (or another start) and must bail out.
+  const cancelGenerationRef = useRef(0);
 
   // ─── Helpers ───
 
@@ -335,35 +340,46 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   }
 
   async function loadUpcomingWorkoutInBackground() {
-    historyPulledRef.current = Promise.race([
-      pullWorkoutHistory(),
-      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-    ]).catch((e) => {
-      if (__DEV__) console.error('pullWorkoutHistory failed or timed out', e);
-      Sentry.captureException(e);
-    });
+    // Run all pulls sequentially so each can safely wrap its writes in a
+    // single SQLite transaction (no concurrent transactions allowed).
+    // historyPulledRef is the promise the start handlers await before they
+    // begin building blocks; chain it through the full sequence so a start
+    // tap waits until ALL pulls are quiet.
+    historyPulledRef.current = (async () => {
+      try {
+        await Promise.race([
+          pullExercisesAndTemplates(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
+        ]);
+        const t = await getAllTemplates();
+        setTemplates(t);
+      } catch (e: unknown) {
+        if (__DEV__) console.error('pullExercisesAndTemplates failed or timed out', e);
+        Sentry.captureException(e);
+      }
 
-    try {
-      await Promise.race([
-        pullExercisesAndTemplates(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-      ]);
-      const t = await getAllTemplates();
-      setTemplates(t);
-    } catch (e: unknown) {
-      if (__DEV__) console.error('pullExercisesAndTemplates failed or timed out', e);
-      Sentry.captureException(e);
-    }
+      try {
+        await Promise.race([
+          pullWorkoutHistory(),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
+        ]);
+      } catch (e) {
+        if (__DEV__) console.error('pullWorkoutHistory failed or timed out', e);
+        Sentry.captureException(e);
+      }
 
-    try {
-      await Promise.race([
-        pullUpcomingWorkout(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-      ]);
-    } catch (e: unknown) {
-      if (__DEV__) console.error('pullUpcomingWorkout failed or timed out', e);
-      Sentry.captureException(e);
-    }
+      try {
+        await Promise.race([
+          pullUpcomingWorkout(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
+        ]);
+      } catch (e: unknown) {
+        if (__DEV__) console.error('pullUpcomingWorkout failed or timed out', e);
+        Sentry.captureException(e);
+      }
+    })();
+
+    await historyPulledRef.current;
 
     const upcoming = await getUpcomingWorkoutForToday();
     setUpcomingWorkout(upcoming);
@@ -477,6 +493,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   // ─── Start workout handlers ───
 
   async function handleStartFromTemplate(template: Template) {
+    const startGeneration = cancelGenerationRef.current;
     try {
       setStartingTemplateId(template.id);
       await historyPulledRef.current;
@@ -504,6 +521,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           })
       );
 
+      if (startGeneration !== cancelGenerationRef.current) return;
       activateWorkout(workout, blocks, template.name);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start workout', e);
@@ -530,11 +548,13 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   }, []);
 
   async function handleStartEmpty() {
+    const startGeneration = cancelGenerationRef.current;
     try {
       setLoading(true);
       const workout = await startWorkout(null);
       // No plan to persist — planned_exercise_ids defaults to NULL in the DB.
       // confirmFinish guards with `if (plannedIds && plannedIds.length > 0)`.
+      if (startGeneration !== cancelGenerationRef.current) return;
       activateWorkout(workout, []);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start empty workout', e);
@@ -547,6 +567,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
   async function handleStartFromUpcoming() {
     if (!upcomingWorkout) return;
+    const startGeneration = cancelGenerationRef.current;
     try {
       setLoading(true);
       await historyPulledRef.current;
@@ -623,7 +644,9 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         Sentry.captureException(coachErr);
       }
 
+      if (startGeneration !== cancelGenerationRef.current) return;
       setUpcomingTargets(upcomingWorkout.exercises);
+      if (startGeneration !== cancelGenerationRef.current) return;
       activateWorkout(workout, blocks);
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to start upcoming workout', e);
@@ -766,6 +789,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
           text: 'Discard',
           style: 'destructive',
           onPress: async () => {
+            cancelGenerationRef.current += 1;
             const workout = workoutRef.current;
             if (sessionNotesDebounceRef.current) {
               clearTimeout(sessionNotesDebounceRef.current);
@@ -798,7 +822,10 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   // ─── Finish workout ───
 
   function handleFinish() {
-    const totalCompleted = exerciseBlocks.reduce(
+    // Read from blocksRef.current — not exerciseBlocks state — to avoid stale
+    // validation when Finish fires inside the 300ms debounce window. Matches
+    // confirmFinish, which also reads the ref.
+    const totalCompleted = blocksRef.current.reduce(
       (sum, b) => sum + b.sets.filter(s => s.is_completed).length, 0
     );
     if (totalCompleted === 0) {

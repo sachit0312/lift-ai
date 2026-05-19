@@ -1,3 +1,5 @@
+import { daysAgo } from './daysAgo';
+
 export function formatDuration(startedAt: string, finishedAt: string | null): string {
   if (!finishedAt) return '--';
   const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
@@ -11,8 +13,7 @@ export function formatDuration(startedAt: string, finishedAt: string | null): st
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const days = Math.floor(diff / 86400000);
+  const days = daysAgo(iso);
 
   if (days === 0) return 'Today';
   if (days === 1) return 'Yesterday';

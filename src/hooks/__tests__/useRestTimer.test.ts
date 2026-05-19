@@ -57,7 +57,6 @@ describe('useRestTimer', () => {
   it('returns correct initial state', () => {
     const { result } = setup();
 
-    expect(result.current.restSeconds).toBe(0);
     expect(result.current.restTotal).toBe(0);
     expect(result.current.restExerciseName).toBe('');
     expect(result.current.isResting).toBe(false);
@@ -71,7 +70,6 @@ describe('useRestTimer', () => {
       result.current.startRestTimer(120, 'Bench Press');
     });
 
-    expect(result.current.restSeconds).toBe(120);
     expect(result.current.restTotal).toBe(120);
     expect(result.current.restExerciseName).toBe('Bench Press');
     expect(result.current.isResting).toBe(true);
@@ -101,25 +99,24 @@ describe('useRestTimer', () => {
       result.current.startRestTimer(3, 'Squats');
     });
 
-    expect(result.current.restSeconds).toBe(3);
+    expect(result.current.isResting).toBe(true);
 
     // Advance 1 second
     act(() => {
       jest.advanceTimersByTime(1000);
     });
-    expect(result.current.restSeconds).toBe(2);
+    expect(result.current.isResting).toBe(true);
 
     // Advance 1 more second
     act(() => {
       jest.advanceTimersByTime(1000);
     });
-    expect(result.current.restSeconds).toBe(1);
+    expect(result.current.isResting).toBe(true);
 
     // Advance 1 more second - should hit 0
     act(() => {
       jest.advanceTimersByTime(1000);
     });
-    expect(result.current.restSeconds).toBe(0);
     expect(result.current.isResting).toBe(false);
 
     expect(onRestEnd).toHaveBeenCalledTimes(1);
@@ -168,22 +165,23 @@ describe('useRestTimer', () => {
       result.current.adjustRestTimer(15);
     });
 
-    expect(result.current.restSeconds).toBe(75);
     expect(result.current.restTotal).toBe(75);
     expect(adjustRestTimerActivity).toHaveBeenCalledWith(15);
     expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
 
     onRestUpdate.mockClear();
+    const beforeEndTime = result.current.currentEndTime;
 
     // Adjust -30
     act(() => {
       result.current.adjustRestTimer(-30);
     });
 
-    expect(result.current.restSeconds).toBe(45);
     expect(result.current.restTotal).toBe(75); // restTotal never decreases (matches lock screen widget)
     expect(adjustRestTimerActivity).toHaveBeenCalledWith(-30);
     expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
+    // Verify currentEndTime actually moved backward by 30s
+    expect(result.current.currentEndTime).toBe(beforeEndTime - 30000);
   });
 
   it('adjustRestTimer to zero ends rest properly', () => {
@@ -199,7 +197,6 @@ describe('useRestTimer', () => {
       result.current.adjustRestTimer(-15);
     });
 
-    expect(result.current.restSeconds).toBe(0);
     expect(result.current.isResting).toBe(false);
     expect(stopRestTimerActivity).toHaveBeenCalled();
     expect(onRestEnd).toHaveBeenCalledTimes(1);
@@ -221,7 +218,6 @@ describe('useRestTimer', () => {
       result.current.dismissRest();
     });
 
-    expect(result.current.restSeconds).toBe(0);
     expect(result.current.isResting).toBe(false);
     expect(result.current.currentEndTime).toBe(0);
     expect(stopRestTimerActivity).toHaveBeenCalled();
@@ -240,14 +236,14 @@ describe('useRestTimer', () => {
     act(() => {
       jest.advanceTimersByTime(2000);
     });
-    expect(result.current.restSeconds).toBe(58);
+    expect(result.current.isResting).toBe(true);
 
     // Start a new timer
     act(() => {
       result.current.startRestTimer(90, 'Squats');
     });
 
-    expect(result.current.restSeconds).toBe(90);
+    expect(result.current.restTotal).toBe(90);
     expect(result.current.restExerciseName).toBe('Squats');
     expect(result.current.isResting).toBe(true);
   });
@@ -262,12 +258,13 @@ describe('useRestTimer', () => {
     // Simulate backgrounding: advance Date.now by 75s without firing interval
     jest.setSystemTime(new Date(Date.now() + 75000));
 
-    // Simulate foreground return — resync should compute 45s remaining
+    // Simulate foreground return — resync should keep timer active with ~45s remaining
     act(() => {
       appStateCallback?.('active');
     });
 
-    expect(result.current.restSeconds).toBe(45);
+    const remaining = Math.max(0, Math.round((result.current.currentEndTime - Date.now()) / 1000));
+    expect(remaining).toBe(45);
     expect(result.current.isResting).toBe(true);
   });
 
@@ -285,7 +282,6 @@ describe('useRestTimer', () => {
       appStateCallback?.('active');
     });
 
-    expect(result.current.restSeconds).toBe(0);
     expect(result.current.isResting).toBe(false);
     expect(onRestEnd).toHaveBeenCalledTimes(1);
     expect(stopRestTimerActivity).toHaveBeenCalled();
@@ -301,7 +297,7 @@ describe('useRestTimer', () => {
       appStateCallback?.('active');
     });
 
-    expect(result.current.restSeconds).toBe(0);
+    expect(result.current.isResting).toBe(false);
     expect(onRestEnd).not.toHaveBeenCalled();
   });
 
@@ -431,7 +427,8 @@ describe('useRestTimer', () => {
       });
 
       expect(result.current.isResting).toBe(true);
-      expect(result.current.restSeconds).toBe(20);
+      const remaining = Math.max(0, Math.round((result.current.currentEndTime - Date.now()) / 1000));
+      expect(remaining).toBe(20);
     });
 
     it('applies widget skipRest action by ending rest', () => {
@@ -476,7 +473,8 @@ describe('useRestTimer', () => {
       });
 
       expect(result.current.isResting).toBe(true);
-      expect(result.current.restSeconds).toBe(3);
+      const remaining = Math.max(0, Math.round((result.current.currentEndTime - Date.now()) / 1000));
+      expect(remaining).toBe(3);
 
       // 500ms passes — wasBackgroundedRef clears
       act(() => {

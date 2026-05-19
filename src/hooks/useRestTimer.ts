@@ -14,7 +14,6 @@ interface UseRestTimerOptions {
 }
 
 interface UseRestTimerReturn {
-  restSeconds: number;
   restTotal: number;
   restExerciseName: string;
   isResting: boolean;
@@ -25,7 +24,6 @@ interface UseRestTimerReturn {
 }
 
 export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): UseRestTimerReturn {
-  const [restSeconds, setRestSeconds] = useState(0);
   const [restTotal, setRestTotal] = useState(0);
   const [restExerciseName, setRestExerciseName] = useState('');
   const [isResting, setIsResting] = useState(false);
@@ -51,7 +49,6 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     currentEndTimeRef.current = 0;
     setIsResting(false);
     setCurrentEndTime(0);
-    setRestSeconds(0);
     setRestTotal(0);
     setRestExerciseName('');
     stopRestTimerActivity(); // handles notification cancel internally
@@ -68,7 +65,6 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     if (restRef.current) clearInterval(restRef.current);
     const total = seconds;
     setRestTotal(total);
-    setRestSeconds(total);
     setRestExerciseName(exerciseName);
 
     const endTime = Date.now() + total * 1000;
@@ -85,7 +81,6 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     // Interval computes remaining from absolute endTime (Fix 7+8: aligns with lock screen)
     restRef.current = setInterval(() => {
       const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
-      setRestSeconds(remaining);
 
       if (remaining <= 0) {
         // Don't vibrate if this tick fired because iOS unfroze the interval on
@@ -108,7 +103,6 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     } else {
       currentEndTimeRef.current = newEndTime;
       setCurrentEndTime(newEndTime);
-      setRestSeconds(remaining);
       if (delta > 0) setRestTotal((prev) => prev + delta);
 
       adjustRestTimerActivity(delta);
@@ -140,13 +134,15 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
           }
           if (delta !== 0) {
             currentEndTimeRef.current += delta * 1000;
+            setCurrentEndTime(currentEndTimeRef.current);
+            // sync Live Activity + notification through the debounced path
+            adjustRestTimerActivity(delta);
           }
 
           const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
           if (remaining <= 0) {
             endRest(false); // no vibrate — notification already fired
           } else {
-            setRestSeconds(remaining);
             setTimeout(() => { wasBackgroundedRef.current = false; }, 500);
           }
         } else {
@@ -165,7 +161,6 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   }, []);
 
   return {
-    restSeconds,
     restTotal,
     restExerciseName,
     isResting,

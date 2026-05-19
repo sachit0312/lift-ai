@@ -53,6 +53,10 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
   // Debounced DB writes for set input changes (weight/reps/RPE)
   const pendingSetWritesRef = useRef<Map<string, { timer: ReturnType<typeof setTimeout>; data: Record<string, unknown> }>>(new Map());
 
+  // Tracks set IDs currently being deleted. Per-set granularity means
+  // unrelated deletes (e.g., on different exercises) can proceed in parallel.
+  const deletingSetIdsRef = useRef<Set<string>>(new Set());
+
   // Keep ref in sync
   blocksRef.current = exerciseBlocks;
 
@@ -207,54 +211,60 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     const block = blocksRef.current[blockIdx];
     const set = block?.sets[setIdx];
     if (!set) return;
+    if (deletingSetIdsRef.current.has(set.id)) return;
+    deletingSetIdsRef.current.add(set.id);
+    const setId = set.id;
+    try {
+      // Don't allow deleting the last set
+      if (block.sets.length <= 1) return;
 
-    // Don't allow deleting the last set
-    if (block.sets.length <= 1) return;
+      // Cancel any pending debounced write for this set
+      const pendingWrite = pendingSetWritesRef.current.get(set.id);
+      if (pendingWrite) {
+        clearTimeout(pendingWrite.timer);
+        pendingSetWritesRef.current.delete(set.id);
+      }
 
-    // Cancel any pending debounced write for this set
-    const pendingWrite = pendingSetWritesRef.current.get(set.id);
-    if (pendingWrite) {
-      clearTimeout(pendingWrite.timer);
-      pendingSetWritesRef.current.delete(set.id);
-    }
+      // Clear PR badge if deleting a PR set and revert bestE1RM
+      if (prSetIdsRef.current.has(set.id)) {
+        const updated = new Set(prSetIdsRef.current);
+        updated.delete(set.id);
+        prSetIdsRef.current = updated;
+        // Synchronously revert bestE1RM from cached original
+        const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
+        currentBestE1RMRef.current.set(block.exercise.id, originalBest);
+        setExerciseBlocks(prev => {
+          const next = [...prev];
+          const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
+          if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
+          return next;
+        });
+      }
 
-    // Clear PR badge if deleting a PR set and revert bestE1RM
-    if (prSetIdsRef.current.has(set.id)) {
-      const updated = new Set(prSetIdsRef.current);
-      updated.delete(set.id);
-      prSetIdsRef.current = updated;
-      // Synchronously revert bestE1RM from cached original
-      const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
-      currentBestE1RMRef.current.set(block.exercise.id, originalBest);
-      setExerciseBlocks(prev => {
-        const next = [...prev];
-        const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
-        if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
-        return next;
+      Vibration.vibrate(10);
+      await deleteWorkoutSet(set.id);
+      LayoutAnimation.configureNext({
+        duration: 250,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
       });
-    }
 
-    Vibration.vibrate(10);
-    await deleteWorkoutSet(set.id);
-    LayoutAnimation.configureNext({
-      duration: 250,
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-    });
+      // Compute remaining sets before state update for DB persistence
+      const remainingSets = block.sets.filter((_, i) => i !== setIdx);
 
-    // Compute remaining sets before state update for DB persistence
-    const remainingSets = block.sets.filter((_, i) => i !== setIdx);
+      updateBlockSets(blockIdx, (sets) => {
+        sets.splice(setIdx, 1);
+        // Renumber
+        sets.forEach((s, i) => { s.set_number = i + 1; });
+        return sets;
+      });
 
-    updateBlockSets(blockIdx, (sets) => {
-      sets.splice(setIdx, 1);
-      // Renumber
-      sets.forEach((s, i) => { s.set_number = i + 1; });
-      return sets;
-    });
-
-    // Persist renumbered set_numbers to SQLite
-    for (let i = 0; i < remainingSets.length; i++) {
-      await updateWorkoutSet(remainingSets[i].id, { set_number: i + 1 });
+      // Persist renumbered set_numbers to SQLite
+      await Promise.all(
+        remainingSets.map((s, i) => updateWorkoutSet(s.id, { set_number: i + 1 })),
+      );
+    } finally {
+      deletingSetIdsRef.current.delete(setId);
     }
   }, [updateBlockSets]);
 
@@ -300,6 +310,15 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
             // Re-read from ref at onPress time for latest set IDs
             const currentBlock = blocksRef.current[blockIdx];
             const setsToDelete = currentBlock ? currentBlock.sets : block.sets;
+            // Cancel any pending debounced writes for sets being deleted, otherwise
+            // they fire after deleteWorkoutSet and hit nonexistent rows.
+            for (const set of setsToDelete) {
+              const pending = pendingSetWritesRef.current.get(set.id);
+              if (pending) {
+                clearTimeout(pending.timer);
+                pendingSetWritesRef.current.delete(set.id);
+              }
+            }
             // Clean up PR state for any PR sets in this block
             const prIdsToRemove = setsToDelete.filter(s => prSetIdsRef.current.has(s.id));
             if (prIdsToRemove.length > 0) {

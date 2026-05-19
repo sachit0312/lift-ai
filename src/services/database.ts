@@ -118,6 +118,11 @@ interface ExerciseHistoryJoinRow {
   s_rpe: number | null;
   s_is_completed: number;
   s_notes: string | null;
+  s_target_weight: number | null;
+  s_target_reps: number | null;
+  s_target_rpe: number | null;
+  s_exercise_order: number | null;
+  s_programmed_order: number | null;
 }
 
 /** Row for PR calculation queries — exercise_id, weight, reps, rpe */
@@ -446,8 +451,20 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
   // Migration: rename workouts.notes → session_notes for clarity
   await database.runAsync('ALTER TABLE workouts RENAME COLUMN notes TO session_notes').catch(() => {});
 
-  // Migration: null out RPE on failure sets (failure = implicit RPE 10, no need to store it)
-  await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
+  // Migration: null out RPE on failure sets (failure = implicit RPE 10, no need to store it).
+  // Cheap pre-check avoids a full-table UPDATE on every cold start once the migration
+  // has effectively converged. .catch swallows transient errors so initSchema never
+  // crashes the app on boot — matches the pattern used by every other ALTER above.
+  try {
+    // EXISTS-style short-circuit: returns the first matching row (or null) and stops scanning.
+    // COUNT(*) aggregates the entire matching set first, defeating the purpose of the guard.
+    const stale = await database.getFirstAsync<{ one: number }>(
+      "SELECT 1 as one FROM workout_sets WHERE tag = 'failure' AND rpe IS NOT NULL LIMIT 1"
+    );
+    if (stale !== null && stale !== undefined) {
+      await database.runAsync("UPDATE workout_sets SET rpe = NULL WHERE tag = 'failure' AND rpe IS NOT NULL");
+    }
+  } catch {}
 
   // Migration: add form_notes and machine_notes to exercises (pre-user_exercise_notes era; later moved to user_exercise_notes table)
   await database.runAsync('ALTER TABLE exercises ADD COLUMN form_notes TEXT').catch(() => {});
@@ -595,12 +612,16 @@ export function getAllTemplates(): Promise<Template[]> {
   );
 }
 
-export function createTemplate(name: string): Promise<Template> {
+export async function createTemplate(name: string): Promise<Template> {
+  const userId = await resolveUserId();
   return withDb('createTemplate', async (database) => {
     const id = uuid();
     const now = new Date().toISOString();
-    await database.runAsync('INSERT INTO templates (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)', id, name, now, now);
-    return { id, user_id: 'local', name, created_at: now, updated_at: now };
+    await database.runAsync(
+      'INSERT INTO templates (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      id, userId, name, now, now,
+    );
+    return { id, user_id: userId, name, created_at: now, updated_at: now };
   });
 }
 
@@ -698,14 +719,29 @@ export function removeExerciseFromTemplate(id: string): Promise<void> {
   });
 }
 
-/** Batch-update sort_order for template exercises. Takes junction-table row IDs (template_exercises.id), not exercise IDs. */
+/** Batch-update sort_order for template exercises. Takes junction-table row IDs (template_exercises.id), not exercise IDs.
+ *  Single CASE WHEN UPDATE — was N sequential UPDATEs. Templates rarely have >20 exercises so chunking is not needed,
+ *  but applied defensively for parity with stampExerciseOrder. */
 export function updateTemplateExerciseOrder(templateId: string, orderedIds: string[]): Promise<void> {
   return withDb('updateTemplateExerciseOrder', async (database) => {
+    if (orderedIds.length === 0) return;
+    const MAX_PER_CHUNK = 300;
     await database.withTransactionAsync(async () => {
-      for (let i = 0; i < orderedIds.length; i++) {
+      for (let start = 0; start < orderedIds.length; start += MAX_PER_CHUNK) {
+        const chunk = orderedIds.slice(start, start + MAX_PER_CHUNK);
+        const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+        const placeholders = chunk.map(() => '?').join(',');
+        const binds: (string | number)[] = [];
+        for (let i = 0; i < chunk.length; i++) {
+          binds.push(chunk[i], start + i);
+        }
+        for (const id of chunk) {
+          binds.push(id);
+        }
+        binds.push(templateId);
         await database.runAsync(
-          'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-          i, orderedIds[i], templateId,
+          `UPDATE template_exercises SET sort_order = CASE id ${whens} END WHERE id IN (${placeholders}) AND template_id = ?`,
+          ...binds,
         );
       }
     });
@@ -861,14 +897,34 @@ export function deleteWorkoutSet(id: string): Promise<void> {
   });
 }
 
-/** Stamp exercise_order on all sets for a finished workout based on block positions */
+/** Stamp exercise_order on all sets for a finished workout based on block positions.
+ *  Issues a single CASE WHEN UPDATE instead of N separate statements — meaningful
+ *  on workout finish where 30-50 sets are common. SQLite parameter limit is 999;
+ *  guard for safety even though typical workouts are well below. */
 export function stampExerciseOrder(workoutId: string, entries: Array<{ id: string; order: number }>): Promise<void> {
   return withDb('stampExerciseOrder', async (database) => {
+    if (entries.length === 0) return;
+    // Each entry contributes 3 binds: WHEN ?, THEN ?, IN (..., ?, ...).
+    // SQLite's parameter limit is 999 — chunk defensively.
+    const MAX_PER_CHUNK = 300;
     await database.withTransactionAsync(async () => {
-      for (const { id, order } of entries) {
+      for (let i = 0; i < entries.length; i += MAX_PER_CHUNK) {
+        const chunk = entries.slice(i, i + MAX_PER_CHUNK);
+        const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+        const placeholders = chunk.map(() => '?').join(',');
+        const binds: (string | number)[] = [];
+        for (const { id, order } of chunk) {
+          binds.push(id, order);
+        }
+        for (const { id } of chunk) {
+          binds.push(id);
+        }
+        // Scope to workoutId as defense in depth — a stray UUID collision
+        // can't update sets from a different workout.
+        binds.push(workoutId);
         await database.runAsync(
-          'UPDATE workout_sets SET exercise_order = ? WHERE id = ?',
-          order, id,
+          `UPDATE workout_sets SET exercise_order = CASE id ${whens} END WHERE id IN (${placeholders}) AND workout_id = ?`,
+          ...binds,
         );
       }
     });
@@ -949,11 +1005,26 @@ export function applyWorkoutChangesToTemplate(plan: import('../utils/setDiff').T
         // This is intentional: the user skipped them this session, not permanently.
         const remainder = allRows.map(r => r.id).filter(id => !updatedSet.has(id));
         const finalOrder = [...plan.reorderedTemplateExerciseIds, ...remainder];
-        for (let i = 0; i < finalOrder.length; i++) {
-          await database.runAsync(
-            'UPDATE template_exercises SET sort_order = ? WHERE id = ? AND template_id = ?',
-            i, finalOrder[i], plan.templateId,
-          );
+        if (finalOrder.length > 0) {
+          // Same CASE WHEN pattern as updateTemplateExerciseOrder, inlined here
+          // because we're already inside a transaction (nested withTransactionAsync
+          // is not supported on a single SQLite connection).
+          const MAX_PER_CHUNK = 300;
+          for (let start = 0; start < finalOrder.length; start += MAX_PER_CHUNK) {
+            const chunk = finalOrder.slice(start, start + MAX_PER_CHUNK);
+            const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+            const placeholders = chunk.map(() => '?').join(',');
+            const binds: (string | number)[] = [];
+            for (let i = 0; i < chunk.length; i++) {
+              binds.push(chunk[i], start + i);
+            }
+            for (const id of chunk) binds.push(id);
+            binds.push(plan.templateId);
+            await database.runAsync(
+              `UPDATE template_exercises SET sort_order = CASE id ${whens} END WHERE id IN (${placeholders}) AND template_id = ?`,
+              ...binds,
+            );
+          }
         }
       }
     });
@@ -986,7 +1057,9 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
          w.coach_notes as w_coach_notes, w.exercise_coach_notes as w_exercise_coach_notes, w.session_notes as w_session_notes,
          ws.id as s_id, ws.workout_id as s_workout_id, ws.exercise_id as s_exercise_id,
          ws.set_number as s_set_number, ws.reps as s_reps, ws.weight as s_weight,
-         ws.tag as s_tag, ws.rpe as s_rpe, ws.is_completed as s_is_completed, ws.notes as s_notes
+         ws.tag as s_tag, ws.rpe as s_rpe, ws.is_completed as s_is_completed, ws.notes as s_notes,
+         ws.target_weight as s_target_weight, ws.target_reps as s_target_reps, ws.target_rpe as s_target_rpe,
+         ws.exercise_order as s_exercise_order, ws.programmed_order as s_programmed_order
        FROM workouts w
        INNER JOIN workout_sets ws ON ws.workout_id = w.id
        WHERE w.id IN (${placeholders}) AND ws.exercise_id = ?
@@ -1027,11 +1100,11 @@ export function getExerciseHistory(exerciseId: string, limit = 5): Promise<{ wor
         rpe: r.s_rpe,
         is_completed: r.s_is_completed,
         notes: r.s_notes,
-        target_weight: null,
-        target_reps: null,
-        target_rpe: null,
-        exercise_order: 0,
-        programmed_order: null,
+        target_weight: r.s_target_weight ?? null,
+        target_reps: r.s_target_reps ?? null,
+        target_rpe: r.s_target_rpe ?? null,
+        exercise_order: r.s_exercise_order ?? 0,
+        programmed_order: r.s_programmed_order ?? null,
       }));
     }
 
@@ -1094,19 +1167,30 @@ export function getPRsThisWeek(): Promise<number> {
       }
     }
 
-    // Calculate week best for each exercise and count PRs
+    // Pre-group week sets by exercise_id (single pass) so the per-exercise PR
+    // check below doesn't re-filter the full weekSets array E times.
+    const weekSetsByExercise = new Map<string, PRSetRow[]>();
+    for (const s of weekSets) {
+      const bucket = weekSetsByExercise.get(s.exercise_id);
+      if (bucket) bucket.push(s);
+      else weekSetsByExercise.set(s.exercise_id, [s]);
+    }
+
     let prCount = 0;
     for (const exId of exerciseIds) {
-      const weekBest = weekSets
-        .filter((s: PRSetRow) => s.exercise_id === exId)
-        .reduce((max: number, s: PRSetRow) => {
-          const e1rm = calculateEstimated1RM(s.weight, s.reps, s.rpe);
-          return e1rm > max ? e1rm : max;
-        }, 0);
+      const weekSetsForEx = weekSetsByExercise.get(exId) ?? [];
+      let weekBest = 0;
+      for (const s of weekSetsForEx) {
+        const e1rm = calculateEstimated1RM(s.weight, s.reps, s.rpe);
+        if (e1rm > weekBest) weekBest = e1rm;
+      }
 
       const priorBest = priorBestByExercise.get(exId) ?? 0;
 
-      if (weekBest > priorBest && priorBest > 0) {
+      // weekBest is always > 0 here because the SELECT filters on weight + reps
+      // being non-null and is_completed = 1. priorBest = 0 means the user has
+      // no prior history for this exercise — that first-ever lift IS a PR.
+      if (weekBest > priorBest) {
         prCount++;
       }
     }
@@ -1132,28 +1216,41 @@ async function buildUpcomingExercises(
     workoutId,
   );
 
-  const exercises: (UpcomingWorkoutExercise & { exercise: Exercise; sets: UpcomingWorkoutSet[] })[] = [];
+  if (exerciseRows.length === 0) return [];
 
-  for (const r of exerciseRows) {
-    const rawSets = await database.getAllAsync<UpcomingWorkoutSetRow>(
-      'SELECT * FROM upcoming_workout_sets WHERE upcoming_exercise_id = ? ORDER BY set_number',
-      r.id,
-    );
-    const sets: UpcomingWorkoutSet[] = rawSets.map(mapUpcomingWorkoutSetRow);
+  // Batched sets fetch: one IN query for all upcoming_exercise_ids, then group
+  // by upcoming_exercise_id in memory. Replaces an N+1 of one query per
+  // exercise — which was 8-15 sequential round-trips on workout-start.
+  const ueIds = exerciseRows.map((r) => r.id);
+  const placeholders = ueIds.map(() => '?').join(',');
+  const rawSets = await database.getAllAsync<UpcomingWorkoutSetRow>(
+    `SELECT * FROM upcoming_workout_sets
+     WHERE upcoming_exercise_id IN (${placeholders})
+     ORDER BY upcoming_exercise_id, set_number`,
+    ...ueIds,
+  );
 
-    exercises.push({
-      id: r.id,
-      upcoming_workout_id: r.upcoming_workout_id,
-      exercise_id: r.exercise_id,
-      order: r.sort_order,
-      rest_seconds: r.rest_seconds,
-      notes: r.notes,
-      exercise: parseExerciseFromJoin(r),
-      sets,
-    });
+  const setsByExerciseId = new Map<string, UpcomingWorkoutSet[]>();
+  for (const row of rawSets) {
+    const mapped = mapUpcomingWorkoutSetRow(row);
+    const bucket = setsByExerciseId.get(row.upcoming_exercise_id);
+    if (bucket) {
+      bucket.push(mapped);
+    } else {
+      setsByExerciseId.set(row.upcoming_exercise_id, [mapped]);
+    }
   }
 
-  return exercises;
+  return exerciseRows.map((r) => ({
+    id: r.id,
+    upcoming_workout_id: r.upcoming_workout_id,
+    exercise_id: r.exercise_id,
+    order: r.sort_order,
+    rest_seconds: r.rest_seconds,
+    notes: r.notes,
+    exercise: parseExerciseFromJoin(r),
+    sets: setsByExerciseId.get(r.id) ?? [],
+  }));
 }
 
 export function getUpcomingWorkoutForToday(): Promise<{
@@ -1282,14 +1379,34 @@ export function getCurrentE1RM(exerciseId: string): Promise<number | null> {
   });
 }
 
+// ─── Combined 1RM summary (single-scan) ───
+
+export interface E1RMSummary {
+  /** Best raw estimated 1RM across all completed sets (no decay). */
+  best: number;
+  /** Freshness-weighted estimated 1RM (6-week half-life decay). */
+  current: number;
+  /** Best e1RM with confidence tier + margin (Tuchscherer / ensemble engine). */
+  confidenceResult: E1RMResult;
+}
+
 /**
- * Get the best estimated 1RM with confidence metadata for an exercise.
- * Returns the highest e1RM result with its confidence tier and margin.
+ * Combined 1RM query: returns best (raw), current (freshness-weighted), and
+ * confidence-tier result in ONE JOIN scan over workout_sets × workouts.
+ *
+ * Currently replaces ExerciseHistoryContent's single getCurrentE1RM call while
+ * also surfacing best and confidence for future callers. Note: the three values
+ * are independent maxima — best/current/confidence may originate from different
+ * rows because each uses a different scoring formula.
+ *
+ * The pre-existing single-purpose functions (getBestE1RM, getCurrentE1RM)
+ * remain exported for callers that need only one value (e.g., PR detection
+ * in useWorkoutLifecycle / useSetCompletion).
  */
-export function getE1RMWithConfidence(exerciseId: string): Promise<E1RMResult | null> {
-  return withDb('getE1RMWithConfidence', async (database) => {
-    const rows = await database.getAllAsync<PRSetRow>(
-      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe
+export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> {
+  return withDb('getE1RMSummary', async (database) => {
+    const rows = await database.getAllAsync<PRSetWithDateRow>(
+      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe, w.finished_at
        FROM workout_sets ws
        JOIN workouts w ON ws.workout_id = w.id
        WHERE w.finished_at IS NOT NULL
@@ -1301,14 +1418,28 @@ export function getE1RMWithConfidence(exerciseId: string): Promise<E1RMResult | 
     );
     if (rows.length === 0) return null;
 
-    let bestResult: E1RMResult | null = null;
+    const now = Date.now();
+    let best = 0;
+    let current = 0;
+    let confidence: E1RMResult | null = null;
+
     for (const r of rows) {
+      const rawE1RM = calculateEstimated1RM(r.weight, r.reps, r.rpe);
+      if (rawE1RM > best) best = rawE1RM;
+
+      const daysAgo = (now - new Date(r.finished_at).getTime()) / (1000 * 60 * 60 * 24);
+      const decayFactor = Math.exp(-0.693 * daysAgo / FRESHNESS_HALF_LIFE_DAYS);
+      const weighted = rawE1RM * decayFactor;
+      if (weighted > current) current = weighted;
+
       const result = calculateE1RM(r.weight, r.reps, r.rpe);
-      if (!bestResult || result.value > bestResult.value) {
-        bestResult = result;
+      if (!confidence || result.value > confidence.value) {
+        confidence = result;
       }
     }
-    return bestResult && bestResult.value > 0 ? bestResult : null;
+
+    if (best <= 0 || !confidence) return null;
+    return { best, current, confidenceResult: confidence };
   });
 }
 

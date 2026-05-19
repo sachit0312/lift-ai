@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   TextInput,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
@@ -17,7 +18,10 @@ import {
   getUserExerciseNotes,
 } from '../services/database';
 import { fireAndForgetSync } from '../services/sync';
-import ExerciseHistoryContent from './ExerciseHistoryContent';
+// Lazy: ExerciseHistoryContent pulls react-native-chart-kit (+ react-native-svg).
+// Loading at mount would parse those into every modal-opening tab. Defer until
+// the user activates the History tab inside the modal.
+const ExerciseHistoryContent = React.lazy(() => import('./ExerciseHistoryContent'));
 import type { Exercise, ExerciseNotes, ExerciseWithNotes } from '../types/database';
 
 interface Props {
@@ -222,7 +226,13 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
 
           {/* History tab — always mounted to avoid re-fetch on tab switch */}
           <View style={activeTab !== 'history' ? styles.hiddenTab : styles.visibleTab}>
-            <ExerciseHistoryContent exercise={exercise} />
+            <Suspense fallback={
+              <View style={styles.historyFallback}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            }>
+              <ExerciseHistoryContent exercise={exercise} />
+            </Suspense>
           </View>
         </View>
       </View>
@@ -379,5 +389,9 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     borderWidth: 1,
     borderColor: colors.borderSubtle,
+  },
+  historyFallback: {
+    paddingVertical: spacing.xl,
+    alignItems: 'center',
   },
 });

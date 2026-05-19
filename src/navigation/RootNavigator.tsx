@@ -15,9 +15,9 @@ export type AuthStackParamList = {
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
 export default function RootNavigator() {
-  const { session, loading, syncing } = useAuth();
+  const { session, authPhase } = useAuth();
 
-  if (loading || syncing) {
+  if (authPhase !== 'ready') {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
         <ActivityIndicator size="large" color={colors.primary} />

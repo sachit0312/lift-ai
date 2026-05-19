@@ -17,6 +17,13 @@ export interface WidgetState {
   current: WidgetSetState;
   isResting: boolean;
   restEndTime: number;
+  /**
+   * The original rest duration in seconds, used by the lock-screen widget as
+   * the progress bar denominator. Persists across app resume so the bar
+   * proportion stays correct. Set on rest start; grows on +15s adjustments;
+   * never shrinks (see liveActivity.ts currentMaxRestSeconds).
+   */
+  restMaxSeconds: number;
   workoutActive: boolean;
 }
 

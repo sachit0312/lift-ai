@@ -1,14 +1,59 @@
+import React, { Suspense } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fontSize } from '../theme';
+// Workout is the default tab — keep eager so cold-start renders the first frame immediately.
 import WorkoutScreen from '../screens/WorkoutScreen';
 import TemplatesScreen from '../screens/TemplatesScreen';
 import TemplateDetailScreen from '../screens/TemplateDetailScreen';
 import ExercisePickerScreen from '../screens/ExercisePickerScreen';
-import HistoryScreen from '../screens/HistoryScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import ExercisesScreen from '../screens/ExercisesScreen';
+
+// Lazy: these tabs pull heavy transitive deps (chart-kit, etc.) that don't need
+// to parse at boot. React.lazy with a Suspense fallback shifts the cost to first
+// activation of each tab.
+const HistoryScreen = React.lazy(() => import('../screens/HistoryScreen'));
+const ProfileScreen = React.lazy(() => import('../screens/ProfileScreen'));
+const ExercisesScreen = React.lazy(() => import('../screens/ExercisesScreen'));
+
+function TabScreenFallback() {
+  return (
+    <View style={fallbackStyles.center}>
+      <ActivityIndicator color={colors.primary} />
+    </View>
+  );
+}
+
+const fallbackStyles = StyleSheet.create({
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+  },
+});
+
+// Wrap a lazy screen with Suspense so each tab can be loaded independently.
+// React Navigation's tab routes mount the component eagerly when the tab is
+// selected; Suspense yields a fallback frame while the chunk parses.
+function lazyTabScreen<P extends object>(Component: React.LazyExoticComponent<React.ComponentType<P>>): React.ComponentType<P> {
+  const LazyTabScreen = function LazyTabScreen(props: P) {
+    return (
+      <Suspense fallback={<TabScreenFallback />}>
+        <Component {...props} />
+      </Suspense>
+    );
+  };
+  // displayName helps with React DevTools and error boundaries
+  const inner = (Component as { displayName?: string; name?: string }).displayName ?? 'Tab';
+  LazyTabScreen.displayName = `LazyTab(${inner})`;
+  return LazyTabScreen;
+}
+
+const HistoryTab = lazyTabScreen(HistoryScreen);
+const ProfileTab = lazyTabScreen(ProfileScreen);
+const ExercisesTab = lazyTabScreen(ExercisesScreen);
 
 export type TemplatesStackParamList = {
   TemplatesList: undefined;
@@ -86,9 +131,9 @@ export default function TabNavigator() {
     >
       <Tab.Screen name="Workout" component={WorkoutScreen} />
       <Tab.Screen name="Templates" component={TemplatesStack} />
-      <Tab.Screen name="Exercises" component={ExercisesScreen} />
-      <Tab.Screen name="History" component={HistoryScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Exercises" component={ExercisesTab} />
+      <Tab.Screen name="History" component={HistoryTab} />
+      <Tab.Screen name="Profile" component={ProfileTab} />
     </Tab.Navigator>
   );
 }

@@ -1,9 +1,9 @@
 import { Platform } from 'react-native';
 import * as Sentry from '@sentry/react-native';
-import { getItem } from '../../../modules/shared-user-defaults';
+import { getItemAndRemove } from '../../../modules/shared-user-defaults';
 import { applyPendingWidgetActions } from '../liveActivity';
 
-const mockGetItem = getItem as jest.MockedFunction<typeof getItem>;
+const mockGetItem = getItemAndRemove as jest.MockedFunction<typeof getItemAndRemove>;
 const mockCaptureException = Sentry.captureException as jest.MockedFunction<typeof Sentry.captureException>;
 
 describe('applyPendingWidgetActions error handling', () => {

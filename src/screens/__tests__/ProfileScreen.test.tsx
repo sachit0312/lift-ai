@@ -6,7 +6,7 @@ jest.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     session: { access_token: 'test-jwt-token-123' },
     user: { email: 'test@example.com' },
-    loading: false,
+    authPhase: 'ready',
   }),
 }));
 
