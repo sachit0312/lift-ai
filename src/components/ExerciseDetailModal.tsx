@@ -8,8 +8,10 @@ import {
   TextInput,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Sentry from '@sentry/react-native';
 import { colors, spacing, fontSize, fontWeight, borderRadius, layout, modalStyles } from '../theme';
 import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import {
@@ -36,11 +38,20 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
   const [machineNotes, setMachineNotes] = useState('');
   const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
   const [loadedNotes, setLoadedNotes] = useState<ExerciseNotes>({ form_notes: null, machine_notes: null });
+  // True when the initial notes fetch failed. Inputs are stuck blank in that case, but
+  // blank-because-load-failed must never be treated as blank-because-no-notes-saved-yet —
+  // that would let a later edit silently overwrite real stored notes. So we disable
+  // editing until the modal is reopened and the fetch succeeds.
+  const [notesLoadError, setNotesLoadError] = useState(false);
 
   const formNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const machineNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingFormNotesRef = useRef<string | null>(null);
   const pendingMachineNotesRef = useRef<string | null>(null);
+  // Dedupe alerts across a run of debounced save failures (e.g. offline while typing) —
+  // only the first failure since the last success surfaces an Alert.
+  const formSaveFailedRef = useRef(false);
+  const machineSaveFailedRef = useRef(false);
   // Refs to avoid stale closures in flush/debounce callbacks
   const exerciseRef = useRef(exercise);
   exerciseRef.current = exercise;
@@ -50,11 +61,18 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
   useEffect(() => {
     if (!visible || !exercise) return;
     setActiveTab('details');
+    setNotesLoadError(false);
     getUserExerciseNotes(exercise.id).then(n => {
       const notes = n ?? { form_notes: null, machine_notes: null };
       setLoadedNotes(notes);
       setFormNotes(notes.form_notes ?? '');
       setMachineNotes(notes.machine_notes ?? '');
+    }).catch(e => {
+      if (__DEV__) console.error('getUserExerciseNotes failed', e);
+      Sentry.captureException(e);
+      // Fields stay blank, but flagged as "failed to load" (not "nothing saved") so
+      // editing is disabled below rather than risking a save that wipes real notes.
+      setNotesLoadError(true);
     });
   }, [visible, exercise?.id]);
 
@@ -85,7 +103,13 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
       pendingMachineNotesRef.current = null;
     }
     if (promises.length > 0) {
-      await Promise.allSettled(promises);
+      const results = await Promise.allSettled(promises);
+      results.forEach(r => {
+        if (r.status === 'rejected') {
+          if (__DEV__) console.error('flushPending note write failed', r.reason);
+          Sentry.captureException(r.reason);
+        }
+      });
       fireAndForgetSync();
     }
   }
@@ -97,7 +121,18 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
     formNotesTimerRef.current = setTimeout(() => {
       const ex = exerciseRef.current;
       if (!ex) return;
-      updateExerciseFormNotes(ex.id, text || null);
+      updateExerciseFormNotes(ex.id, text || null).then(() => {
+        formSaveFailedRef.current = false;
+      }).catch(e => {
+        if (__DEV__) console.error('updateExerciseFormNotes failed', e);
+        Sentry.captureException(e);
+        // Debounced, so a flaky connection could fail on every keystroke — only
+        // alert once per run of failures, not on every save attempt.
+        if (!formSaveFailedRef.current) {
+          formSaveFailedRef.current = true;
+          Alert.alert('Note Not Saved', "Your form note couldn't be saved. Check your connection — it will keep retrying as you type.");
+        }
+      });
       fireAndForgetSync();
       pendingFormNotesRef.current = null;
       if (onExerciseUpdated) {
@@ -115,7 +150,16 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
     machineNotesTimerRef.current = setTimeout(() => {
       const ex = exerciseRef.current;
       if (!ex) return;
-      updateExerciseMachineNotes(ex.id, text || null);
+      updateExerciseMachineNotes(ex.id, text || null).then(() => {
+        machineSaveFailedRef.current = false;
+      }).catch(e => {
+        if (__DEV__) console.error('updateExerciseMachineNotes failed', e);
+        Sentry.captureException(e);
+        if (!machineSaveFailedRef.current) {
+          machineSaveFailedRef.current = true;
+          Alert.alert('Note Not Saved', "Your machine note couldn't be saved. Check your connection — it will keep retrying as you type.");
+        }
+      });
       fireAndForgetSync();
       pendingMachineNotesRef.current = null;
       if (onExerciseUpdated) {
@@ -181,6 +225,14 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
           <View style={activeTab !== 'details' ? styles.hiddenTab : styles.visibleTab}>
               <ScrollView style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 {/* Form Notes */}
+                {notesLoadError && (
+                  <View style={styles.loadErrorBanner}>
+                    <Ionicons name="warning-outline" size={14} color={colors.error} />
+                    <Text style={styles.loadErrorText}>
+                      Couldn't load saved notes. Editing is disabled — close and reopen to retry.
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.section}>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Form Notes</Text>
@@ -192,6 +244,7 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
                   <TextInput
                     style={styles.notesInput}
                     multiline
+                    editable={!notesLoadError}
                     value={formNotes}
                     onChangeText={handleFormNotesChange}
                     placeholder="Grip width, foot position, cues..."
@@ -212,6 +265,7 @@ export default function ExerciseDetailModal({ visible, exercise, onClose, onExer
                   <TextInput
                     style={styles.notesInput}
                     multiline
+                    editable={!notesLoadError}
                     value={machineNotes}
                     onChangeText={handleMachineNotesChange}
                     placeholder="Seat position, attachments, pin settings..."
@@ -337,6 +391,20 @@ const styles = StyleSheet.create({
   },
   section: {
     marginTop: spacing.lg,
+  },
+  loadErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.errorBg,
+  },
+  loadErrorText: {
+    flex: 1,
+    color: colors.error,
+    fontSize: fontSize.xs,
   },
   sectionHeader: {
     flexDirection: 'row',

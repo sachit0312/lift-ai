@@ -6,7 +6,7 @@
 [![Expo](https://img.shields.io/badge/Expo-54-000020?logo=expo&logoColor=white)](https://expo.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3FCF8E?logo=supabase&logoColor=white)](https://supabase.com/)
-[![iOS](https://img.shields.io/badge/iOS-16+-000000?logo=apple&logoColor=white)](https://developer.apple.com/ios/)
+[![iOS](https://img.shields.io/badge/iOS-17+-000000?logo=apple&logoColor=white)](https://developer.apple.com/ios/)
 
 A React Native/Expo fitness app that tracks weightlifting workouts with smart features like confidence-aware 1RM estimation, iOS Live Activity widgets, cloud sync via Supabase, and AI coaching through an MCP server integration with Claude.
 
@@ -32,7 +32,7 @@ Local-first design
 SQLite (expo-sqlite) <──── bidirectional sync ────> Supabase (PostgreSQL)
 ```
 
-- **Navigation**: 5-tab layout -- Workout / Templates / History / Exercises / Profile
+- **Navigation**: 5-tab layout -- Workout / Templates / Exercises / History / Profile
 - **Auth**: Supabase Auth (email + Google OAuth)
 - **AI Coaching**: Separate MCP server repo (`lift-ai-mcp`) connects Claude to your training data
 - **Live Activity**: Native iOS module via `shared-user-defaults` for lock screen widgets
@@ -69,7 +69,7 @@ lift-ai/
 
 - Node.js 18+
 - Xcode 15+
-- Expo CLI (`npm install -g expo-cli`)
+- No global CLI needed -- SDK 54 uses local `npx expo`
 
 ### Install
 
@@ -79,7 +79,7 @@ npm install
 
 ### Configure
 
-Create a `.env` file in the project root:
+Create `.env.development` and `.env.production` in the project root (dev/prod Supabase projects are kept separate):
 
 ```env
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url

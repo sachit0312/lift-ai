@@ -1470,9 +1470,12 @@ export interface E1RMSummary {
  * are independent maxima — best/current/confidence may originate from different
  * rows because each uses a different scoring formula.
  *
- * The pre-existing single-purpose functions (getBestE1RM, getCurrentE1RM)
- * remain exported for callers that need only one value (e.g., PR detection
- * in useWorkoutLifecycle / useSetCompletion).
+ * The pre-existing single-purpose function getBestE1RM remains exported for
+ * callers that need only that one value (e.g., PR detection in
+ * useWorkoutLifecycle / useSetCompletion). getCurrentE1RM has no production
+ * callers today — it is exercised only by its own unit tests
+ * (src/__tests__/services/database-getCurrentE1RM-decay.test.ts,
+ * src/services/__tests__/database.test.ts) — kept for those.
  */
 export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> {
   return withDb('getE1RMSummary', async (database) => {
