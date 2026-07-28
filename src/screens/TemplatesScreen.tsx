@@ -4,6 +4,7 @@ import {
   Modal, TextInput, KeyboardAvoidingView, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Sentry from '@sentry/react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -36,7 +37,10 @@ export default function TemplatesScreen() {
         exerciseCount: countsMap.get(t.id) ?? 0,
       }));
       setTemplates(withCounts);
-    }).catch((e: unknown) => console.error('Failed to load templates', e))
+    }).catch((e: unknown) => {
+      if (__DEV__) console.error('Failed to load templates', e);
+      Sentry.captureException(e);
+    })
       .finally(() => { setLoading(false); hasLoadedOnce.current = true; });
   }, []);
 
@@ -53,7 +57,8 @@ export default function TemplatesScreen() {
           createTemplate(name.trim()).then((t) => {
             navigation.navigate('TemplateDetail', { templateId: t.id, templateName: t.name });
           }).catch((e) => {
-            console.error('Failed to create template', e);
+            if (__DEV__) console.error('Failed to create template', e);
+            Sentry.captureException(e);
             Alert.alert('Error', 'Failed to create template. Please try again.');
           });
         }
@@ -70,7 +75,8 @@ export default function TemplatesScreen() {
     createTemplate(name).then((t) => {
       navigation.navigate('TemplateDetail', { templateId: t.id, templateName: t.name });
     }).catch((e) => {
-      console.error('Failed to create template', e);
+      if (__DEV__) console.error('Failed to create template', e);
+      Sentry.captureException(e);
       Alert.alert('Error', 'Failed to create template. Please try again.');
     });
   };
@@ -83,7 +89,8 @@ export default function TemplatesScreen() {
         style: 'destructive',
         onPress: () => {
           deleteTemplate(template.id).then(loadTemplates).catch((e) => {
-            console.error('Failed to delete template', e);
+            if (__DEV__) console.error('Failed to delete template', e);
+            Sentry.captureException(e);
             Alert.alert('Error', 'Failed to delete template. Please try again.');
           });
           deleteTemplateFromSupabase(template.id);

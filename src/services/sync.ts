@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
-import { getDb, clearLocalUpcomingWorkout, getCurrentUserId } from './database';
+import { getDb, clearLocalUpcomingWorkout } from './database';
 
 function handleSyncError(label: string, error: unknown): void {
   if (__DEV__) console.error(`Sync ${label} error:`, error);

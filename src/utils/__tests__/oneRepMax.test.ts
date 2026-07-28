@@ -1,4 +1,5 @@
 import { calculateEstimated1RM, calculateE1RM, getPRGatingMargin } from '../oneRepMax';
+import { lookupPercentage } from '../../data/rpeTable';
 
 // ─── Backwards Compat: calculateEstimated1RM returns a number ───
 
@@ -29,6 +30,12 @@ describe('calculateEstimated1RM (backwards compat)', () => {
 
   it('produces higher estimates for higher weight at same reps', () => {
     expect(calculateEstimated1RM(200, 5)).toBeGreaterThan(calculateEstimated1RM(100, 5));
+  });
+
+  it('returns the .value of calculateE1RM (delegates to full API)', () => {
+    const full = calculateE1RM(225, 5, 8);
+    const num = calculateEstimated1RM(225, 5, 8);
+    expect(num).toBe(full.value);
   });
 });
 
@@ -187,10 +194,30 @@ describe('calculateE1RM', () => {
       expect(calculateE1RM(225, 0).value).toBe(225);
     });
 
+    it('handles negative reps as 0', () => {
+      expect(calculateE1RM(100, -3).value).toBe(100);
+    });
+
     it('handles decimal weights', () => {
       const result = calculateE1RM(67.5, 8, 8);
       expect(result.value).toBeGreaterThan(67.5);
       expect(result.method).toBe('rpe_table');
+    });
+  });
+
+  // ─── Brzycki formula guard (undefined beyond 36 reps) ───
+
+  describe('brzycki guard at reps >= 36', () => {
+    it('returns weight (formula undefined) for ensemble at 36 reps', () => {
+      const r = calculateE1RM(100, 36);
+      // brzycki returns weight at 36+; ensemble weighted average still produces a finite number > 0
+      expect(r.value).toBeGreaterThan(0);
+      expect(Number.isFinite(r.value)).toBe(true);
+    });
+
+    it('extreme rep counts (>=50) still produce finite output', () => {
+      const r = calculateE1RM(100, 100);
+      expect(Number.isFinite(r.value)).toBe(true);
     });
   });
 
@@ -230,5 +257,45 @@ describe('getPRGatingMargin', () => {
 
   it('returns 0.03 for low confidence (3% buffer)', () => {
     expect(getPRGatingMargin('low')).toBe(0.03);
+  });
+});
+
+// ─── rpeTable lookupPercentage boundaries ───
+
+describe('rpeTable lookupPercentage boundaries', () => {
+  it('returns exact table value at exact (reps, RPE) cells', () => {
+    expect(lookupPercentage(1, 10)).toBeCloseTo(1.0, 3);
+    expect(lookupPercentage(5, 8)).toBeCloseTo(0.811, 3);
+    expect(lookupPercentage(10, 7)).toBeCloseTo(0.653, 3);
+  });
+
+  it('interpolates between RPE columns (rpe=7.25 between 7.0 and 7.5)', () => {
+    const at7 = lookupPercentage(5, 7.0);
+    const at75 = lookupPercentage(5, 7.5);
+    const at725 = lookupPercentage(5, 7.25);
+    expect(at725).toBeCloseTo((at7 + at75) / 2, 3);
+  });
+
+  it('interpolates between rep rows (4.5 reps between 4 and 5)', () => {
+    const at4 = lookupPercentage(4, 8);
+    const at5 = lookupPercentage(5, 8);
+    const at45 = lookupPercentage(4.5, 8);
+    expect(at45).toBeCloseTo((at4 + at5) / 2, 3);
+  });
+
+  it('clamps reps below 1 to row 1', () => {
+    expect(lookupPercentage(0.5, 8)).toBeCloseTo(lookupPercentage(1, 8), 3);
+  });
+
+  it('clamps reps above 12 to row 12', () => {
+    expect(lookupPercentage(15, 8)).toBeCloseTo(lookupPercentage(12, 8), 3);
+  });
+
+  it('clamps RPE below 6 to column 6.0', () => {
+    expect(lookupPercentage(5, 5)).toBeCloseTo(lookupPercentage(5, 6.0), 3);
+  });
+
+  it('clamps RPE above 10 to column 10.0', () => {
+    expect(lookupPercentage(5, 11)).toBeCloseTo(lookupPercentage(5, 10.0), 3);
   });
 });

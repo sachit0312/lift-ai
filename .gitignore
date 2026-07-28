@@ -51,3 +51,9 @@ yarn-error.*
 
 # temp query scripts
 query_*.mjs
+
+# Playwright MCP screenshots (scratch, not referenced by app/docs)
+.playwright-mcp/
+
+# Supabase CLI scratch files (rewritten on every invocation)
+supabase/.temp/
