@@ -7,7 +7,6 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
-  getRestTimerRemainingSeconds,
   startWorkoutActivity,
   updateWorkoutActivityForSet,
   updateWorkoutActivityForRest,
@@ -287,39 +286,6 @@ describe('liveActivity service', () => {
       expect(LiveActivity.updateActivity).not.toHaveBeenCalled();
       expect(LiveActivity.stopActivity).not.toHaveBeenCalled();
       expect(Notifications.requestPermissionsAsync).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('getRestTimerRemainingSeconds', () => {
-    it('returns null when no timer is active', () => {
-      expect(getRestTimerRemainingSeconds()).toBeNull();
-    });
-
-    it('returns remaining seconds when timer is active', async () => {
-      await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
-
-      const remaining = getRestTimerRemainingSeconds();
-      expect(remaining).not.toBeNull();
-      expect(remaining).toBeGreaterThanOrEqual(118);
-      expect(remaining).toBeLessThanOrEqual(120);
-    });
-
-    it('returns remaining seconds for a short-duration timer', async () => {
-      await startWorkoutActivity('Squats', 'Set 1/3');
-      await updateWorkoutActivityForRest('Squats', 1, 1, 3);
-      const remaining = getRestTimerRemainingSeconds();
-      expect(remaining).not.toBeNull();
-      expect(remaining).toBeGreaterThanOrEqual(0);
-      expect(remaining).toBeLessThanOrEqual(1);
-    });
-
-    it('returns null after workout activity is stopped', async () => {
-      await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
-      await stopWorkoutActivity();
-
-      expect(getRestTimerRemainingSeconds()).toBeNull();
     });
   });
 

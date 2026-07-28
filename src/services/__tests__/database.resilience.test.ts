@@ -19,7 +19,6 @@ const { __mockDb } = require('expo-sqlite') as { __mockDb: {
 import * as Sentry from '@sentry/react-native';
 import {
   getAllExercises,
-  getExerciseById,
   createExercise,
   getWorkoutHistory,
   clearAllLocalData,
@@ -48,14 +47,6 @@ describe('DB query failures', () => {
     __mockDb.getAllAsync.mockRejectedValueOnce(error);
 
     await expect(getAllExercises()).rejects.toThrow('DB read failure');
-    expect(Sentry.captureException).toHaveBeenCalledWith(error);
-  });
-
-  it('getExerciseById — reports to Sentry and throws when getAllAsync fails', async () => {
-    const error = new Error('DB lookup failure');
-    __mockDb.getAllAsync.mockRejectedValueOnce(error);
-
-    await expect(getExerciseById('ex-1')).rejects.toThrow('DB lookup failure');
     expect(Sentry.captureException).toHaveBeenCalledWith(error);
   });
 

@@ -53,13 +53,6 @@ export function isRestNotificationScheduled(): boolean {
   return currentNotificationId !== null;
 }
 
-// No Platform.OS guard needed: module-level state is only set by functions that
-// guard on iOS, so on Android the values are always in their initial (inactive) state.
-export function getRestTimerRemainingSeconds(): number | null {
-  if (!currentActivityId || currentEndTime === 0) return null;
-  return Math.max(0, Math.round((currentEndTime - Date.now()) / 1000));
-}
-
 /**
  * Clears the rest progress-bar denominator so the next rest sets its own baseline.
  *

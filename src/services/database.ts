@@ -527,14 +527,6 @@ async function initSchema(database: SQLite.SQLiteDatabase) {
 
 // ─── Exercises ───
 
-export function getExerciseById(id: string): Promise<Exercise | null> {
-  return withDb('getExerciseById', async (database) => {
-    const rows = await database.getAllAsync<ExerciseRow>('SELECT id, user_id, name, type, muscle_groups, training_goal, description, created_at FROM exercises WHERE id = ?', id);
-    if (rows.length === 0) return null;
-    return parseExercise(rows[0]);
-  });
-}
-
 export function getAllExercises(): Promise<Exercise[]> {
   return withDb('getAllExercises', async (database) => {
     const rows = await database.getAllAsync<ExerciseRow>('SELECT id, user_id, name, type, muscle_groups, training_goal, description, created_at FROM exercises ORDER BY name');
@@ -1417,39 +1409,6 @@ interface PRSetWithDateRow extends PRSetRow {
   finished_at: string;
 }
 
-/**
- * Get the freshness-weighted "current" estimated 1RM for an exercise.
- * Recent sets contribute more than old sets via exponential decay (6-week half-life).
- * Returns the best decay-weighted e1RM, reflecting current capacity rather than all-time peak.
- */
-export function getCurrentE1RM(exerciseId: string): Promise<number | null> {
-  return withDb('getCurrentE1RM', async (database) => {
-    const rows = await database.getAllAsync<PRSetWithDateRow>(
-      `SELECT ws.exercise_id, ws.weight, ws.reps, ws.rpe, w.finished_at
-       FROM workout_sets ws
-       JOIN workouts w ON ws.workout_id = w.id
-       WHERE w.finished_at IS NOT NULL
-         AND ws.exercise_id = ?
-         AND ws.is_completed = 1
-         AND ws.weight IS NOT NULL AND ws.weight > 0
-         AND ws.reps IS NOT NULL AND ws.reps > 0`,
-      exerciseId,
-    );
-    if (rows.length === 0) return null;
-
-    const now = Date.now();
-    let best = 0;
-    for (const r of rows) {
-      const e1rm = calculateEstimated1RM(r.weight, r.reps, r.rpe);
-      const daysAgo = (now - new Date(r.finished_at).getTime()) / (1000 * 60 * 60 * 24);
-      const decayFactor = Math.exp(-0.693 * daysAgo / FRESHNESS_HALF_LIFE_DAYS);
-      const weighted = e1rm * decayFactor;
-      if (weighted > best) best = weighted;
-    }
-    return best > 0 ? best : null;
-  });
-}
-
 // ─── Combined 1RM summary (single-scan) ───
 
 export interface E1RMSummary {
@@ -1465,17 +1424,14 @@ export interface E1RMSummary {
  * Combined 1RM query: returns best (raw), current (freshness-weighted), and
  * confidence-tier result in ONE JOIN scan over workout_sets × workouts.
  *
- * Currently replaces ExerciseHistoryContent's single getCurrentE1RM call while
- * also surfacing best and confidence for future callers. Note: the three values
- * are independent maxima — best/current/confidence may originate from different
- * rows because each uses a different scoring formula.
+ * Replaces ExerciseHistoryContent's previous single-purpose current-1RM query
+ * while also surfacing best and confidence for future callers. Note: the three
+ * values are independent maxima — best/current/confidence may originate from
+ * different rows because each uses a different scoring formula.
  *
  * The pre-existing single-purpose function getBestE1RM remains exported for
  * callers that need only that one value (e.g., PR detection in
- * useWorkoutLifecycle / useSetCompletion). getCurrentE1RM has no production
- * callers today — it is exercised only by its own unit tests
- * (src/__tests__/services/database-getCurrentE1RM-decay.test.ts,
- * src/services/__tests__/database.test.ts) — kept for those.
+ * useWorkoutLifecycle / useSetCompletion).
  */
 export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> {
   return withDb('getE1RMSummary', async (database) => {
