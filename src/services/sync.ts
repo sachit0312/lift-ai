@@ -42,6 +42,74 @@ export function textToJsonb(value: string | null): unknown {
  */
 const IN_CHUNK_SIZE = 50;
 
+/**
+ * Deduplicates concurrent invocations of a pull: a second caller awaits the first instead of
+ * starting a competing run.
+ *
+ * The sign-in flow races its pull chain against a 30s timeout, but Promise.race only settles the
+ * outer promise — the inner pull keeps going. authPhase then flips to 'ready', WorkoutScreen
+ * mounts and starts its own pull sequence, and two overlapping withTransactionAsync calls on the
+ * same SQLite connection produce "cannot start a transaction within a transaction", aborting one
+ * of them and leaving partially-imported history.
+ */
+const inFlightPulls = new Map<string, Promise<void>>();
+
+async function dedupePull(key: string, run: () => Promise<void>): Promise<void> {
+  // Key by session user, not just by pull name. The sign-in race above does not CANCEL the
+  // timed-out chain — it keeps running under the old session. Without the user in the key, a
+  // subsequent account switch would dedupe the new user's pull onto that stale promise, which
+  // queries under the previous user_id, legitimately returns zero rows, and resolves
+  // "successfully" having written nothing for the new user — with no error anywhere.
+  //
+  // The lookup is guarded: these pull functions are documented never to throw (callers race
+  // them against timeouts and only catch to report), so a failing getSession here must fall
+  // through to the wrapped run(), which does its own session fetch and error reporting —
+  // not escape as a rejection from the dedupe wrapper.
+  let sessionUserId = 'anon';
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    sessionUserId = session?.user?.id ?? 'anon';
+  } catch {
+    // Leave 'anon'; run() surfaces the real failure.
+  }
+  const scopedKey = `${key}:${sessionUserId}`;
+
+  const existing = inFlightPulls.get(scopedKey);
+  if (existing) return existing;
+  const started = run().finally(() => { inFlightPulls.delete(scopedKey); });
+  inFlightPulls.set(scopedKey, started);
+  return started;
+}
+
+/** Rows per page when pulling workout history, and a hard stop so a bad response can't spin. */
+const PULL_PAGE_SIZE = 200;
+const MAX_PULL_PAGES = 50;
+
+/** Rows per local write transaction during a history import. Bounds how long any single
+ *  transaction holds the SQLite write connection while still batching fsyncs. */
+const WRITE_CHUNK_SIZE = 500;
+
+/** Rows per upsert request when pushing. Keeps a single payload from growing unbounded
+ *  with history — the full set corpus is re-pushed on every sync trigger. */
+const UPSERT_CHUNK_SIZE = 500;
+
+/** Upserts `rows` in fixed-size batches, reporting the first failure per batch. */
+async function upsertInChunks<T>(
+  table: string,
+  rows: T[],
+  onConflict: string,
+  label: string,
+): Promise<boolean> {
+  let ok = true;
+  for (let i = 0; i < rows.length; i += UPSERT_CHUNK_SIZE) {
+    const { error } = await supabase
+      .from(table)
+      .upsert(rows.slice(i, i + UPSERT_CHUNK_SIZE), { onConflict });
+    if (error) { handleSyncError(label, error); ok = false; }
+  }
+  return ok;
+}
+
 export function fireAndForgetSync(): void {
   syncToSupabase().catch(() => {});
 }
@@ -127,28 +195,35 @@ export async function syncToSupabase(): Promise<void> {
     // (e.g., during a race with AuthContext propagation) get rewritten to the
     // real session user id so they're picked up by the push queries below.
     try {
-      // user_exercise_notes has PRIMARY KEY (user_id, exercise_id). If a row
-      // already exists for the real user id on the same exercise, the UPDATE
-      // below would violate the unique constraint. Prefer the 'local' row
-      // (it's the more recent user edit) by deleting any conflicting real-user
-      // rows first, then renaming the local rows to the real user id.
-      await db.runAsync(
-        `DELETE FROM user_exercise_notes
-         WHERE user_id = ?
-           AND exercise_id IN (
-             SELECT exercise_id FROM user_exercise_notes WHERE user_id = 'local'
-           )`,
-        session.user.id,
-      );
-      await db.runAsync(
-        `UPDATE user_exercise_notes SET user_id = ? WHERE user_id = 'local'`,
-        session.user.id,
-      );
-      // exercises.id is the sole primary key, so user_id can be rewritten freely.
-      await db.runAsync(
-        `UPDATE exercises SET user_id = ? WHERE user_id = 'local'`,
-        session.user.id,
-      );
+      // user_exercise_notes has PRIMARY KEY (user_id, exercise_id), so a 'local' row
+      // can collide with an existing real-user row on the same exercise.
+      //
+      // These are MERGED per-column, not replaced wholesale. upsertExerciseNote writes
+      // one field at a time, so a 'local' row usually carries a value in exactly one of
+      // form_notes/machine_notes and NULL in the other. Deleting the real-user row and
+      // promoting the local one in its place therefore destroyed whatever the user had
+      // in the sibling column — and pushed that null on to Supabase. COALESCE keeps the
+      // local value where it has one and falls back to the existing value otherwise.
+      //
+      // Wrapped in a transaction so the merge and the cleanup delete cannot half-apply
+      // and strand rows under 'local' or lose the real-user row entirely.
+      await db.withTransactionAsync(async () => {
+        await db.runAsync(
+          `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
+           SELECT ?, exercise_id, form_notes, machine_notes
+             FROM user_exercise_notes WHERE user_id = 'local'
+           ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+             form_notes = COALESCE(excluded.form_notes, user_exercise_notes.form_notes),
+             machine_notes = COALESCE(excluded.machine_notes, user_exercise_notes.machine_notes)`,
+          session.user.id,
+        );
+        await db.runAsync(`DELETE FROM user_exercise_notes WHERE user_id = 'local'`);
+        // exercises.id is the sole primary key, so user_id can be rewritten freely.
+        await db.runAsync(
+          `UPDATE exercises SET user_id = ? WHERE user_id = 'local'`,
+          session.user.id,
+        );
+      });
     } catch (err) {
       handleSyncError('rescue local rows', err);
     }
@@ -219,8 +294,7 @@ export async function syncToSupabase(): Promise<void> {
         exercise_coach_notes: textToJsonb(w.exercise_coach_notes),
         planned_exercise_ids: textToJsonb(w.planned_exercise_ids),
       }));
-      const { error } = await supabase.from('workouts').upsert(mappedWorkouts, { onConflict: 'id' });
-      if (error) { handleSyncError('workouts', error); workoutsOk = false; }
+      workoutsOk = await upsertInChunks('workouts', mappedWorkouts, 'id', 'workouts');
     }
 
     // Workout sets — only attempt if workouts upsert succeeded (FK dependency on workout_id)
@@ -236,14 +310,120 @@ export async function syncToSupabase(): Promise<void> {
           ...s,
           is_completed: !!s.is_completed,
         }));
-        const { error } = await supabase.from('workout_sets').upsert(mapped, { onConflict: 'id' });
-        if (error) handleSyncError('workout_sets', error);
+        await upsertInChunks('workout_sets', mapped, 'id', 'workout_sets');
       }
     }
 
     if (__DEV__) console.log('Sync to Supabase complete');
   } catch (err) {
     handleSyncError('syncToSupabase', err);
+  }
+}
+
+/**
+ * Push exactly the rows needed for one newly-added template exercise, in FK order.
+ *
+ * Callers need this durable BEFORE they navigate away, because pullTemplates deletes any local
+ * template_exercise whose id is absent from Supabase — so an unpushed row is indistinguishable
+ * from one MCP deleted, and the next WorkoutScreen focus silently removes it.
+ *
+ * Deliberately NOT syncToSupabase(): that pushes the user's entire finished-workout corpus
+ * (every workout and every set, with no dirty tracking), which is seconds of upload on a slow
+ * connection to persist a single row, blocking a tap the whole time.
+ *
+ * Returns false if the push could not be completed, so the caller can decide whether to warn.
+ */
+export async function pushTemplateExercise(templateExerciseId: string): Promise<boolean> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return false;
+
+    const db = await getDb();
+
+    const row = await db.getFirstAsync<{
+      id: string;
+      template_id: string;
+      exercise_id: string;
+      default_sets: number;
+      warmup_sets: number;
+      rest_seconds: number;
+      sort_order: number;
+      template_name: string;
+      exercise_user_id: string | null;
+    }>(
+      `SELECT te.id, te.template_id, te.exercise_id, te.default_sets, te.warmup_sets,
+              te.rest_seconds, te.sort_order,
+              t.name AS template_name, e.user_id AS exercise_user_id
+         FROM template_exercises te
+         JOIN templates t ON te.template_id = t.id
+         JOIN exercises e ON te.exercise_id = e.id
+        WHERE te.id = ?`,
+      templateExerciseId,
+    );
+    if (!row) return false;
+
+    // 1. Custom exercise first — template_exercises.exercise_id references it. Global
+    //    exercises (user_id IS NULL) already exist remotely and are never pushed.
+    if (row.exercise_user_id !== null) {
+      const ex = await db.getFirstAsync<SyncExerciseRow>(
+        'SELECT id, user_id, name, type, muscle_groups, training_goal, description FROM exercises WHERE id = ?',
+        row.exercise_id,
+      );
+      if (ex) {
+        const { error } = await supabase.from('exercises').upsert({
+          id: ex.id,
+          user_id: session.user.id,
+          name: ex.name,
+          type: ex.type,
+          muscle_groups: JSON.parse(ex.muscle_groups || '[]'),
+          training_goal: ex.training_goal,
+          description: ex.description,
+        }, { onConflict: 'id' });
+        if (error) { handleSyncError('pushTemplateExercise: exercise', error); return false; }
+      }
+
+      // Notes live in a separate table and are only present if the user wrote any.
+      const note = await db.getFirstAsync<SyncExerciseNotesRow>(
+        'SELECT exercise_id, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ? AND exercise_id = ?',
+        session.user.id, row.exercise_id,
+      );
+      if (note) {
+        const { error } = await supabase.from('user_exercise_notes').upsert({
+          user_id: session.user.id,
+          exercise_id: note.exercise_id,
+          form_notes: note.form_notes,
+          machine_notes: note.machine_notes,
+        }, { onConflict: 'user_id,exercise_id' });
+        if (error) handleSyncError('pushTemplateExercise: notes', error);
+      }
+    }
+
+    // 2. Template — may itself be local-only if it was just created.
+    const { error: tErr } = await supabase.from('templates').upsert({
+      id: row.template_id,
+      user_id: session.user.id,
+      name: row.template_name,
+    }, { onConflict: 'id' });
+    if (tErr) { handleSyncError('pushTemplateExercise: template', tErr); return false; }
+
+    // 3. The link row itself. sort_order IS included here (unlike the bulk push, which omits
+    //    it to avoid clobbering MCP reorders) because this row is brand new — its local
+    //    sort_order is the only value that exists.
+    const { error: teErr } = await supabase.from('template_exercises').upsert({
+      id: row.id,
+      template_id: row.template_id,
+      exercise_id: row.exercise_id,
+      sort_order: row.sort_order,
+      default_sets: row.default_sets,
+      warmup_sets: row.warmup_sets,
+      rest_seconds: row.rest_seconds,
+    }, { onConflict: 'id' });
+    if (teErr) { handleSyncError('pushTemplateExercise: template_exercise', teErr); return false; }
+
+    return true;
+  } catch (err) {
+    handleSyncError('pushTemplateExercise', err);
+    return false;
   }
 }
 
@@ -374,19 +554,25 @@ async function pullExercises(): Promise<void> {
   if (error) { handleSyncError('pull exercises', error); return; }
   if (!exercises || exercises.length === 0) return;
 
-  for (const ex of exercises as PullExerciseRow[]) {
-    await db.runAsync(
-      `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         user_id=excluded.user_id, name=excluded.name, type=excluded.type,
-         muscle_groups=excluded.muscle_groups, training_goal=excluded.training_goal,
-         description=excluded.description, created_at=excluded.created_at`,
-      ex.id, ex.user_id, ex.name, ex.type,
-      JSON.stringify(ex.muscle_groups ?? []),
-      ex.training_goal, ex.description, ex.created_at,
-    );
-  }
+  // One commit for the whole batch instead of a per-row fsync, matching pullWorkoutHistory.
+  // Safe because the pull functions run sequentially (see pullExercisesAndTemplates and both
+  // call sites) — there is no concurrent transaction on this connection. The network fetch
+  // above is deliberately outside the transaction so we never hold the write lock over IO.
+  await db.withTransactionAsync(async () => {
+    for (const ex of exercises as PullExerciseRow[]) {
+      await db.runAsync(
+        `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id=excluded.user_id, name=excluded.name, type=excluded.type,
+           muscle_groups=excluded.muscle_groups, training_goal=excluded.training_goal,
+           description=excluded.description, created_at=excluded.created_at`,
+        ex.id, ex.user_id, ex.name, ex.type,
+        JSON.stringify(ex.muscle_groups ?? []),
+        ex.training_goal, ex.description, ex.created_at,
+      );
+    }
+  });
 
   // Pull user's exercise notes
   const { data: notes, error: notesErr } = await supabase
@@ -396,15 +582,17 @@ async function pullExercises(): Promise<void> {
 
   if (notesErr) { handleSyncError('pull exercise notes', notesErr); }
   else if (notes && notes.length > 0) {
-    for (const n of notes) {
-      await db.runAsync(
-        `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(user_id, exercise_id) DO UPDATE SET
-           form_notes=excluded.form_notes, machine_notes=excluded.machine_notes`,
-        session.user.id, n.exercise_id, n.form_notes ?? null, n.machine_notes ?? null,
-      );
-    }
+    await db.withTransactionAsync(async () => {
+      for (const n of notes) {
+        await db.runAsync(
+          `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+             form_notes=excluded.form_notes, machine_notes=excluded.machine_notes`,
+          session.user.id, n.exercise_id, n.form_notes ?? null, n.machine_notes ?? null,
+        );
+      }
+    });
   }
 
   if (__DEV__) console.log('Pull exercises complete');
@@ -427,15 +615,17 @@ async function pullTemplates(): Promise<void> {
   const templateList = templates as PullTemplateRow[];
   const templateIds = templateList.map(t => t.id);
 
-  // Upsert all templates
-  for (const t of templateList) {
-    await db.runAsync(
-      `INSERT INTO templates (id, user_id, name, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, name=excluded.name, updated_at=excluded.updated_at`,
-      t.id, t.user_id, t.name, t.created_at, t.updated_at,
-    );
-  }
+  // Upsert all templates — single commit (see the note in pullExercises).
+  await db.withTransactionAsync(async () => {
+    for (const t of templateList) {
+      await db.runAsync(
+        `INSERT INTO templates (id, user_id, name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, name=excluded.name, updated_at=excluded.updated_at`,
+        t.id, t.user_id, t.name, t.created_at, t.updated_at,
+      );
+    }
+  });
 
   // Fetch all template_exercises in one query instead of per-template
   const { data: allTemplateExercises, error: teErr } = await supabase
@@ -454,42 +644,51 @@ async function pullTemplates(): Promise<void> {
       teByTemplate.get(te.template_id)!.push(te);
     }
 
-    for (const t of templateList) {
-      const teList = teByTemplate.get(t.id) ?? [];
+    await db.withTransactionAsync(async () => {
+      for (const t of templateList) {
+        const teList = teByTemplate.get(t.id) ?? [];
 
-      // Delete template_exercises removed by MCP
-      if (teList.length > 0) {
-        const placeholders = teList.map(() => '?').join(', ');
-        await db.runAsync(
-          `DELETE FROM template_exercises WHERE template_id = ? AND id NOT IN (${placeholders})`,
-          t.id, ...teList.map(te => te.id),
-        );
-      } else {
-        await db.runAsync('DELETE FROM template_exercises WHERE template_id = ?', t.id);
-      }
+        // Delete template_exercises removed by MCP.
+        //
+        // This is destructive to rows that exist only locally, so every path that inserts a
+        // template_exercise MUST push before a pull can run (see ExercisePickerScreen, which
+        // fires a sync after addExerciseToTemplate for exactly this reason). A locally-added
+        // row that has not reached Supabase yet is indistinguishable from one MCP deleted.
+        if (teList.length > 0) {
+          const placeholders = teList.map(() => '?').join(', ');
+          await db.runAsync(
+            `DELETE FROM template_exercises WHERE template_id = ? AND id NOT IN (${placeholders})`,
+            t.id, ...teList.map(te => te.id),
+          );
+        } else {
+          await db.runAsync('DELETE FROM template_exercises WHERE template_id = ?', t.id);
+        }
 
-      // Upsert each template_exercise, using Supabase rest_seconds + warmup_sets (MCP-editable)
-      for (const te of teList) {
-        await db.runAsync(
-          `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, warmup_sets, rest_seconds)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets, warmup_sets=excluded.warmup_sets, rest_seconds=excluded.rest_seconds`,
-          te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.warmup_sets ?? 0, te.rest_seconds ?? 150,
-        );
+        // Upsert each template_exercise, using Supabase rest_seconds + warmup_sets (MCP-editable)
+        for (const te of teList) {
+          await db.runAsync(
+            `INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, default_sets, warmup_sets, rest_seconds)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET sort_order=excluded.sort_order, default_sets=excluded.default_sets, warmup_sets=excluded.warmup_sets, rest_seconds=excluded.rest_seconds`,
+            te.id, te.template_id, te.exercise_id, te.sort_order, te.default_sets, te.warmup_sets ?? 0, te.rest_seconds ?? 150,
+          );
+        }
       }
-    }
+    });
   }
 
   if (__DEV__) console.log('Pull templates complete');
 }
 
-export async function pullExercisesAndTemplates(): Promise<void> {
-  try {
-    await pullExercises();   // exercises first (FK dependency)
-    await pullTemplates();
-  } catch (err) {
-    handleSyncError('pullExercisesAndTemplates', err);
-  }
+export function pullExercisesAndTemplates(): Promise<void> {
+  return dedupePull('exercisesAndTemplates', async () => {
+    try {
+      await pullExercises();   // exercises first (FK dependency)
+      await pullTemplates();
+    } catch (err) {
+      handleSyncError('pullExercisesAndTemplates', err);
+    }
+  });
 }
 
 // ─── Pull Workout History from Supabase ───
@@ -509,6 +708,17 @@ interface PullWorkoutRow {
 }
 
 /** Workout set row from Supabase (is_completed is boolean in Supabase) */
+/** Upcoming-workout set row from Supabase */
+interface PullUpcomingSetRow {
+  id: string;
+  upcoming_exercise_id: string;
+  set_number: number;
+  target_weight: number | null;
+  target_reps: number | null;
+  target_rpe: number | null;
+  tag: string | null;
+}
+
 interface PullWorkoutSetRow {
   id: string;
   workout_id: string;
@@ -527,7 +737,11 @@ interface PullWorkoutSetRow {
   programmed_order: number | null;
 }
 
-export async function pullWorkoutHistory(): Promise<void> {
+export function pullWorkoutHistory(): Promise<void> {
+  return dedupePull('workoutHistory', pullWorkoutHistoryInner);
+}
+
+async function pullWorkoutHistoryInner(): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
@@ -536,21 +750,44 @@ export async function pullWorkoutHistory(): Promise<void> {
 
     // ── Network phase: fetch everything first, then commit in one transaction ──
 
-    // Fetch finished workouts from Supabase
-    const { data: workouts, error: wErr } = await supabase
-      .from('workouts')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .not('finished_at', 'is', null)
-      .order('finished_at', { ascending: false })
-      .limit(200);
+    // Page through ALL finished workouts. This used to be a flat .limit(200), which meant
+    // that after any resetDatabase() (sign-out/in, corruption recovery) the device held only
+    // the 200 most recent sessions — and getBestE1RM / PR detection silently computed
+    // "all-time" bests over that truncated corpus, so old PRs could reappear as beatable.
+    const workouts: PullWorkoutRow[] = [];
+    for (let page = 0; page < MAX_PULL_PAGES; page++) {
+      const from = page * PULL_PAGE_SIZE;
+      const { data, error: wErr } = await supabase
+        .from('workouts')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .not('finished_at', 'is', null)
+        .order('finished_at', { ascending: false })
+        // `id` is a unique tiebreaker. Range pagination is only stable when the sort key is
+        // unique — two workouts finished in the same second could otherwise be returned on
+        // both pages or on neither, silently over- or under-importing history.
+        .order('id', { ascending: false })
+        .range(from, from + PULL_PAGE_SIZE - 1);
 
-    if (wErr) { handleSyncError('pull workouts', wErr); return; }
-    if (!workouts || workouts.length === 0) return;
+      if (wErr) { handleSyncError('pull workouts', wErr); return; }
+      if (!data || data.length === 0) break;
+      workouts.push(...(data as PullWorkoutRow[]));
+      if (data.length < PULL_PAGE_SIZE) break;
+
+      if (page === MAX_PULL_PAGES - 1) {
+        // Loud rather than silently truncating, which is the failure mode this replaced.
+        handleSyncError(
+          'pull workouts',
+          new Error(`Workout history exceeds ${MAX_PULL_PAGES * PULL_PAGE_SIZE} rows; older sessions were not pulled`),
+        );
+      }
+    }
+
+    if (workouts.length === 0) return;
 
     // Fetch workout_sets for those workouts in chunks to stay under PostgREST's
     // URL length cap (~8KB; 200 UUIDs at 36 chars each can exceed it).
-    const workoutIds = (workouts as PullWorkoutRow[]).map(w => w.id);
+    const workoutIds = workouts.map(w => w.id);
     const allSets: PullWorkoutSetRow[] = [];
     for (let i = 0; i < workoutIds.length; i += IN_CHUNK_SIZE) {
       const chunk = workoutIds.slice(i, i + IN_CHUNK_SIZE);
@@ -563,10 +800,36 @@ export async function pullWorkoutHistory(): Promise<void> {
       if (chunkSets) allSets.push(...(chunkSets as PullWorkoutSetRow[]));
     }
 
-    // ── Write phase: collapse thousands of per-row fsyncs into one commit ──
-    await db.withTransactionAsync(async () => {
-      for (const w of workouts as PullWorkoutRow[]) {
-        await db.runAsync(
+    // Drop sets referencing an exercise that isn't present locally. foreign_keys = ON, and
+    // the whole import shares one transaction — so a single orphan row (reachable when
+    // pullExercises bailed early and the wrapper swallowed the error) would roll back every
+    // workout and leave the History tab empty with no user-visible explanation.
+    const localExerciseRows = await db.getAllAsync<{ id: string }>('SELECT id FROM exercises');
+    const localExerciseIds = new Set(localExerciseRows.map(r => r.id));
+    const importableSets = allSets.filter(s => localExerciseIds.has(s.exercise_id));
+    if (importableSets.length !== allSets.length) {
+      handleSyncError(
+        'pull workout_sets',
+        new Error(`Skipped ${allSets.length - importableSets.length} set(s) referencing exercises missing locally`),
+      );
+    }
+
+    // ── Write phase ──
+    //
+    // Committed in chunks rather than as one giant transaction. Batching still collapses
+    // per-row fsyncs (the reason for transactions here), but a single transaction spanning a
+    // full history import — up to MAX_PULL_PAGES × PULL_PAGE_SIZE workouts plus all their
+    // sets — holds the one SQLite write connection through tens of thousands of sequential
+    // inserts, blocking every other read/write on the app for that whole window.
+    //
+    // Workouts are written before sets so the FK from workout_sets.workout_id is satisfied
+    // across chunk boundaries. Every statement is an idempotent upsert, so a failure
+    // partway leaves a partial-but-valid import that the next pull completes.
+    for (let i = 0; i < workouts.length; i += WRITE_CHUNK_SIZE) {
+      const chunk = workouts.slice(i, i + WRITE_CHUNK_SIZE);
+      await db.withTransactionAsync(async () => {
+        for (const w of chunk) {
+          await db.runAsync(
           `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
@@ -575,25 +838,31 @@ export async function pullWorkoutHistory(): Promise<void> {
              started_at=excluded.started_at, finished_at=excluded.finished_at,
              coach_notes=excluded.coach_notes, exercise_coach_notes=excluded.exercise_coach_notes, session_notes=excluded.session_notes,
              planned_exercise_ids=excluded.planned_exercise_ids`,
-          w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, jsonbToText(w.exercise_coach_notes), w.session_notes, jsonbToText(w.planned_exercise_ids),
-        );
-      }
+            w.id, w.user_id, w.template_id, w.upcoming_workout_id ?? null, w.started_at, w.finished_at, w.coach_notes, jsonbToText(w.exercise_coach_notes), w.session_notes, jsonbToText(w.planned_exercise_ids),
+          );
+        }
+      });
+    }
 
-      for (const s of allSets) {
-        await db.runAsync(
-          `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
-             set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
-             tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes,
-             target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe,
-             exercise_order=excluded.exercise_order, programmed_order=excluded.programmed_order`,
-          s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
-          s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null, s.exercise_order ?? 0, s.programmed_order ?? null,
-        );
-      }
-    });
+    for (let i = 0; i < importableSets.length; i += WRITE_CHUNK_SIZE) {
+      const chunk = importableSets.slice(i, i + WRITE_CHUNK_SIZE);
+      await db.withTransactionAsync(async () => {
+        for (const s of chunk) {
+          await db.runAsync(
+            `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               workout_id=excluded.workout_id, exercise_id=excluded.exercise_id,
+               set_number=excluded.set_number, reps=excluded.reps, weight=excluded.weight,
+               tag=excluded.tag, rpe=excluded.rpe, is_completed=excluded.is_completed, notes=excluded.notes,
+               target_weight=excluded.target_weight, target_reps=excluded.target_reps, target_rpe=excluded.target_rpe,
+               exercise_order=excluded.exercise_order, programmed_order=excluded.programmed_order`,
+            s.id, s.workout_id, s.exercise_id, s.set_number, s.reps, s.weight, s.tag, s.rpe, s.is_completed ? 1 : 0, s.notes,
+            s.target_weight ?? null, s.target_reps ?? null, s.target_rpe ?? null, s.exercise_order ?? 0, s.programmed_order ?? null,
+          );
+        }
+      });
+    }
 
     if (__DEV__) console.log('Pull workout history complete');
   } catch (err) {
@@ -601,7 +870,11 @@ export async function pullWorkoutHistory(): Promise<void> {
   }
 }
 
-export async function pullUpcomingWorkout(): Promise<void> {
+export function pullUpcomingWorkout(): Promise<void> {
+  return dedupePull('upcomingWorkout', pullUpcomingWorkoutInner);
+}
+
+async function pullUpcomingWorkoutInner(): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
@@ -618,20 +891,17 @@ export async function pullUpcomingWorkout(): Promise<void> {
 
     if (wErr) { handleSyncError('pull upcoming_workouts', wErr); return; }
 
-    // Always clear local state to match Supabase
-    await clearLocalUpcomingWorkout();
-
-    if (!workouts || workouts.length === 0) return;
+    // Fetch EVERYTHING before touching local state. Clearing first and then fetching meant
+    // any failure mid-way left an upcoming_workouts row with zero exercises (or exercises
+    // with zero sets), which getUpcomingWorkoutForToday still advertises — so the user could
+    // start an AI-planned workout that opens completely empty.
+    if (!workouts || workouts.length === 0) {
+      await clearLocalUpcomingWorkout();
+      return;
+    }
 
     const workout = workouts[0];
 
-    // Insert upcoming workout
-    await db.runAsync(
-      'INSERT INTO upcoming_workouts (id, date, template_id, notes, created_at) VALUES (?, ?, ?, ?, ?)',
-      workout.id, workout.date, workout.template_id, workout.notes, workout.created_at,
-    );
-
-    // Fetch exercises for this workout
     const { data: exercises, error: eErr } = await supabase
       .from('upcoming_workout_exercises')
       .select('*')
@@ -642,14 +912,7 @@ export async function pullUpcomingWorkout(): Promise<void> {
 
     const exerciseList = exercises ?? [];
 
-    for (const ex of exerciseList) {
-      await db.runAsync(
-        'INSERT INTO upcoming_workout_exercises (id, upcoming_workout_id, exercise_id, sort_order, rest_seconds, notes) VALUES (?, ?, ?, ?, ?, ?)',
-        ex.id, ex.upcoming_workout_id, ex.exercise_id, ex.sort_order, ex.rest_seconds, ex.notes,
-      );
-    }
-
-    // Fetch all sets in one query instead of per-exercise
+    let setList: PullUpcomingSetRow[] = [];
     if (exerciseList.length > 0) {
       const exerciseIds = exerciseList.map(ex => ex.id);
       const { data: allSets, error: sErr } = await supabase
@@ -658,17 +921,37 @@ export async function pullUpcomingWorkout(): Promise<void> {
         .in('upcoming_exercise_id', exerciseIds)
         .order('set_number');
 
-      if (sErr) {
-        handleSyncError('pull upcoming_workout_sets', sErr);
-      } else {
-        for (const s of allSets ?? []) {
-          await db.runAsync(
-            'INSERT INTO upcoming_workout_sets (id, upcoming_exercise_id, set_number, target_weight, target_reps, target_rpe, tag) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            s.id, s.upcoming_exercise_id, s.set_number, s.target_weight, s.target_reps, s.target_rpe ?? null, s.tag ?? 'working',
-          );
-        }
-      }
+      if (sErr) { handleSyncError('pull upcoming_workout_sets', sErr); return; }
+      setList = (allSets ?? []) as PullUpcomingSetRow[];
     }
+
+    // Every fetch succeeded — now swap local state atomically.
+    await db.withTransactionAsync(async () => {
+      // Deletes are inlined rather than calling clearLocalUpcomingWorkout(): that helper
+      // opens its own withTransactionAsync, and SQLite rejects a nested transaction.
+      await db.runAsync('DELETE FROM upcoming_workout_sets');
+      await db.runAsync('DELETE FROM upcoming_workout_exercises');
+      await db.runAsync('DELETE FROM upcoming_workouts');
+
+      await db.runAsync(
+        'INSERT INTO upcoming_workouts (id, date, template_id, notes, created_at) VALUES (?, ?, ?, ?, ?)',
+        workout.id, workout.date, workout.template_id, workout.notes, workout.created_at,
+      );
+
+      for (const ex of exerciseList) {
+        await db.runAsync(
+          'INSERT INTO upcoming_workout_exercises (id, upcoming_workout_id, exercise_id, sort_order, rest_seconds, notes) VALUES (?, ?, ?, ?, ?, ?)',
+          ex.id, ex.upcoming_workout_id, ex.exercise_id, ex.sort_order, ex.rest_seconds, ex.notes,
+        );
+      }
+
+      for (const s of setList) {
+        await db.runAsync(
+          'INSERT INTO upcoming_workout_sets (id, upcoming_exercise_id, set_number, target_weight, target_reps, target_rpe, tag) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          s.id, s.upcoming_exercise_id, s.set_number, s.target_weight, s.target_reps, s.target_rpe ?? null, s.tag ?? 'working',
+        );
+      }
+    });
 
     if (__DEV__) console.log('Pull upcoming workout complete');
   } catch (err) {

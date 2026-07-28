@@ -11,8 +11,17 @@ module.exports = {
     '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
     'modules/shared-user-defaults$': '<rootDir>/src/__mocks__/shared-user-defaults.ts',
   },
-  testPathIgnorePatterns: ['/node_modules/', 'src/__tests__/helpers/', '.worktrees/'],
-  modulePathIgnorePatterns: ['<rootDir>/.worktrees/'],
+  // Both worktree roots must be ignored: `.worktrees/` and `.claude/worktrees/`. Missing the
+  // latter makes jest-haste-map report duplicate manual mocks on every run.
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    'src/__tests__/helpers/',
+    '.worktrees/',
+  ],
+  modulePathIgnorePatterns: [
+    '<rootDir>/.worktrees/',
+    '<rootDir>/.claude/worktrees/',
+  ],
   clearMocks: true,
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };

@@ -67,6 +67,7 @@ jest.mock('../../services/liveActivity', () => ({
   scheduleTimerEndNotification: jest.fn(),
   scheduleRestNotification: jest.fn(),
   applyPendingWidgetActions: jest.fn(() => 0),
+  resetRestProgressBaseline: jest.fn(),
 }));
 
 jest.mock('../../services/workoutBridge', () => ({

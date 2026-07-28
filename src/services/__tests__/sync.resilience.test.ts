@@ -50,6 +50,8 @@ function mockQueryBuilder(resolvedData: any = [], resolvedError: any = null) {
   builder.not = jest.fn().mockReturnValue(builder);
   builder.order = jest.fn().mockReturnValue(builder);
   builder.limit = jest.fn().mockResolvedValue({ data: resolvedData, error: resolvedError });
+  // pullWorkoutHistory pages with .range(from, to) instead of a flat .limit()
+  builder.range = jest.fn().mockResolvedValue({ data: resolvedData, error: resolvedError });
   builder.upsert = jest.fn().mockResolvedValue({ error: null });
   // Allow awaiting directly when no .limit() is called
   builder.then = (resolve: any, reject: any) =>
@@ -299,22 +301,20 @@ describe('pullUpcomingWorkout resilience', () => {
 
     expect(Sentry.captureException).toHaveBeenCalledWith(exerciseError);
 
-    // Should have cleared local tables and inserted the workout before the exercise fetch error
+    // Local state must be untouched. The clear used to run before the exercise fetch, so a
+    // failure here wiped the existing plan and left a workout row with no exercises.
     const deleteCalls = __mockDb.runAsync.mock.calls
       .filter((c: any[]) => typeof c[0] === 'string' && c[0].startsWith('DELETE'))
       .map((c: any[]) => c[0]);
-    expect(deleteCalls).toContain('DELETE FROM upcoming_workout_sets');
-    expect(deleteCalls).toContain('DELETE FROM upcoming_workout_exercises');
-    expect(deleteCalls).toContain('DELETE FROM upcoming_workouts');
+    expect(deleteCalls).toHaveLength(0);
 
-    // Workout was inserted before exercise fetch
     const workoutInsert = __mockDb.runAsync.mock.calls.find(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO upcoming_workouts'),
     );
-    expect(workoutInsert).toBeDefined();
+    expect(workoutInsert).toBeUndefined();
   });
 
-  it('batch sets query fails — reports to Sentry, exercises still inserted', async () => {
+  it('batch sets query fails — reports to Sentry and leaves local state untouched', async () => {
     setSessionAuthenticated();
 
     const workoutBuilder = mockQueryBuilder([MOCK_UPCOMING_WORKOUT], null);
@@ -333,17 +333,25 @@ describe('pullUpcomingWorkout resilience', () => {
     // Should report the sets error
     expect(Sentry.captureException).toHaveBeenCalledWith(setsError);
 
-    // Both exercises should still be inserted (sets error doesn't block exercise inserts)
+    // Nothing is written locally. All three fetches must succeed before local state is
+    // touched: previously the clear ran FIRST and the exercises were inserted even when the
+    // sets fetch failed, leaving an upcoming workout whose exercises had no sets — which
+    // getUpcomingWorkoutForToday still advertised, so the user could start an empty workout.
     const exInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO upcoming_workout_exercises'),
     );
-    expect(exInserts).toHaveLength(2);
+    expect(exInserts).toHaveLength(0);
 
-    // No sets should be inserted since batch query failed
     const setInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO upcoming_workout_sets'),
     );
     expect(setInserts).toHaveLength(0);
+
+    // And the existing local plan is left alone rather than being cleared into an empty state.
+    const deletes = __mockDb.runAsync.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('DELETE FROM upcoming_workout'),
+    );
+    expect(deletes).toHaveLength(0);
   });
 
   it('SQLite insert fails during local write — reports to Sentry', async () => {

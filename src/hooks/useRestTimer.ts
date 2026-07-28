@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { AppState, Vibration } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   scheduleRestNotification,
-  isRestNotificationScheduled,
   applyPendingWidgetActions,
+  resetRestProgressBaseline,
 } from '../services/liveActivity';
 
 interface UseRestTimerOptions {
@@ -63,6 +64,10 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     endingRef.current = false; // reset for new timer
     wasBackgroundedRef.current = false; // fresh timer is always foreground
     if (restRef.current) clearInterval(restRef.current);
+    // This is a NEW rest, so drop the previous rest's progress-bar denominator. Without this
+    // a +15s-extended rest leaves its inflated max in place and the next (shorter) rest renders
+    // as partly elapsed on the lock screen.
+    resetRestProgressBaseline();
     const total = seconds;
     setRestTotal(total);
     setRestExerciseName(exerciseName);
@@ -153,10 +158,20 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     return () => subscription.remove();
   }, [endRest]);
 
-  // Clean up interval on unmount
+  // Clean up on unmount.
+  //
+  // Clearing the interval alone left the scheduled "Rest Complete" notification armed and the
+  // Live Activity stuck in countdown mode: signing out mid-rest unmounted this screen and the
+  // time-sensitive banner still fired, with sound, while the user sat on the login screen.
+  // stopRestTimerActivity cancels the notification and returns the widget to its non-rest state.
   useEffect(() => {
     return () => {
-      if (restRef.current) clearInterval(restRef.current);
+      if (restRef.current) {
+        clearInterval(restRef.current);
+        restRef.current = null;
+        // Synchronous; it routes its own failures to Sentry internally.
+        try { stopRestTimerActivity(); } catch (e) { Sentry.captureException(e); }
+      }
     };
   }, []);
 

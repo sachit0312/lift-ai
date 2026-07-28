@@ -10,6 +10,7 @@ import {
   deleteWorkoutSet,
 } from '../services/database';
 import { getExerciseHistoryData } from '../utils/exerciseHistory';
+import { recomputeSessionBestE1RM } from '../utils/bestE1RM';
 
 // ─── Types ───
 
@@ -74,6 +75,24 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     setExerciseBlocks((prev) => {
       const next = [...prev];
       next[blockIdx] = { ...next[blockIdx], sets: setsUpdater([...next[blockIdx].sets]) };
+      return next;
+    });
+  }, []);
+
+  /**
+   * Same as updateBlockSets but resolves the block by exercise id at dispatch time.
+   *
+   * Use this for any mutation that runs AFTER an await. blockIdx is captured before the
+   * await, and auto-reorder (useSetCompletion) splices the block array when the user
+   * completes a set — so a positional update applied later can land on a different
+   * exercise than the one the user acted on.
+   */
+  const updateBlockSetsById = useCallback((exerciseId: string, setsUpdater: (sets: LocalSet[]) => LocalSet[]) => {
+    setExerciseBlocks((prev) => {
+      const idx = prev.findIndex(b => b.exercise.id === exerciseId);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], sets: setsUpdater([...next[idx].sets]) };
       return next;
     });
   }, []);
@@ -162,8 +181,23 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       return sets;
     });
 
+    // Fold any in-flight debounced write for this set into this one instead of racing it.
+    //
+    // handleSetChange queues a 300ms write per set id. Typing an RPE and then tapping the set
+    // number within that window used to leave the old write pending: this immediate write set
+    // rpe = null for the new warmup/failure tag, and 300ms later the stale write put the RPE
+    // back — persisting a warmup set with an RPE, which then syncs, reaches the coach, and
+    // feeds e1RM/PR math on reload. handleDeleteSet and handleRemoveExercise already cancel.
+    const pending = pendingSetWritesRef.current.get(set.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingSetWritesRef.current.delete(set.id);
+      // Keep the user's pending weight/reps edits; this tag change wins on tag/rpe.
+      Object.assign(dbUpdate, { ...pending.data, ...dbUpdate });
+    }
+
     updateWorkoutSet(set.id, dbUpdate).catch(e => Sentry.captureException(e));
-  }, [updateBlockSets]);
+  }, [updateBlockSets, pendingSetWritesRef]);
 
   const handleAddSet = useCallback(async (blockIdx: number) => {
     const workout = workoutRef.current;
@@ -190,7 +224,9 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       exercise_order: blockExerciseOrder,
     });
 
-    updateBlockSets(blockIdx, (sets) => {
+    // Resolve by exercise id: two awaits happened above, and auto-reorder may have moved
+    // this block in the meantime.
+    updateBlockSetsById(exerciseId, (sets) => {
       sets.push({
         id: ws.id,
         exercise_id: exerciseId,
@@ -205,7 +241,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       });
       return sets;
     });
-  }, [workoutRef, updateBlockSets]);
+  }, [workoutRef, updateBlockSetsById]);
 
   const handleDeleteSet = useCallback(async (blockIdx: number, setIdx: number) => {
     const block = blocksRef.current[blockIdx];
@@ -230,13 +266,18 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
         const updated = new Set(prSetIdsRef.current);
         updated.delete(set.id);
         prSetIdsRef.current = updated;
-        // Synchronously revert bestE1RM from cached original
+        // Recompute rather than restoring the pre-workout best: other PR sets completed
+        // earlier in this session must keep counting, otherwise a later lighter set can
+        // register as a new PR. See recomputeSessionBestE1RM.
         const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
-        currentBestE1RMRef.current.set(block.exercise.id, originalBest);
         setExerciseBlocks(prev => {
           const next = [...prev];
           const idx = next.findIndex(b => b.exercise.id === block.exercise.id);
-          if (idx >= 0) next[idx] = { ...next[idx], bestE1RM: originalBest };
+          if (idx >= 0) {
+            const revertedBest = recomputeSessionBestE1RM(next[idx].sets, originalBest, setId);
+            next[idx] = { ...next[idx], bestE1RM: revertedBest };
+            currentBestE1RMRef.current.set(block.exercise.id, revertedBest);
+          }
           return next;
         });
       }
@@ -250,14 +291,15 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
       });
 
       // Compute remaining sets before state update for DB persistence
-      const remainingSets = block.sets.filter((_, i) => i !== setIdx);
+      const remainingSets = block.sets.filter(s => s.id !== setId);
 
-      updateBlockSets(blockIdx, (sets) => {
-        sets.splice(setIdx, 1);
-        // Renumber
-        sets.forEach((s, i) => { s.set_number = i + 1; });
-        return sets;
-      });
+      // Resolve block by exercise id and the set by its own id — the DB delete above was
+      // awaited, so both blockIdx and setIdx may be stale by now.
+      updateBlockSetsById(block.exercise.id, (sets) =>
+        // Renumber into fresh objects rather than mutating in place — the array is a shallow
+        // copy, so the set objects are still shared with the previous render's state.
+        sets.filter(s => s.id !== setId).map((s, i) => ({ ...s, set_number: i + 1 })),
+      );
 
       // Persist renumbered set_numbers to SQLite
       await Promise.all(
@@ -266,7 +308,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
     } finally {
       deletingSetIdsRef.current.delete(setId);
     }
-  }, [updateBlockSets]);
+  }, [updateBlockSetsById]);
 
   const handleToggleMachineNotes = useCallback((blockIdx: number) => {
     updateBlock(blockIdx, (block) => ({ ...block, machineNotesExpanded: !block.machineNotesExpanded }));
@@ -307,8 +349,11 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
-            // Re-read from ref at onPress time for latest set IDs
-            const currentBlock = blocksRef.current[blockIdx];
+            // Re-read from ref at onPress time for latest set IDs. Resolve by exercise id,
+            // not blockIdx: the Alert dismisses immediately, so the user can complete a set
+            // while the deletes below are in flight and auto-reorder will splice the array.
+            const exerciseId = block.exercise.id;
+            const currentBlock = blocksRef.current.find(b => b.exercise.id === exerciseId);
             const setsToDelete = currentBlock ? currentBlock.sets : block.sets;
             // Cancel any pending debounced writes for sets being deleted, otherwise
             // they fire after deleteWorkoutSet and hit nonexistent rows.
@@ -337,7 +382,7 @@ export function useExerciseBlocks(options: UseExerciseBlocksOptions): UseExercis
               update: { type: LayoutAnimation.Types.easeInEaseOut },
               delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
             });
-            setExerciseBlocks((prev) => prev.filter((_, idx) => idx !== blockIdx));
+            setExerciseBlocks((prev) => prev.filter(b => b.exercise.id !== exerciseId));
           },
         },
       ],

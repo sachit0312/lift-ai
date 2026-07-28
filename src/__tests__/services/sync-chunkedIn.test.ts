@@ -35,8 +35,14 @@ jest.mock('../../services/supabase', () => {
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              order: jest.fn().mockReturnValue({
-                limit: jest.fn().mockReturnValue({ data: manyWorkouts, error: null }),
+              // pullWorkoutHistory chains .order('finished_at').order('id').range(...) — the
+              // unique id tiebreaker is what keeps range pagination stable, so .order() has
+              // to self-chain here rather than return a range-only object.
+              order: jest.fn(function selfChain(): any {
+                return {
+                  order: selfChain,
+                  range: jest.fn().mockReturnValue({ data: manyWorkouts, error: null }),
+                };
               }),
             }),
           }),
@@ -96,8 +102,12 @@ describe('Batch 4 Task 5: chunked .in() on workout_sets', () => {
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              order: jest.fn().mockReturnValue({
-                limit: jest.fn().mockReturnValue({ data: manyWorkouts, error: null }),
+              // See the note on the other order mock: .order() must self-chain.
+              order: jest.fn(function selfChain(): any {
+                return {
+                  order: selfChain,
+                  range: jest.fn().mockReturnValue({ data: manyWorkouts, error: null }),
+                };
               }),
             }),
           }),

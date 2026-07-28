@@ -13,12 +13,21 @@ import {
   getTemplateExercises,
   removeExerciseFromTemplate,
   updateTemplateExerciseDefaults,
+  type TemplateExerciseDefaultsField,
   updateTemplateExerciseOrder,
   updateTemplate,
 } from '../services/database';
 import { deleteTemplateExerciseFromSupabase, fireAndForgetSync, pushTemplateOrderToSupabase } from '../services/sync';
 import type { TemplateExercise } from '../types/database';
 import * as Sentry from '@sentry/react-native';
+
+/** Maps an update field to the TemplateExercise property it writes, for optimistic updates.
+ *  Module scope — it closes over nothing, so there is no reason to rebuild it each render. */
+const STEPPER_FIELD_TO_PROP = {
+  sets: 'default_sets',
+  warmup_sets: 'warmup_sets',
+  rest_seconds: 'rest_seconds',
+} as const satisfies Record<TemplateExerciseDefaultsField, keyof TemplateExercise>;
 
 const formatRestTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
@@ -98,16 +107,31 @@ export default function TemplateDetailScreen() {
   };
 
   const makeStepperHandler = useCallback(
-    (field: string, getCurrent: (item: TemplateExercise) => number, computeNew: (current: number) => number) =>
+    // Typed as TemplateExerciseDefaultsField rather than string: a bare string produced an
+    // index-signature object that satisfied the update type without excess-property checking,
+    // so a typo compiled, matched no column, returned successfully, and silently did nothing.
+    (field: TemplateExerciseDefaultsField, getCurrent: (item: TemplateExercise) => number, computeNew: (current: number) => number) =>
       (item: TemplateExercise) => {
         const current = getCurrent(item);
         const newValue = computeNew(current);
         if (newValue === current) return;
         if (stepperInFlightRef.current.has(item.id)) return; // drop concurrent tap for same row
         stepperInFlightRef.current.add(item.id);
+
+        // Optimistic local update. Steppers are a rapid-repeat control (users bump sets 3-4
+        // times in a row); previously each tap awaited a DB write, then triggered a full
+        // syncToSupabase push AND a full getTemplateExercises re-fetch that replaced the whole
+        // list and re-rendered the entire DraggableFlatList before the number moved.
+        const prop = STEPPER_FIELD_TO_PROP[field];
+        setExercises(prev => prev.map(e => (e.id === item.id ? { ...e, [prop]: newValue } : e)));
+
         updateTemplateExerciseDefaults(item.id, { [field]: newValue })
-          .then(() => { fireAndForgetSync(); return loadExercises(); })
-          .catch((e) => { if (__DEV__) console.error(`Failed to update ${field}`, e); Sentry.captureException(e); })
+          .then(() => { fireAndForgetSync(); })
+          .catch((e) => {
+            if (__DEV__) console.error(`Failed to update ${field}`, e);
+            Sentry.captureException(e);
+            loadExercises(); // roll back to persisted truth
+          })
           .finally(() => { stepperInFlightRef.current.delete(item.id); });
       },
     [loadExercises],

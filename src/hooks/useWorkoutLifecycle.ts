@@ -208,6 +208,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   // when the handler is ready to call activateWorkout, the start has been
   // superseded by a cancel (or another start) and must bail out.
   const cancelGenerationRef = useRef(0);
+  /** True while confirmFinish is running, so a second Finish tap cannot re-enter it. */
+  const finishingRef = useRef(false);
+  /** True when the last loadActiveWorkout threw, so the focus-skip guard retries instead
+   *  of treating the resulting empty block list as a legitimately empty workout. */
+  const loadFailedRef = useRef(false);
 
   // ─── Helpers ───
 
@@ -265,6 +270,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     setTemplateName(name);
     setActiveWorkout(workout);
     workoutRef.current = workout;
+    // The flag describes the workout we were last trying to load, so it must not outlive it.
+    // Left stale, a failed load of an abandoned workout would force a full reload of the NEXT
+    // workout on its first focus — clobbering exactly the in-flight debounced edits the
+    // focus-skip path exists to protect.
+    loadFailedRef.current = false;
     setExerciseBlocks(blocks);
     setWorkoutNotes(workout.session_notes ?? '');
 
@@ -298,7 +308,16 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         // FIX-4: If this workout is already loaded in memory (same ID), skip the
         // full loadActiveWorkout() which would overwrite in-flight debounced changes.
         // Only do a full load on first mount or after a fresh workout start.
-        if (hasLoadedOnce.current && blocksRef.current.length > 0 && prevWorkoutId === active.id) {
+        // NOTE: no `blocksRef.current.length > 0` condition. Requiring it meant an empty
+        // workout (Start Empty, before any exercise is added) failed the check and re-ran the
+        // full load on every tab re-focus — ending in setWorkoutNotes() from a row read before
+        // the 500ms notes debounce fired, which blanked the field and let the next keystroke
+        // save the blank over the user's text.
+        // loadFailedRef distinguishes "successfully loaded a workout that happens to have no
+        // exercises yet" from "the load threw and left blocks empty". Without it, one
+        // transient failure sets hasLoadedOnce and every later focus takes the skip path, so
+        // the user is stuck on a blank exercise list with no retry for the rest of the session.
+        if (hasLoadedOnce.current && !loadFailedRef.current && prevWorkoutId === active.id) {
           // Workout already loaded — just update auth state refs and bail out.
           // Background sync is intentionally skipped here to avoid the
           // setExerciseBlocks(blocks) call inside loadActiveWorkout clobbering
@@ -308,6 +327,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         }
 
         await loadActiveWorkout(active);
+        loadFailedRef.current = false;
         hasLoadedOnce.current = true;
         setLoading(false);
       } else {
@@ -332,6 +352,8 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
         workoutRef.current = active;
         setTemplateName(active.template_name ?? null);
         setExerciseBlocks([]);
+        // Mark the load as failed so the next focus retries instead of taking the skip path.
+        loadFailedRef.current = true;
         Alert.alert('Error', 'Failed to load workout exercises. You can cancel this workout or try again.');
       }
       hasLoadedOnce.current = true;
@@ -770,12 +792,25 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     }, 500);
   }, []);
 
-  // Cleanup session notes debounce on unmount
+  // Flush (don't just cancel) the session notes debounce on unmount.
+  //
+  // Clearing the timer alone discarded whatever the user had typed in the last 500ms — sign
+  // out, or any auth-phase transition that swaps RootNavigator to the AuthStack, unmounts this
+  // screen and the note was never written. useNotesDebounce and confirmFinish both flush via a
+  // ref for exactly this reason; workoutNotesRef already existed here but went unused on unmount.
   useEffect(() => {
     return () => {
-      if (sessionNotesDebounceRef.current) clearTimeout(sessionNotesDebounceRef.current);
+      if (sessionNotesDebounceRef.current) {
+        clearTimeout(sessionNotesDebounceRef.current);
+        sessionNotesDebounceRef.current = null;
+        const workout = workoutRef.current;
+        if (workout) {
+          updateWorkoutSessionNotes(workout.id, workoutNotesRef.current || null)
+            .catch(e => Sentry.captureException(e));
+        }
+      }
     };
-  }, []);
+  }, [workoutRef]);
 
   // ─── Cancel workout ───
 
@@ -805,6 +840,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
             clearWidgetState();
             setActiveWorkout(null);
             workoutRef.current = null;
+            loadFailedRef.current = false;
             setTemplateName(null);
             setExerciseBlocks([]);
             setUpcomingTargets(null);
@@ -836,10 +872,34 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
   }
 
   async function confirmFinish() {
-    setShowFinishModal(false);
     const workout = workoutRef.current;
     if (!workout) return;
 
+    // Re-entrancy guard. The modal closes immediately but the work below awaits SQLite and
+    // (previously) an unbounded network call, so on a slow connection the app looked frozen
+    // and a second Finish tap re-entered this function. insertSkippedPlaceholderSets inserts
+    // a fresh uuid() with no dedupe, so every planned-but-skipped exercise gained duplicate
+    // ghost rows, which then synced and were double-reported to the coach.
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+
+    setShowFinishModal(false);
+
+    try {
+      await runFinish(workout);
+    } catch (e) {
+      if (__DEV__) console.error('Failed to finish workout:', e);
+      Sentry.captureException(e);
+      Alert.alert(
+        'Finish Failed',
+        'Your workout could not be completed. Your sets are still saved — please try again.',
+      );
+    } finally {
+      finishingRef.current = false;
+    }
+  }
+
+  async function runFinish(workout: Workout) {
     // Flush any pending debounced writes before finishing
     flushPendingSetWrites();
     flushPendingNotes();
@@ -911,7 +971,11 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
     if (workout.upcoming_workout_id) {
       clearLocalUpcomingWorkout().catch(e => Sentry.captureException(e));
-      await deleteUpcomingWorkoutFromSupabase(workout.upcoming_workout_id);
+      // Fire-and-forget: this is an unbounded network round trip, and awaiting it here held
+      // back dismissRest/stopWorkoutActivity/setShowSummary. On gym wifi the modal had already
+      // closed, the Live Activity kept running, and nothing happened for as long as the request
+      // hung. deleteUpcomingWorkoutFromSupabase never throws — it reports to Sentry itself.
+      deleteUpcomingWorkoutFromSupabase(workout.upcoming_workout_id);
       setUpcomingWorkout(null);
     }
 
@@ -998,6 +1062,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       setShowSummary(false);
       setActiveWorkout(null);
       workoutRef.current = null;
+      loadFailedRef.current = false;
       setTemplateName(null);
       setExerciseBlocks([]);
       setUpcomingTargets(null);

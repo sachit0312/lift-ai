@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, ScrollView,
   Keyboard, Modal, Alert, ActivityIndicator,
@@ -13,6 +13,35 @@ import { exerciseTypeColor } from '../utils/exerciseTypeColor';
 import { filterExercises } from '../utils/exerciseSearch';
 import { MUSCLE_GROUPS, EXERCISE_TYPE_OPTIONS_WITH_ICONS } from '../constants/exercise';
 import { getAllExercises, createExercise, addExerciseToTemplate, upsertExerciseNote } from '../services/database';
+import { pushTemplateExercise } from '../services/sync';
+
+/** Upper bound on the pre-navigation push, so a dead connection can't hang the screen. */
+const PUSH_TIMEOUT_MS = 8000;
+
+/** Resolves with the promise's value, or undefined if it outruns `ms`. Never rejects on
+ *  timeout — the local write already succeeded, and a later full sync will catch up. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([
+    promise,
+    new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), ms)),
+  ]);
+}
+
+/**
+ * Tell the user when the row is saved locally but has NOT reached Supabase.
+ *
+ * This matters more than a normal sync hiccup: pullTemplates deletes any local
+ * template_exercise that Supabase doesn't know about, so an un-pushed row will be removed
+ * on the next WorkoutScreen focus. Swallowing the failed/timed-out result here would have
+ * silently recreated the exact data-loss bug the targeted push exists to prevent.
+ */
+function warnIfUnpushed(pushed: boolean | undefined) {
+  if (pushed) return;
+  Alert.alert(
+    'Saved locally',
+    "This exercise couldn't sync to the cloud yet. Reopen the template once you're back online to make sure it sticks.",
+  );
+}
 import type { Exercise, ExerciseType } from '../types/database';
 import * as Sentry from '@sentry/react-native';
 
@@ -36,6 +65,15 @@ export default function ExercisePickerScreen() {
   const [newMuscles, setNewMuscles] = useState<string[]>([]);
   const [newExNotes, setNewExNotes] = useState('');
   const [validationError, setValidationError] = useState('');
+  /** True while a pick/create is writing + pushing, so the screen shows progress rather
+   *  than appearing frozen. The ref is the actual re-entrancy guard — state updates are
+   *  async, so a second tap can land before `saving` has re-rendered. */
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  /** goBack() now runs after an awaited network call, so the screen may already be gone —
+   *  popping then would pop whatever is on top of the stack instead of this screen. */
+  const isMountedRef = useRef(true);
+  useEffect(() => () => { isMountedRef.current = false; }, []);
 
   const loadExercises = useCallback(() => {
     if (!hasLoadedOnce.current) setLoading(true);
@@ -53,13 +91,29 @@ export default function ExercisePickerScreen() {
   const filtered = useMemo(() => filterExercises(exercises, search), [exercises, search]);
 
   const handlePick = useCallback(async (exercise: Exercise) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     try {
-      await addExerciseToTemplate(templateId, exercise.id);
-      navigation.goBack();
+      setSaving(true);
+      const added = await addExerciseToTemplate(templateId, exercise.id);
+      // Push BEFORE returning, not fire-and-forget. pullTemplates deletes any local
+      // template_exercise whose id isn't in Supabase, and the very next WorkoutScreen
+      // focus triggers that pull — so a row that hasn't been pushed yet gets silently
+      // deleted and the exercise vanishes from the template.
+      //
+      // Targeted push (3 rows) rather than syncToSupabase(), which would re-upload the
+      // entire finished-workout corpus just to persist this one row. Bounded so a dead
+      // connection can't leave the screen looking frozen.
+      const pushed = await withTimeout(pushTemplateExercise(added.id), PUSH_TIMEOUT_MS);
+      warnIfUnpushed(pushed);
+      if (isMountedRef.current) navigation.goBack();
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to add exercise to template', e);
       Sentry.captureException(e);
       Alert.alert('Error', 'Failed to add exercise. Please try again.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   }, [templateId, navigation]);
 
@@ -77,6 +131,9 @@ export default function ExercisePickerScreen() {
       return;
     }
     setValidationError('');
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       const exercise = await createExercise({
         name: newName.trim(),
@@ -88,13 +145,21 @@ export default function ExercisePickerScreen() {
       if (newExNotes.trim()) {
         await upsertExerciseNote(exercise.id, 'form_notes', newExNotes.trim());
       }
-      await addExerciseToTemplate(templateId, exercise.id);
+      const added = await addExerciseToTemplate(templateId, exercise.id);
+      // Await the push for the same reason as handlePick. pushTemplateExercise handles the
+      // FK ordering here — the newly created custom exercise (and its form notes) go up
+      // before the template_exercise row that references it.
+      const pushed = await withTimeout(pushTemplateExercise(added.id), PUSH_TIMEOUT_MS);
+      warnIfUnpushed(pushed);
       setShowCreateModal(false);
-      navigation.goBack();
+      if (isMountedRef.current) navigation.goBack();
     } catch (e: unknown) {
       if (__DEV__) console.error('Failed to create exercise', e);
       Sentry.captureException(e);
       Alert.alert('Error', 'Failed to create exercise. Please try again.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -119,12 +184,16 @@ export default function ExercisePickerScreen() {
       visible={showCreateModal}
       animationType="slide"
       testID="create-exercise-modal"
-      onRequestClose={() => setShowCreateModal(false)}
+      // Ignore hardware/back dismissal mid-save for the same reason the buttons are disabled.
+      onRequestClose={() => { if (!saving) setShowCreateModal(false); }}
     >
       <SafeAreaView style={styles.createModalContainer}>
         <View style={styles.createModalHeader}>
-          <TouchableOpacity onPress={() => { resetForm(); setShowCreateModal(false); }}>
-            <Ionicons name="close" size={24} color={colors.text} />
+          <TouchableOpacity
+            onPress={() => { resetForm(); setShowCreateModal(false); }}
+            disabled={saving}
+          >
+            <Ionicons name="close" size={24} color={saving ? colors.textMuted : colors.text} />
           </TouchableOpacity>
           <Text style={styles.createModalTitle}>Create Exercise</Text>
           <View style={{ width: 24 }} />
@@ -203,12 +272,31 @@ export default function ExercisePickerScreen() {
             testID="exercise-notes-input"
           />
 
-          <TouchableOpacity style={styles.saveBtn} onPress={handleCreate} activeOpacity={0.8} testID="save-exercise-btn">
-            <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
-            <Text style={styles.saveBtnText}>Save & Add to Template</Text>
+          {/* Disabled while saving. React Native presents Modal in its own native layer, so
+              the screen-level saving overlay renders BEHIND this modal and cannot block it —
+              without these guards the user could tap Cancel mid-push, believe they had
+              backed out, and still end up with the exercise added and the screen popped. */}
+          <TouchableOpacity
+            style={[styles.saveBtn, saving && styles.btnDisabled]}
+            onPress={handleCreate}
+            activeOpacity={0.8}
+            disabled={saving}
+            testID="save-exercise-btn"
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.white} style={{ marginRight: spacing.sm }} />
+            ) : (
+              <Ionicons name="checkmark-circle" size={18} color={colors.white} style={{ marginRight: spacing.sm }} />
+            )}
+            <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Save & Add to Template'}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => { resetForm(); setShowCreateModal(false); }} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={[styles.cancelBtn, saving && styles.btnDisabled]}
+            onPress={() => { resetForm(); setShowCreateModal(false); }}
+            activeOpacity={0.8}
+            disabled={saving}
+          >
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -270,6 +358,15 @@ export default function ExercisePickerScreen() {
       />
 
       {renderCreateModal()}
+
+      {/* Blocks input and shows progress while the row is written and pushed. Without this
+          the screen looked frozen for the duration of the network round trip. */}
+      {saving && (
+        <View style={styles.savingOverlay} pointerEvents="auto" testID="picker-saving-overlay">
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={styles.savingText}>Adding exercise…</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -278,6 +375,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  btnDisabled: {
+    opacity: 0.5,
+  },
+  savingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.overlay,
+  },
+  savingText: {
+    marginTop: spacing.md,
+    color: colors.text,
+    fontSize: fontSize.md,
   },
   searchContainer: {
     flexDirection: 'row',
