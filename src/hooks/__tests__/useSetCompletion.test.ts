@@ -411,7 +411,14 @@ describe('useSetCompletion – completion & validation', () => {
     });
 
     expect(startRestTimer).toHaveBeenCalledWith(120, 'A');
-    expect(syncWidgetState).not.toHaveBeenCalled();
+    // The widget is also re-synced explicitly with the POST-completion blocks. startRestTimer
+    // reaches the widget via useRestTimer's onRestUpdate, which reads blocksRef — and that ref
+    // still holds the pre-completion list inside this handler, which is what left the lock
+    // screen counter one set behind for the whole workout.
+    expect(syncWidgetState).toHaveBeenCalledTimes(1);
+    const [syncedBlocks, , , restingName] = syncWidgetState.mock.calls[0];
+    expect(restingName).toBe('A');
+    expect(syncedBlocks[0].sets[0].is_completed).toBe(true);
   });
 
   it('syncs widget state when rest not enabled', () => {

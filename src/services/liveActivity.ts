@@ -4,7 +4,7 @@ import type { LiveActivityState } from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
-import { getItem, getItemAndRemove } from '../../modules/shared-user-defaults';
+import { getItem, getItemAndRemove, setItem, removeItem } from '../../modules/shared-user-defaults';
 import { colors } from '../theme';
 
 // ─── Module-level state (singleton) ───
@@ -16,6 +16,10 @@ let currentExerciseName: string = '';
 let currentSetNumber: number = 1;
 let currentTotalSets: number = 1;
 let currentMaxRestSeconds: number = 0;
+/** True when currentMaxRestSeconds was zeroed on purpose for a NEW rest, so the persisted
+ *  value must not be restored over it. Cleared once a real baseline is set, and on stop, so
+ *  a genuine cold start can still adopt the persisted value. */
+let baselineExplicitlyCleared = false;
 
 // ─── Update deduplication & throttle state ───
 let lastContentStateJSON = '';
@@ -56,8 +60,27 @@ export function getRestTimerRemainingSeconds(): number | null {
   return Math.max(0, Math.round((currentEndTime - Date.now()) / 1000));
 }
 
+/**
+ * Clears the rest progress-bar denominator so the next rest sets its own baseline.
+ *
+ * currentMaxRestSeconds was only zeroed on stop, but startRestTimer re-arms without stopping.
+ * Resting 150s on one exercise and tapping +15s twice (max 180) then starting a 60s rest on
+ * the next exercise left the lock screen drawing 60s against 180s — the bar showed ~33%
+ * elapsed at t=0, disagreeing with the in-app bar, which resets correctly.
+ */
+export function resetRestProgressBaseline(): void {
+  currentMaxRestSeconds = 0;
+  // Zeroing the in-memory value alone was a no-op. getCurrentMaxRestSeconds() treats 0 as
+  // "cold start, restore from disk" and nothing ever clears the persisted mirror — so the
+  // very next widget sync (which runs synchronously from startRestTimer, BEFORE
+  // updateWorkoutActivityForRest gets to set the new baseline) resurrected the previous
+  // rest's value and re-persisted it. This flag says the zero is deliberate, so the restore
+  // is suppressed until a real new baseline is established.
+  baselineExplicitlyCleared = true;
+}
+
 export function getCurrentMaxRestSeconds(): number {
-  if (currentMaxRestSeconds === 0) {
+  if (currentMaxRestSeconds === 0 && !baselineExplicitlyCleared) {
     const persisted = readPersistedMaxRestSeconds();
     if (persisted > 0) currentMaxRestSeconds = persisted;
   }
@@ -83,6 +106,14 @@ export async function requestNotificationPermissions(): Promise<void> {
 export async function startWorkoutActivity(exerciseName: string, subtitle: string): Promise<void> {
   if (Platform.OS !== 'ios') return;
 
+  // Adopt an activity left behind by a previous app process (force-quit / crash) so we update
+  // it rather than stacking a second widget beside it. If it is already gone, updateActivity
+  // below reports "not found" and we fall through to creating a fresh one.
+  if (!currentActivityId) {
+    const persisted = readPersistedActivityId();
+    if (persisted) currentActivityId = persisted;
+  }
+
   // If we already have an activity, try to update it (idempotent — no stacking)
   if (currentActivityId) {
     try {
@@ -95,6 +126,7 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
       const message = e instanceof Error ? e.message : '';
       if (/not found/i.test(message)) {
         currentActivityId = null;
+        persistActivityId(null);
       } else {
         return;
       }
@@ -122,6 +154,7 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
     );
 
     currentActivityId = activityId ?? null;
+    persistActivityId(currentActivityId);
     lastContentStateJSON = '';
     lastUpdateTimestamp = 0;
     if (pendingUpdate) {
@@ -183,6 +216,7 @@ export async function updateWorkoutActivityForRest(
     // After that, this is just the fallback for a fresh rest with no previously-persisted state.
     getCurrentMaxRestSeconds();
     if (currentMaxRestSeconds === 0) currentMaxRestSeconds = totalSeconds;
+    baselineExplicitlyCleared = false;
 
     safeUpdateActivity({
       title: exerciseName,
@@ -215,11 +249,15 @@ export async function stopWorkoutActivity(): Promise<void> {
       }
       currentActivityId = null;
     }
+    // Clear unconditionally: a persisted id may exist even when currentActivityId is null
+    // (activity started by a previous process that was force-quit before finishing).
+    persistActivityId(null);
     currentEndTime = 0;
     currentExerciseName = '';
     currentSetNumber = 1;
     currentTotalSets = 1;
     currentMaxRestSeconds = 0;
+    baselineExplicitlyCleared = false;
     // Reset dedup/throttle state
     lastContentStateJSON = '';
     lastUpdateTimestamp = 0;
@@ -352,6 +390,36 @@ function serializedNotificationOp(fn: () => Promise<void>): void {
 }
 
 // ─── Internal helpers ───
+
+/**
+ * App Group key holding the id of the Live Activity started by a previous app process.
+ *
+ * currentActivityId is module-level JS state, so it is lost on force-quit or crash — but iOS
+ * Live Activities deliberately outlive the process, and expo-live-activity exposes no way to
+ * enumerate running activities. The idempotency guard in startWorkoutActivity therefore only
+ * held within a single process lifetime: force-quitting mid-workout and reopening created a
+ * SECOND widget, and finishing stopped only the second one, leaving the first on the lock
+ * screen showing a stale workout until iOS's staleness cutoff. Persisting the id lets a cold
+ * start adopt the existing activity instead of stacking a new one on top.
+ */
+const ACTIVITY_ID_KEY = 'liftai_live_activity_id';
+
+function persistActivityId(activityId: string | null): void {
+  try {
+    if (activityId) setItem(ACTIVITY_ID_KEY, activityId);
+    else removeItem(ACTIVITY_ID_KEY);
+  } catch (e) {
+    Sentry.captureException(e);
+  }
+}
+
+function readPersistedActivityId(): string | null {
+  try {
+    return getItem(ACTIVITY_ID_KEY);
+  } catch {
+    return null;
+  }
+}
 
 function readPersistedMaxRestSeconds(): number {
   try {

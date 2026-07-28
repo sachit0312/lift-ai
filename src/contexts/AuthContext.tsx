@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from '
 import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../services/supabase';
-import { resetDatabase, setCurrentUserId } from '../services/database';
+import { resetDatabase, setCurrentUserId, isDatabaseHealthy } from '../services/database';
 import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
 
 const SYNC_TIMEOUT_MS = 30000;
@@ -21,11 +21,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [authPhase, setAuthPhase] = useState<AuthPhase>('initializing');
   const previousUserIdRef = React.useRef<string | null>(null);
+  // Owner of the data currently on disk. Unlike previousUserIdRef this is NOT cleared on
+  // sign-out, so signing back in as the same account is recognised as a resume rather than
+  // an account switch. See the SIGNED_IN branch below.
+  const localDataOwnerRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         previousUserIdRef.current = session?.user?.id ?? null;
+        // A restored session means the data on disk already belongs to this user, so a later
+        // sign-out/sign-in cycle in this app session is a resume, not an account switch.
+        localDataOwnerRef.current = session?.user?.id ?? null;
         setSession(session);
         // Keep the database module's currentUserId in sync with the rehydrated session.
         // Without this, cold-start writes to user_exercise_notes land under 'local'
@@ -61,17 +68,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             Sentry.setUser({ email: newSession.user.email, id: newSession.user.id });
           }
           if (newUserId !== prevUserId) {
+            // Is this the same account resuming, or a genuine account switch?
+            //
+            // previousUserIdRef is nulled on SIGNED_OUT, so it reports "different user" even
+            // when you sign back in as yourself — and the resetDatabase() below deletes the
+            // SQLite file outright. Only FINISHED workouts are ever pushed, so a session
+            // logged with no signal and then interrupted by a token expiry was destroyed on
+            // the next login. localDataOwnerRef survives sign-out and distinguishes the two.
+            const isAccountSwitch = newUserId !== null && localDataOwnerRef.current !== null
+              && newUserId !== localDataOwnerRef.current;
+
             setAuthPhase('syncing');
             try {
               await Promise.race([
                 (async () => {
-                  await resetDatabase();
+                  if (isAccountSwitch) {
+                    // Different account: the local data belongs to someone else and cannot be
+                    // pushed under this session's id, so wiping is the only safe option.
+                    await resetDatabase();
+                  } else if (localDataOwnerRef.current === newUserId) {
+                    // Same account resuming. Keep local data — resetting here destroyed any
+                    // finished workout that had not been pushed yet (logged with no signal,
+                    // then interrupted by a token expiry).
+                    //
+                    // But CLAUDE.md documents sign-out/sign-in as THE fix for a corrupted
+                    // SQLite file, and that is almost always a same-account action — so
+                    // skipping the reset unconditionally would remove the only recovery
+                    // route. Probe the file first and still reset when it is actually broken.
+                    if (!(await isDatabaseHealthy())) {
+                      await resetDatabase();
+                    }
+                  } else {
+                    // First sign-in of this app session with no known local owner (cold start
+                    // after install, or a restored-then-expired session). Nothing local is
+                    // known to be safe, so reset as before.
+                    await resetDatabase();
+                  }
                   // Run pulls sequentially so each can safely wrap its row writes in a single
                   // SQLite transaction. The added network latency (~few hundred ms) is more
                   // than offset by collapsing thousands of per-row fsyncs into one.
                   await pullExercisesAndTemplates();
                   await pullWorkoutHistory();
                   await pullUpcomingWorkout();
+                  localDataOwnerRef.current = newUserId;
                 })(),
                 new Promise<void>((_, reject) =>
                   setTimeout(() => reject(new Error('sign-in sync timeout')), SYNC_TIMEOUT_MS),

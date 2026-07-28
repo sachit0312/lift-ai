@@ -25,7 +25,7 @@ jest.mock('../../services/database', () => ({
 jest.mock('../../services/supabase', () => {
   const inFn = jest.fn().mockReturnValue({ data: [], error: null });
   const notFn = jest.fn().mockReturnValue({ in: inFn });
-  const orderFn = jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({
+  const workoutPage = {
     data: [
       {
         id: 'w1',
@@ -42,7 +42,12 @@ jest.mock('../../services/supabase', () => {
       },
     ],
     error: null,
-  }) });
+  };
+  // pullWorkoutHistory chains .order('finished_at').order('id').range(...) — the unique id
+  // tiebreaker keeps range pagination stable, so .order() must self-chain.
+  const orderFn: any = jest.fn(function selfChain(): any {
+    return { order: selfChain, range: jest.fn().mockReturnValue(workoutPage) };
+  });
   return {
     supabase: {
       auth: { getSession: jest.fn().mockResolvedValue({ data: { session: { user: { id: 'u1' } } } }) },
@@ -92,15 +97,19 @@ describe('Batch 4 Task 4: JSONB round-trip on pull', () => {
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           not: jest.fn().mockReturnValue({
-            order: jest.fn().mockReturnValue({
-              limit: jest.fn().mockReturnValue({
-                data: [{
-                  id: 'w2', user_id: 'u1', template_id: null, upcoming_workout_id: null,
-                  started_at: 'x', finished_at: 'y', coach_notes: null,
-                  exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null,
-                }],
-                error: null,
-              }),
+            // .order() self-chains for the same reason as the module-level mock above.
+            order: jest.fn(function selfChain(): any {
+              return {
+                order: selfChain,
+                range: jest.fn().mockReturnValue({
+                  data: [{
+                    id: 'w2', user_id: 'u1', template_id: null, upcoming_workout_id: null,
+                    started_at: 'x', finished_at: 'y', coach_notes: null,
+                    exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null,
+                  }],
+                  error: null,
+                }),
+              };
             }),
           }),
         }),

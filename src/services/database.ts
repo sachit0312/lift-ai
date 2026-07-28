@@ -286,6 +286,40 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbInitPromise;
 }
 
+/**
+ * Cheap probe that the local SQLite file is readable and its core tables are intact.
+ *
+ * Sign-in no longer resets the database unconditionally (that destroyed unsynced finished
+ * workouts when the same user simply signed back in), but the documented corruption-recovery
+ * path in CLAUDE.md is precisely "sign out and back in". This probe preserves that: a same-user
+ * resume keeps its local data when the file is healthy and still gets the nuclear reset when
+ * it is not. Reads one row from each table sync/PR paths depend on — enough to surface the
+ * "database disk image is malformed" class of failure without scanning anything.
+ */
+export async function isDatabaseHealthy(): Promise<boolean> {
+  try {
+    const database = await getDb();
+    // PRAGMA quick_check verifies the WHOLE file — every table and index — and returns the
+    // single row 'ok' when intact. Probing a handful of tables with SELECT ... LIMIT 1 was
+    // not enough: corruption confined to templates, template_exercises or upcoming_workouts,
+    // or to rows past the first b-tree page of a probed table, still reported healthy — and
+    // this function is the gate that decides whether sign-out/sign-in performs the documented
+    // corruption reset, so a false "healthy" leaves the user stuck with a broken file.
+    const row = await database.getFirstAsync<{ quick_check: string }>('PRAGMA quick_check(1)');
+    const result = row?.quick_check;
+    if (result !== 'ok') {
+      if (__DEV__) console.error('Local database failed quick_check', result);
+      Sentry.captureException(new Error(`SQLite quick_check failed: ${result ?? 'no result'}`));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    if (__DEV__) console.error('Local database failed health check', e);
+    Sentry.captureException(e);
+    return false;
+  }
+}
+
 /** Nuclear reset: close connection, delete the SQLite file, reinitialize fresh schema.
  *  Use when the DB file is corrupted beyond repair (e.g. phone died mid-write). */
 export async function resetDatabase(): Promise<void> {
@@ -568,11 +602,16 @@ const VALID_NOTE_FIELDS = new Set(['form_notes', 'machine_notes'] as const);
 export async function upsertExerciseNote(exerciseId: string, field: 'form_notes' | 'machine_notes', value: string | null): Promise<void> {
   if (!VALID_NOTE_FIELDS.has(field)) throw new Error(`Invalid note field: ${field}`);
   const userId = await resolveUserId();
+  const otherField = field === 'form_notes' ? 'machine_notes' : 'form_notes';
   return withDb('upsertExerciseNote', async (database) => {
+    // The value MUST be bound into the VALUES tuple, not only into the DO UPDATE arm.
+    // On the first write for an exercise there is no conflict, so DO UPDATE never runs —
+    // binding only there inserted (user, exercise, NULL, NULL) and silently discarded the
+    // note. Every later write hit the conflict path and worked, which is why it went unseen.
     await database.runAsync(
-      `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
-       VALUES (?, ?, NULL, NULL)
-       ON CONFLICT(user_id, exercise_id) DO UPDATE SET ${field} = ?`,
+      `INSERT INTO user_exercise_notes (user_id, exercise_id, ${field}, ${otherField})
+       VALUES (?, ?, ?, NULL)
+       ON CONFLICT(user_id, exercise_id) DO UPDATE SET ${field} = excluded.${field}`,
       userId, exerciseId, value,
     );
   });
@@ -635,6 +674,16 @@ export function deleteTemplate(id: string): Promise<void> {
   return withDb('deleteTemplate', async (database) => {
     await database.withTransactionAsync(async () => {
       await database.runAsync('DELETE FROM template_exercises WHERE template_id = ?', id);
+      // workouts.template_id references templates(id) with no ON DELETE clause, and
+      // foreign_keys = ON, so deleting a template that has ANY workout history raised
+      // "FOREIGN KEY constraint failed" and rolled the whole thing back — the user just
+      // saw "Failed to delete template". Detach the history first; those workouts stay
+      // intact and simply lose their template association.
+      await database.runAsync('UPDATE workouts SET template_id = NULL WHERE template_id = ?', id);
+      // upcoming_workouts.template_id has the identical unguarded FK, and MCP's
+      // create_upcoming_workout actively writes it when the coach plans a session from a
+      // template — so this row alone would still fail the delete.
+      await database.runAsync('UPDATE upcoming_workouts SET template_id = NULL WHERE template_id = ?', id);
       await database.runAsync('DELETE FROM templates WHERE id = ?', id);
     });
   });
@@ -748,7 +797,11 @@ export function updateTemplateExerciseOrder(templateId: string, orderedIds: stri
   });
 }
 
-export function updateTemplateExerciseDefaults(id: string, defaults: { sets?: number; warmup_sets?: number; rest_seconds?: number }): Promise<void> {
+/** Fields accepted by updateTemplateExerciseDefaults. Exported so callers can key off it
+ *  instead of passing a bare string — an unrecognised key silently updates nothing. */
+export type TemplateExerciseDefaultsField = 'sets' | 'warmup_sets' | 'rest_seconds';
+
+export function updateTemplateExerciseDefaults(id: string, defaults: Partial<Record<TemplateExerciseDefaultsField, number>>): Promise<void> {
   return withDb('updateTemplateExerciseDefaults', async (database) => {
     const parts: string[] = [];
     const values: (string | number)[] = [];
@@ -965,6 +1018,24 @@ export function insertSkippedPlaceholderSets(
   return withDb('insertSkippedPlaceholderSets', async (database) => {
     await database.withTransactionAsync(async () => {
       for (const { exercise_id, programmed_order } of skipped) {
+        // Idempotent per (workout, exercise). Every call previously inserted a fresh uuid(),
+        // so any retry of the finish flow — the "Finish Failed, please try again" path, where
+        // a later step threw after these rows were already committed — added a SECOND ghost
+        // row for the same skipped exercise. Those duplicates sync to Supabase and get
+        // double-reported to the coach as separate skipped exercises.
+        //
+        // Matches the documented ghost sentinel (see migrations/013): programmed_order set,
+        // exercise_order 0, not completed, zero reps and weight.
+        const existing = await database.getFirstAsync<{ id: string }>(
+          `SELECT id FROM workout_sets
+            WHERE workout_id = ? AND exercise_id = ?
+              AND programmed_order IS NOT NULL AND exercise_order = 0
+              AND is_completed = 0 AND reps = 0 AND weight = 0
+            LIMIT 1`,
+          workoutId, exercise_id,
+        );
+        if (existing) continue;
+
         const id = uuid();
         await database.runAsync(
           `INSERT INTO workout_sets

@@ -5,6 +5,7 @@ import type { ExerciseBlock } from '../types/workout';
 import type { UpcomingWorkoutExercise, UpcomingWorkoutSet, Exercise } from '../types/database';
 import { updateWorkoutSet, stampExerciseOrder } from '../services/database';
 import { calculateE1RM, getPRGatingMargin } from '../utils/oneRepMax';
+import { recomputeSessionBestE1RM } from '../utils/bestE1RM';
 import type { Workout } from '../types/database';
 
 // ─── Pure helpers ───
@@ -40,7 +41,7 @@ export interface UseSetCompletionOptions {
   lastActiveBlockRef: React.MutableRefObject<number>;
   workoutRef: React.MutableRefObject<Workout | null>;
   startRestTimer: (seconds: number, exerciseName: string) => void;
-  syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number) => void;
+  syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number, restingExerciseName?: string) => void;
   onConfetti: () => void;
 }
 
@@ -202,8 +203,20 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       });
     }
 
-    setExerciseBlocks((prev) => {
-      const next = [...prev];
+    // Snapshot the PR membership BEFORE building the transform.
+    //
+    // applyUpdate runs twice — once eagerly here, once later when React invokes the updater
+    // during render. Reading prSetIdsRef.current *inside* the transform made those two runs
+    // see different inputs: the synchronous code below deletes set.id from prSetIdsRef, so by
+    // the time React re-ran the transform the revert branch was skipped entirely. The
+    // committed block kept the too-high PR bestE1RM while currentBestE1RMRef held the correct
+    // reverted value — a silent split between the gate and what the user sees.
+    const wasPRSet = prSetIdsRef.current.has(set.id);
+
+    // Pure transform from the pre-update block list to the post-update one. Depends only on
+    // its argument and values captured above, so both invocations produce identical output.
+    const applyUpdate = (source: ExerciseBlock[]): ExerciseBlock[] => {
+      const next = [...source];
       // 1. Apply completion + auto-fill
       const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
       updatedBlock.sets[setIdx] = {
@@ -226,15 +239,41 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
         if (prIdx >= 0) reordered[prIdx] = { ...reordered[prIdx], bestE1RM: newBestE1RM };
       }
 
-      // 4. Un-complete: revert bestE1RM if this was a PR set
-      if (!newCompleted && prSetIdsRef.current.has(set.id)) {
+      // 4. Un-complete: recompute bestE1RM if this was a PR set. Any OTHER PR set still
+      // completed in this session must keep counting, so this cannot just restore the
+      // pre-workout best (see recomputeSessionBestE1RM).
+      if (!newCompleted && wasPRSet) {
         const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
         const idx = reordered.findIndex(b => b.exercise.id === block.exercise.id);
-        if (idx >= 0) reordered[idx] = { ...reordered[idx], bestE1RM: originalBest };
+        if (idx >= 0) {
+          const revertedBest = recomputeSessionBestE1RM(reordered[idx].sets, originalBest, set.id);
+          reordered[idx] = { ...reordered[idx], bestE1RM: revertedBest };
+        }
       }
 
       return reordered;
-    });
+    };
+
+    // blocksRef.current is the pre-update list (the ref is assigned during render, so it has
+    // not caught up yet inside this handler). Deriving the post-update list here is what lets
+    // the widget show the correct "next incomplete set" — passing nothing made buildWidgetState
+    // read the stale list and report the set the user had just checked off, leaving the lock
+    // screen counter one behind for the entire workout.
+    const nextBlocks = applyUpdate(blocksRef.current);
+    setExerciseBlocks(applyUpdate);
+    // NOTE: blocksRef is deliberately NOT advanced here. The double-tap guard above detects a
+    // stale second tap precisely by blocksRef still lagging; advancing it makes the guard
+    // clear itself immediately, so a bounced finger completes and then un-completes the set.
+    // The widget instead receives nextBlocks explicitly at each sync site below.
+
+    // Mirror the recomputed PR baseline into the ref (kept out of applyUpdate so the transform
+    // stays pure and can be run twice without double-applying side effects).
+    if (!newCompleted && wasPRSet) {
+      const idx = nextBlocks.findIndex(b => b.exercise.id === block.exercise.id);
+      if (idx >= 0) {
+        currentBestE1RMRef.current.set(block.exercise.id, nextBlocks[idx].bestE1RM);
+      }
+    }
 
     // Note: pendingCompletionRef entry is intentionally NOT deleted here.
     // It will be cleared on the next handleToggleComplete call for this set,
@@ -290,22 +329,27 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
         try { Vibration.vibrate(50); } catch {}
       }
 
-      // Rest timer or widget sync
+      // Rest timer or widget sync. Pass the post-update blocks explicitly — the default
+      // (blocksRef.current) is still the pre-update list inside this handler.
       if (restEnabled) {
         startRestTimer(blockRestSeconds, exerciseName);
+        // startRestTimer reaches the widget through useRestTimer's onRestUpdate callback,
+        // which reads the (still stale) blocksRef. Re-sync with the post-update blocks now
+        // that the rest refs are armed, so the lock screen shows the set the user is about
+        // to do rather than the one they just finished.
+        syncWidgetState(nextBlocks, undefined, undefined, exerciseName);
       } else {
-        syncWidgetState();
+        syncWidgetState(nextBlocks);
       }
     } else {
-      // Un-completing: clear PR badge if present and revert bestE1RM ref
-      if (prSetIdsRef.current.has(set.id)) {
+      // Un-completing: clear the PR badge. The bestE1RM ref is recomputed above, where the
+      // post-update set list is available.
+      if (wasPRSet) {
         const updated = new Set(prSetIdsRef.current);
         updated.delete(set.id);
         prSetIdsRef.current = updated;
-        const originalBest = originalBestE1RMRef.current.get(block.exercise.id);
-        currentBestE1RMRef.current.set(block.exercise.id, originalBest);
       }
-      syncWidgetState();
+      syncWidgetState(nextBlocks);
     }
   }, [blocksRef, setExerciseBlocks, upcomingTargetsRef, prSetIdsRef, originalBestE1RMRef, currentBestE1RMRef, lastActiveBlockRef, workoutRef, startRestTimer, syncWidgetState, onConfetti]);
 

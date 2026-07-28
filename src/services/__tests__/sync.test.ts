@@ -62,6 +62,8 @@ function mockQueryBuilder(resolvedData: any = [], resolvedError: any = null) {
   builder.in = jest.fn().mockReturnValue(builder);
   builder.order = jest.fn().mockReturnValue(builder);
   builder.limit = jest.fn().mockResolvedValue({ data: resolvedData, error: resolvedError });
+  // pullWorkoutHistory pages with .range(from, to) instead of a flat .limit()
+  builder.range = jest.fn().mockResolvedValue({ data: resolvedData, error: resolvedError });
   builder.upsert = jest.fn().mockResolvedValue({ error: null });
   // Allow awaiting directly when no .limit() is called (e.g. exercise fetch chain)
   builder.then = (resolve: any, reject: any) =>
@@ -85,6 +87,17 @@ beforeEach(() => {
   mockFromHandlers = {};
   setupMockFrom();
 });
+
+/**
+ * pullWorkoutHistory drops any pulled set whose exercise_id is not present locally, so that a
+ * single orphan row can't trip the FK constraint and roll back the entire import. Tests that
+ * assert on set inserts must therefore seed the local exercises table.
+ */
+function seedLocalExercises(ids: string[]) {
+  __mockDb.getAllAsync.mockImplementation(async (sql: string) =>
+    typeof sql === 'string' && sql.includes('FROM exercises') ? ids.map(id => ({ id })) : [],
+  );
+}
 
 // ============================================================
 // syncToSupabase
@@ -903,7 +916,7 @@ describe('pullUpcomingWorkout', () => {
     expect(Sentry.captureException).toHaveBeenCalledWith(exerciseError);
   });
 
-  it('reports to Sentry when batch sets fetch fails but still inserts exercises', async () => {
+  it('reports to Sentry when batch sets fetch fails and writes nothing locally', async () => {
     setSessionAuthenticated();
 
     const mockWorkout = {
@@ -935,11 +948,12 @@ describe('pullUpcomingWorkout', () => {
 
     expect(Sentry.captureException).toHaveBeenCalledWith(setsError);
 
-    // Both exercises should still be inserted (sets error doesn't block exercise inserts)
+    // Nothing is inserted: all three fetches must succeed before local state is replaced.
+    // Inserting exercises without their sets left a plan that opened as an empty workout.
     const exInserts = __mockDb.runAsync.mock.calls.filter(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT INTO upcoming_workout_exercises'),
     );
-    expect(exInserts).toHaveLength(2);
+    expect(exInserts).toHaveLength(0);
   });
 
   it('catches unexpected errors and reports to Sentry', async () => {
@@ -1540,6 +1554,7 @@ describe('pullWorkoutHistory', () => {
 
   it('pulls workout_sets and inserts with is_completed boolean→integer conversion', async () => {
     setSessionAuthenticated();
+    seedLocalExercises(['ex-1']);
 
     const mockWorkouts = [
       { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null },
@@ -1634,6 +1649,7 @@ describe('pullWorkoutHistory', () => {
 
   it('pull writes programmed_order to SQLite for workout_sets', async () => {
     setSessionAuthenticated();
+    seedLocalExercises(['ex-1']);
 
     const mockWorkouts = [
       { id: 'w-1', user_id: 'user-123', template_id: null, started_at: '2026-01-01T10:00:00Z', finished_at: '2026-01-01T11:00:00Z', coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null },

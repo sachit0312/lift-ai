@@ -10,6 +10,7 @@ jest.mock('../../services/liveActivity', () => ({
   scheduleRestNotification: jest.fn(),
   isRestNotificationScheduled: jest.fn(() => true), // notification scheduled by default
   applyPendingWidgetActions: jest.fn(() => 0), // default: no actions
+  resetRestProgressBaseline: jest.fn(),
 }));
 
 const {
