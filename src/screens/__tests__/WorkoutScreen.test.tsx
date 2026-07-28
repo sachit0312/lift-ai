@@ -26,7 +26,6 @@ jest.mock('../../services/database', () => ({
   deleteWorkoutSet: jest.fn().mockResolvedValue(undefined),
   deleteWorkout: jest.fn().mockResolvedValue(undefined),
   getExerciseHistory: jest.fn().mockResolvedValue([]),
-  getExerciseById: jest.fn().mockResolvedValue(null),
   getAllExercises: jest.fn().mockResolvedValue([
     { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '' },
   ]),
@@ -58,7 +57,6 @@ jest.mock('../../services/liveActivity', () => ({
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
   requestNotificationPermissions: jest.fn(),
-  getRestTimerRemainingSeconds: jest.fn().mockReturnValue(null),
   getCurrentMaxRestSeconds: jest.fn(() => 0),
   startWorkoutActivity: jest.fn(),
   updateWorkoutActivityForSet: jest.fn().mockResolvedValue(undefined),
@@ -113,7 +111,6 @@ import {
   getTemplateExercises,
   getExerciseHistory,
   getUpcomingWorkoutForToday,
-  getExerciseById,
   finishWorkout,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
@@ -124,7 +121,6 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   requestNotificationPermissions,
-  getRestTimerRemainingSeconds,
   updateWorkoutActivityForRest,
 } from '../../services/liveActivity';
 import {
@@ -1238,12 +1234,10 @@ describe('WorkoutScreen', () => {
 
     afterEach(() => {
       (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(null);
-      (getExerciseById as jest.Mock).mockResolvedValue(null);
     });
 
     it('shows target weight as placeholder in LBS input', async () => {
       (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
-      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
 
       const result = render(<WorkoutScreen />);
       await startUpcomingWorkout(result);
@@ -1256,7 +1250,6 @@ describe('WorkoutScreen', () => {
 
     it('shows target reps as placeholder in REPS input', async () => {
       (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
-      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
 
       const result = render(<WorkoutScreen />);
       await startUpcomingWorkout(result);
@@ -1269,7 +1262,6 @@ describe('WorkoutScreen', () => {
 
     it('uses purple placeholder color for target values', async () => {
       (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
-      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
 
       const result = render(<WorkoutScreen />);
       await startUpcomingWorkout(result);
@@ -1282,7 +1274,6 @@ describe('WorkoutScreen', () => {
 
     it('does not show separate TARGET column header', async () => {
       (getUpcomingWorkoutForToday as jest.Mock).mockResolvedValue(upcomingData);
-      (getExerciseById as jest.Mock).mockResolvedValue(mockExercise);
 
       const result = render(<WorkoutScreen />);
       await startUpcomingWorkout(result);
@@ -1404,22 +1395,6 @@ describe('WorkoutScreen', () => {
       await waitFor(() => {
         expect(result.getByText(/Rest —/)).toBeTruthy();
       });
-    });
-
-    it('does not call getRestTimerRemainingSeconds when no rest timer is running', async () => {
-      const result = render(<WorkoutScreen />);
-      await startWorkoutWithExercise(result);
-
-      // No rest timer started — restRef.current is null
-      (getRestTimerRemainingSeconds as jest.Mock).mockClear();
-
-      // Simulate returning from background
-      await act(async () => {
-        fireAppState('active');
-      });
-
-      // Should NOT query Live Activity state since no JS timer is running
-      expect(getRestTimerRemainingSeconds).not.toHaveBeenCalled();
     });
 
   });

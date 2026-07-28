@@ -1,4 +1,4 @@
-import { computeSetDiffs, hasSetChanges, computeOrderDiff, buildTemplateUpdatePlan } from '../setDiff';
+import { computeSetDiffs, computeOrderDiff, buildTemplateUpdatePlan } from '../setDiff';
 import type { ExerciseBlock } from '../../types/workout';
 import { createMockExercise } from '../../__tests__/helpers/factories';
 import type { Exercise, TemplateExercise } from '../../types/database';
@@ -150,42 +150,6 @@ describe('computeSetDiffs', () => {
     expect(diffs).toHaveLength(1);
     expect(diffs[0].exerciseId).toBe('2');
     expect(diffs[0].workingAfter).toBe(4);
-  });
-});
-
-describe('hasSetChanges', () => {
-  it('returns false when no changes', () => {
-    const blocks: ExerciseBlock[] = [
-      makeBlock({
-        exercise: makeExercise('1', 'Squat'),
-        sets: [makeSet('working'), makeSet('working')],
-        originalWarmupSets: 0,
-        originalWorkingSets: 2,
-      }),
-    ];
-    expect(hasSetChanges(blocks)).toBe(false);
-  });
-
-  it('returns true when there are changes', () => {
-    const blocks: ExerciseBlock[] = [
-      makeBlock({
-        exercise: makeExercise('1', 'Squat'),
-        sets: [makeSet('working'), makeSet('working'), makeSet('working')],
-        originalWarmupSets: 0,
-        originalWorkingSets: 2,
-      }),
-    ];
-    expect(hasSetChanges(blocks)).toBe(true);
-  });
-
-  it('returns false for ad-hoc blocks without original counts', () => {
-    const blocks: ExerciseBlock[] = [
-      makeBlock({
-        exercise: makeExercise('1', 'Squat'),
-        sets: [makeSet('working')],
-      }),
-    ];
-    expect(hasSetChanges(blocks)).toBe(false);
   });
 });
 

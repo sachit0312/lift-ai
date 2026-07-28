@@ -1,6 +1,5 @@
 import {
   computeSetDiffs,
-  hasSetChanges,
   computeOrderDiff,
   buildTemplateUpdatePlan,
 } from '../../utils/setDiff';
@@ -96,21 +95,6 @@ describe('computeSetDiffs', () => {
       originalWarmupSets: 1, originalWorkingSets: 3,
     });
     expect(computeSetDiffs([block])).toEqual([]);
-  });
-});
-
-describe('hasSetChanges', () => {
-  it('returns true iff computeSetDiffs returns non-empty', () => {
-    const stable = makeBlock({
-      exerciseId: 'a', warmupCount: 1, workingCount: 3,
-      originalWarmupSets: 1, originalWorkingSets: 3,
-    });
-    const changed = makeBlock({
-      exerciseId: 'b', warmupCount: 1, workingCount: 5,
-      originalWarmupSets: 1, originalWorkingSets: 3,
-    });
-    expect(hasSetChanges([stable])).toBe(false);
-    expect(hasSetChanges([stable, changed])).toBe(true);
   });
 });
 

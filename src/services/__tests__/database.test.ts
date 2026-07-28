@@ -22,11 +22,9 @@ import {
   startWorkout,
   updateWorkoutSet,
   getPRsThisWeek,
-  getExerciseById,
   getExerciseHistory,
   getLastPerformedByTemplate,
   getBestE1RM,
-  getCurrentE1RM,
   stampExerciseOrder,
   applyWorkoutChangesToTemplate,
   upsertExerciseNote,
@@ -213,26 +211,6 @@ describe('getUserExerciseNotesBatch', () => {
   });
 });
 
-describe('getExerciseById', () => {
-  it('returns parsed exercise when found', async () => {
-    __mockDb.getAllAsync.mockResolvedValueOnce([
-      { id: 'ex-1', name: 'Squat', type: 'weighted', muscle_groups: '["Quads","Glutes"]', training_goal: 'strength', description: 'Barbell squat', created_at: '2026-01-01', user_id: null },
-    ]);
-
-    const result = await getExerciseById('ex-1');
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe('ex-1');
-    expect(result!.name).toBe('Squat');
-    expect(result!.muscle_groups).toEqual(['Quads', 'Glutes']);
-  });
-
-  it('returns null when exercise not found', async () => {
-    __mockDb.getAllAsync.mockResolvedValueOnce([]);
-
-    const result = await getExerciseById('nonexistent');
-    expect(result).toBeNull();
-  });
-});
 
 describe('getExerciseHistory', () => {
   it('skips workouts with only uncompleted sets for the exercise', async () => {
@@ -459,46 +437,6 @@ describe('applyWorkoutChangesToTemplate', () => {
     );
     expect(sortCalls).toHaveLength(1);
     expect(sortCalls[0][0]).toMatch(/CASE\s+id\s+WHEN/i);
-  });
-});
-
-describe('getCurrentE1RM', () => {
-  it('returns null when no completed sets exist', async () => {
-    __mockDb.getAllAsync.mockResolvedValueOnce([]);
-
-    const result = await getCurrentE1RM('ex-1');
-    expect(result).toBeNull();
-  });
-
-  it('returns freshness-weighted e1RM with recent sets valued higher', async () => {
-    const now = new Date().toISOString();
-    const sixWeeksAgo = new Date(Date.now() - 42 * 24 * 60 * 60 * 1000).toISOString();
-
-    // Recent set: 100x5 no RPE → ensemble ~114.6
-    // Old set: 120x5 no RPE → ensemble ~137.5, but decayed by ~50% after 42 days ≈ 68.8
-    __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', weight: 100, reps: 5, rpe: null, finished_at: now },
-      { exercise_id: 'ex-1', weight: 120, reps: 5, rpe: null, finished_at: sixWeeksAgo },
-    ]);
-
-    const result = await getCurrentE1RM('ex-1');
-    expect(result).not.toBeNull();
-    // The recent 100x5 should win over the decayed 120x5
-    expect(result).toBeGreaterThan(110);
-    expect(result).toBeLessThan(120);
-  });
-
-  it('returns higher value when recent workout is strong', async () => {
-    const now = new Date().toISOString();
-
-    __mockDb.getAllAsync.mockResolvedValueOnce([
-      { exercise_id: 'ex-1', weight: 200, reps: 3, rpe: 8, finished_at: now },
-    ]);
-
-    const result = await getCurrentE1RM('ex-1');
-    expect(result).not.toBeNull();
-    // 200 / 0.863 ≈ 231.75, decay ≈ 1.0 for today → ~231.75
-    expect(result).toBeGreaterThan(225);
   });
 });
 

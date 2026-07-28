@@ -34,10 +34,6 @@ export function computeSetDiffs(blocks: ExerciseBlock[]): SetDiff[] {
   return diffs;
 }
 
-export function hasSetChanges(blocks: ExerciseBlock[]): boolean {
-  return computeSetDiffs(blocks).length > 0;
-}
-
 // ─── Order diff & template update plan (F5) ───
 
 export interface OrderDiff {
