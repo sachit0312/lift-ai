@@ -15,15 +15,18 @@ let currentEndTime: number = 0;
 let currentExerciseName: string = '';
 let currentSetNumber: number = 1;
 let currentTotalSets: number = 1;
+/** Denominator for the lock-screen rest progress bar. Set once per rest by
+ *  updateWorkoutActivityForRest and grown by +15s adjustments (never shrunk, so it matches
+ *  the in-app RestTimerBar). Owned entirely in memory — it used to be mirrored to the App
+ *  Group and restored from there, but the only writer of that mirror was this module, so the
+ *  round-trip could only ever resurrect the PREVIOUS rest's value. */
 let currentMaxRestSeconds: number = 0;
-/** True when currentMaxRestSeconds was zeroed on purpose for a NEW rest, so the persisted
- *  value must not be restored over it. Cleared once a real baseline is set, and on stop, so
- *  a genuine cold start can still adopt the persisted value. */
-let baselineExplicitlyCleared = false;
 
 // ─── Update deduplication & throttle state ───
 let lastContentStateJSON = '';
 let lastUpdateTimestamp = 0;
+/** Guards against flooding Sentry with repeated ActivityKit throttle errors — see doUpdate. */
+let updateErrorReported = false;
 let pendingUpdate: { contentState: LiveActivityState; timeoutId: ReturnType<typeof setTimeout> } | null = null;
 const MIN_UPDATE_INTERVAL_MS = 500;
 
@@ -63,20 +66,9 @@ export function isRestNotificationScheduled(): boolean {
  */
 export function resetRestProgressBaseline(): void {
   currentMaxRestSeconds = 0;
-  // Zeroing the in-memory value alone was a no-op. getCurrentMaxRestSeconds() treats 0 as
-  // "cold start, restore from disk" and nothing ever clears the persisted mirror — so the
-  // very next widget sync (which runs synchronously from startRestTimer, BEFORE
-  // updateWorkoutActivityForRest gets to set the new baseline) resurrected the previous
-  // rest's value and re-persisted it. This flag says the zero is deliberate, so the restore
-  // is suppressed until a real new baseline is established.
-  baselineExplicitlyCleared = true;
 }
 
 export function getCurrentMaxRestSeconds(): number {
-  if (currentMaxRestSeconds === 0 && !baselineExplicitlyCleared) {
-    const persisted = readPersistedMaxRestSeconds();
-    if (persisted > 0) currentMaxRestSeconds = persisted;
-  }
   return currentMaxRestSeconds;
 }
 
@@ -102,9 +94,22 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
   // Adopt an activity left behind by a previous app process (force-quit / crash) so we update
   // it rather than stacking a second widget beside it. If it is already gone, updateActivity
   // below reports "not found" and we fall through to creating a fresh one.
+  let adoptedFromPreviousProcess = false;
   if (!currentActivityId) {
     const persisted = readPersistedActivityId();
-    if (persisted) currentActivityId = persisted;
+    if (persisted) {
+      currentActivityId = persisted;
+      adoptedFromPreviousProcess = true;
+    }
+  }
+
+  // A previous process died (force-quit or crash) mid-rest. currentNotificationId is JS module
+  // state and went with it, but the scheduled iOS notification did not — and cancel-by-id can
+  // no longer reach it. Without this, a "Rest Complete" banner fires with sound minutes later
+  // for a rest that no longer exists. Safe here specifically because this branch means no rest
+  // is live in THIS process, so there is no legitimate notification to destroy.
+  if (adoptedFromPreviousProcess) {
+    serializedNotificationOp(() => Notifications.cancelAllScheduledNotificationsAsync());
   }
 
   // If we already have an activity, try to update it (idempotent — no stacking)
@@ -121,6 +126,8 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
         currentActivityId = null;
         persistActivityId(null);
       } else {
+        if (__DEV__) console.error('Failed to adopt existing Live Activity', e);
+        Sentry.captureException(e);
         return;
       }
     }
@@ -130,6 +137,10 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
   try {
     currentEndTime = 0;
     currentExerciseName = exerciseName;
+    currentMaxRestSeconds = 0;
+    // Same reasoning as the adopt path: starting a workout means no rest is live, so any
+    // scheduled rest notification is an orphan from a process that died.
+    serializedNotificationOp(() => Notifications.cancelAllScheduledNotificationsAsync());
     await cancelTimerEndNotification();
 
     const activityId = LiveActivity.startActivity(
@@ -173,6 +184,15 @@ export async function updateWorkoutActivityForSet(
   exerciseName: string, setNumber: number, totalSets: number
 ): Promise<void> {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
+  // A rest is running — this is an incidental sync (add exercise, un-complete a set), not an
+  // authoritative rest-state change. Dropping the timer here is what made the lock-screen
+  // countdown vanish ~500ms into every rest: useSetCompletion calls syncWidgetState right
+  // after startRestTimer, and isRestingRef has not caught up yet, so the non-rest branch ran
+  // and pushed a content state with no progressBar. Refresh the labels instead.
+  if (currentEndTime > 0) {
+    refreshWorkoutActivityDuringRest(exerciseName, setNumber, totalSets);
+    return;
+  }
   try {
     currentExerciseName = exerciseName;
     currentSetNumber = setNumber;
@@ -192,24 +212,62 @@ export async function updateWorkoutActivityForSet(
 }
 
 /**
- * Update the persistent workout activity for rest timer view.
- * Transitions the lock screen to show the rest timer countdown.
+ * Refresh the exercise/set labels while a rest is running, WITHOUT touching the timing.
+ *
+ * The countdown and progress bar are driven entirely by the absolute end date already in the
+ * content state, and the Swift view keys both on `.id(restEndTime)` — so re-sending a
+ * recomputed end date forces SwiftUI to tear down and recreate them, which reads as a flicker
+ * and a jumping timer. Reusing currentEndTime keeps the content state byte-identical when
+ * nothing meaningful changed, so safeUpdateActivity's dedup drops the push entirely.
+ */
+export function refreshWorkoutActivityDuringRest(
+  exerciseName: string, setNumber: number, totalSets: number
+): void {
+  if (Platform.OS !== 'ios' || !currentActivityId || currentEndTime <= 0) return;
+  try {
+    currentExerciseName = exerciseName;
+    currentSetNumber = setNumber;
+    currentTotalSets = totalSets;
+
+    safeUpdateActivity({
+      title: exerciseName,
+      subtitle: `Set ${setNumber}/${totalSets}|${currentMaxRestSeconds}`,
+      progressBar: { date: currentEndTime },
+    });
+  } catch (e: unknown) {
+    if (__DEV__) console.error('Failed to refresh workout activity during rest', e);
+    Sentry.captureException(e);
+  }
+}
+
+/**
+ * Arm (or re-arm) the rest countdown on the persistent activity, transitioning the lock
+ * screen to the rest timer view.
+ *
+ * `endTime` is an ABSOLUTE epoch-millis deadline, deliberately not a "remaining seconds"
+ * value. Callers used to pass Math.round((end - Date.now())/1000) and this function rebuilt
+ * the deadline as Date.now() + seconds*1000, so every sync re-anchored the lock screen up to
+ * 500ms away from the in-app timer — and because the recomputed value differed every time,
+ * safeUpdateActivity's dedup never hit and the Swift `.id(restEndTime)` recreated the timer
+ * views on each push.
  */
 export async function updateWorkoutActivityForRest(
-  exerciseName: string, totalSeconds: number, setNumber: number, totalSets: number
+  exerciseName: string, endTime: number, setNumber: number, totalSets: number,
+  totalSeconds?: number,
 ): Promise<void> {
   if (Platform.OS !== 'ios' || !currentActivityId) return;
   try {
-    const endTime = Date.now() + totalSeconds * 1000;
     currentEndTime = endTime;
     currentExerciseName = exerciseName;
     currentSetNumber = setNumber;
     currentTotalSets = totalSets;
-    // Trigger eager restore from persisted state (no-op if currentMaxRestSeconds is non-zero).
-    // After that, this is just the fallback for a fresh rest with no previously-persisted state.
-    getCurrentMaxRestSeconds();
-    if (currentMaxRestSeconds === 0) currentMaxRestSeconds = totalSeconds;
-    baselineExplicitlyCleared = false;
+    // The caller owns the denominator (useRestTimer knows the rest duration and how far the
+    // user has extended it). Fall back to the time remaining only when it wasn't supplied.
+    if (totalSeconds != null && totalSeconds > 0) {
+      currentMaxRestSeconds = Math.max(currentMaxRestSeconds, totalSeconds);
+    } else if (currentMaxRestSeconds === 0) {
+      currentMaxRestSeconds = Math.max(1, Math.round((endTime - Date.now()) / 1000));
+    }
 
     safeUpdateActivity({
       title: exerciseName,
@@ -250,10 +308,10 @@ export async function stopWorkoutActivity(): Promise<void> {
     currentSetNumber = 1;
     currentTotalSets = 1;
     currentMaxRestSeconds = 0;
-    baselineExplicitlyCleared = false;
     // Reset dedup/throttle state
     lastContentStateJSON = '';
     lastUpdateTimestamp = 0;
+    updateErrorReported = false;
     if (pendingUpdate) {
       clearTimeout(pendingUpdate.timeoutId);
       pendingUpdate = null;
@@ -331,10 +389,11 @@ export function stopRestTimerActivity(): void {
     pendingNotificationReschedule = null;
   }
   currentMaxRestSeconds = 0;
+  // Above the guard: currentEndTime is what updateWorkoutActivityForSet reads to decide
+  // whether a rest is live, so it must be cleared even when the activity is already gone.
+  currentEndTime = 0;
   if (!currentActivityId) return;
   try {
-    currentEndTime = 0;
-
     // Update activity back to set entry view with parseable "Set X/Y" subtitle (no pipe suffix)
     safeUpdateActivity({
       title: currentExerciseName,
@@ -414,17 +473,6 @@ function readPersistedActivityId(): string | null {
   }
 }
 
-function readPersistedMaxRestSeconds(): number {
-  try {
-    const raw = getItem('liftai_workout_state');
-    if (!raw) return 0;
-    const parsed = JSON.parse(raw) as { restMaxSeconds?: number };
-    return typeof parsed.restMaxSeconds === 'number' ? parsed.restMaxSeconds : 0;
-  } catch {
-    return 0;
-  }
-}
-
 /**
  * Wrapper around LiveActivity.updateActivity with deduplication, throttling,
  * and resilient error handling.
@@ -474,10 +522,25 @@ function doUpdate(contentState: LiveActivityState, json: string): void {
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : '';
     if (/not found/i.test(message)) {
-      // Activity was dismissed by user/iOS — null out so future calls short-circuit
+      // Activity was dismissed by user/iOS — null out so future calls short-circuit, and drop
+      // the persisted id too, or a cold start would adopt an activity that no longer exists.
       currentActivityId = null;
+      persistActivityId(null);
+      return;
     }
-    // Transient/rate-limit errors: preserve currentActivityId so future updates still work
+    // Transient/rate-limit errors: preserve currentActivityId so future updates still work.
+    // Reported, not swallowed — this is the highest-traffic native call in the feature, and
+    // silently dropping ActivityKit throttling here is indistinguishable from a logic bug.
+    //
+    // Reported at most once per activity, though. This runs synchronously on the checkbox-tap
+    // call stack, and ActivityKit throttling tends to arrive in bursts — capturing every one
+    // would put stack collection on the JS thread mid-workout and flood the issue for what is,
+    // after the first instance, a known condition. The counter resets in stopWorkoutActivity.
+    if (__DEV__) console.error('Live Activity update failed', e);
+    if (!updateErrorReported) {
+      updateErrorReported = true;
+      Sentry.captureException(e);
+    }
   }
 }
 

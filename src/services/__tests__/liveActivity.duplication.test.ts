@@ -132,7 +132,7 @@ describe('Live Activity duplication bugs', () => {
     it('rapid adjust+stop does not leave orphaned notifications', async () => {
       jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 120 * 1000, 1, 4, 120);
       scheduleRestNotification(120);
 
       // Drain the initial schedule via the serialized queue

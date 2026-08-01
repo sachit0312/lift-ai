@@ -84,7 +84,7 @@ describe('liveActivity service', () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       jest.clearAllMocks();
 
-      await updateWorkoutActivityForRest('Bench Press', 90, 2, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 90 * 1000, 2, 4, 90);
 
       expect(LiveActivity.updateActivity).toHaveBeenCalledWith(
         'mock-activity-id',
@@ -102,7 +102,7 @@ describe('liveActivity service', () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       jest.clearAllMocks();
 
-      await updateWorkoutActivityForRest('Bench Press', 90, 2, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 90 * 1000, 2, 4, 90);
       await flushPromises();
 
       expect(Notifications.cancelAllScheduledNotificationsAsync).not.toHaveBeenCalled();
@@ -156,7 +156,7 @@ describe('liveActivity service', () => {
     it('updates Live Activity with new countdown and preserves exercise name', async () => {
       jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 120 * 1000, 1, 4, 120);
       jest.clearAllMocks();
 
       // Advance past throttle window so adjust update fires immediately
@@ -180,7 +180,7 @@ describe('liveActivity service', () => {
     it('schedules new notification on adjust', async () => {
       jest.useRealTimers(); // ensure no fake timer interference
       await startWorkoutActivity('Bench Press', 'Set 1/4');
-      await updateWorkoutActivityForRest('Bench Press', 120, 1, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 120 * 1000, 1, 4, 120);
       // Schedule a notification to simulate what useRestTimer does
       await scheduleTimerEndNotification(120);
 
@@ -210,7 +210,7 @@ describe('liveActivity service', () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       jest.advanceTimersByTime(600);
       // updateWorkoutActivityForRest stores currentSetNumber/currentTotalSets
-      await updateWorkoutActivityForRest('Bench Press', 120, 2, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 120 * 1000, 2, 4, 120);
       jest.clearAllMocks();
 
       // Advance past throttle window so stop update fires immediately
@@ -276,7 +276,7 @@ describe('liveActivity service', () => {
 
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       await updateWorkoutActivityForSet('Bench Press', 2, 4);
-      await updateWorkoutActivityForRest('Bench Press', 90, 2, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 90 * 1000, 2, 4, 90);
       await adjustRestTimerActivity(15);
       stopRestTimerActivity();
       await stopWorkoutActivity();
@@ -334,7 +334,7 @@ describe('liveActivity service', () => {
 
       // Subsequent calls should no-op (not call updateActivity or throw)
       await updateWorkoutActivityForSet('Bench Press', 3, 4);
-      await updateWorkoutActivityForRest('Bench Press', 90, 3, 4);
+      await updateWorkoutActivityForRest('Bench Press', Date.now() + 90 * 1000, 3, 4, 90);
       await adjustRestTimerActivity(15);
       stopRestTimerActivity();
 

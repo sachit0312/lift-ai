@@ -40,8 +40,8 @@ export interface UseSetCompletionOptions {
   currentBestE1RMRef: React.MutableRefObject<Map<string, number | undefined>>;
   lastActiveBlockRef: React.MutableRefObject<number>;
   workoutRef: React.MutableRefObject<Workout | null>;
-  startRestTimer: (seconds: number, exerciseName: string) => void;
-  syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number, restingExerciseName?: string) => void;
+  startRestTimer: (seconds: number, exerciseName: string, exerciseId: string) => number;
+  syncWidgetState: (blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number, restingExerciseId?: string, restTotalSeconds?: number) => void;
   onConfetti: () => void;
 }
 
@@ -332,12 +332,17 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       // Rest timer or widget sync. Pass the post-update blocks explicitly — the default
       // (blocksRef.current) is still the pre-update list inside this handler.
       if (restEnabled) {
-        startRestTimer(blockRestSeconds, exerciseName);
+        const restEndTime = startRestTimer(blockRestSeconds, exerciseName, block.exercise.id);
         // startRestTimer reaches the widget through useRestTimer's onRestUpdate callback,
         // which reads the (still stale) blocksRef. Re-sync with the post-update blocks now
         // that the rest refs are armed, so the lock screen shows the set the user is about
         // to do rather than the one they just finished.
-        syncWidgetState(nextBlocks, undefined, undefined, exerciseName);
+        //
+        // The rest state MUST be passed explicitly. Leaving it undefined made syncWidgetState
+        // fall back to isRestingRef, which is assigned during render and is therefore still
+        // false inside this handler — so the non-rest branch ran and stripped the countdown
+        // off the lock screen roughly 500ms after arming it, on every single set.
+        syncWidgetState(nextBlocks, true, restEndTime, block.exercise.id, blockRestSeconds);
       } else {
         syncWidgetState(nextBlocks);
       }

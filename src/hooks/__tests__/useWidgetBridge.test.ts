@@ -64,6 +64,7 @@ function makeOptions(overrides: Partial<UseWidgetBridgeOptions> = {}): UseWidget
     blocksRef: { current: blocks },
     isResting: false,
     restEndTime: 0,
+    restingExerciseId: '',
     ...overrides,
   };
 }
@@ -274,12 +275,16 @@ describe('useWidgetBridge', () => {
       const options = makeOptions({ blocksRef: { current: blocks } });
       const { result } = renderHook(() => useWidgetBridge(options));
 
-      // User is resting from Bench Press. Pass restingExerciseName to override.
+      // User is resting from Bench Press, whose sets are all complete. Anchor on its id.
       const restEnd = Date.now() + 120000;
-      const state = result.current.buildWidgetState(blocks, true, restEnd, 0, 'Bench Press');
+      const state = result.current.buildWidgetState(blocks, true, restEnd, 0, 'bench');
 
-      // Fixed: restingExerciseName overrides the "next incomplete set" lookup
+      // The resting block wins over the "next incomplete set" search — and crucially the
+      // counter comes from the SAME block. Overriding only the name used to render
+      // "Bench Press · Set 1/1" where the 1/1 actually described Squats.
       expect(state.current.exerciseName).toBe('Bench Press');
+      expect(state.current.setNumber).toBe(2);
+      expect(state.current.totalSets).toBe(2);
     });
 
     it('syncWidgetState sends correct exercise to Live Activity during rest after reorder', () => {
@@ -304,15 +309,17 @@ describe('useWidgetBridge', () => {
 
       const restEnd = Date.now() + 120000;
       act(() => {
-        result.current.syncWidgetState(undefined, true, restEnd, 'Bench Press');
+        result.current.syncWidgetState(undefined, true, restEnd, 'bench', 120);
       });
 
-      // Fixed: restingExerciseName threads through to updateWorkoutActivityForRest
+      // The resting exercise id threads through, and the ABSOLUTE deadline is forwarded
+      // verbatim rather than round-tripped through rounded remaining seconds.
       expect(updateWorkoutActivityForRest).toHaveBeenCalledWith(
         'Bench Press',
-        expect.any(Number),
-        expect.any(Number),
-        expect.any(Number),
+        restEnd,
+        1,
+        1,
+        120,
       );
     });
 
@@ -342,6 +349,69 @@ describe('useWidgetBridge', () => {
       // Works correctly — Bench still has incomplete sets
       expect(state.current.exerciseName).toBe('Bench Press');
       expect(state.current.setNumber).toBe(2);
+    });
+  });
+
+  describe('incidental syncs while a rest is running', () => {
+    // Bench is fully complete and the user is resting from it; Squats is the next incomplete
+    // exercise. Any sync that fails to anchor on Bench will label the lock screen "Squats".
+    function restingSetup() {
+      const completedBench = createBlock({
+        exercise: createMockExercise({ id: 'bench', name: 'Bench Press' }),
+        sets: [
+          { id: 'b1', exercise_id: 'bench', set_number: 1, weight: '185', reps: '5', rpe: '', tag: 'working', is_completed: true, previous: null },
+        ],
+      });
+      const incompleteSq = createBlock({
+        exercise: createMockExercise({ id: 'sq', name: 'Squats' }),
+        sets: [
+          { id: 'sq1', exercise_id: 'sq', set_number: 1, weight: '', reps: '', rpe: '', tag: 'working', is_completed: false, previous: null },
+        ],
+      });
+      const blocks = [completedBench, incompleteSq];
+      const restEnd = Date.now() + 120000;
+      const options = makeOptions({
+        blocksRef: { current: blocks },
+        isResting: true,
+        restEndTime: restEnd,
+        restingExerciseId: 'bench',
+      });
+      return { blocks, restEnd, options };
+    }
+
+    it('routes a sync with no explicit deadline to the label-only refresh', () => {
+      const { options } = restingSetup();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      // No isResting / restEnd args — this is what handleAddExerciseToWorkout and the
+      // un-complete branch of handleToggleComplete do.
+      act(() => { result.current.syncWidgetState(); });
+
+      // Must NOT re-arm the countdown; the refresh path reuses the stored deadline instead.
+      expect(updateWorkoutActivityForRest).not.toHaveBeenCalled();
+      expect(updateWorkoutActivityForSet).toHaveBeenCalledTimes(1);
+    });
+
+    it('labels an incidental sync with the resting exercise, not the next incomplete one', () => {
+      const { options } = restingSetup();
+      const { result } = renderHook(() => useWidgetBridge(options));
+
+      // lastActiveBlockRef points at Squats — the pre-fix fallback would have won here.
+      result.current.lastActiveBlockRef.current = 1;
+      act(() => { result.current.syncWidgetState(); });
+
+      expect(updateWorkoutActivityForSet).toHaveBeenCalledWith('Bench Press', 1, 1);
+    });
+
+    it('falls back to the next incomplete exercise once the rest has ended', () => {
+      const { blocks, options } = restingSetup();
+      const { result } = renderHook(() =>
+        useWidgetBridge({ ...options, isResting: false, restEndTime: 0, restingExerciseId: '' }),
+      );
+
+      act(() => { result.current.syncWidgetState(blocks); });
+
+      expect(updateWorkoutActivityForSet).toHaveBeenCalledWith('Squats', 1, 1);
     });
   });
 });
