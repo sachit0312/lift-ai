@@ -115,6 +115,36 @@ Key details:
 - `--no-bundler` on Release builds skips Metro (JS is bundled inline)
 - `SENTRY_DISABLE_AUTO_UPLOAD=true` prevents build failure from missing Sentry auth token
 
+**Never pipe the build through `tail`/`head`.** They buffer the entire stream until the
+command exits, so the log file stays empty for the whole build and any progress monitor sees
+nothing. Silence then looks exactly like a hang. Let it write in full and filter when reading.
+
+### Expo hangs at "Connecting to: iPhone" — install with devicectl instead
+
+Reproduced on every Release build (2026-07-31). `expo run:ios` reaches `› Build Succeeded`,
+prints `Waiting on http://localhost:8081` **even with `--no-bundler`**, then sits on
+`- Connecting to: iPhone` indefinitely without installing. `devicectl` does the same job in
+seconds.
+
+So: let expo do the **build**, then stop it once you see `Build Succeeded` and install
+yourself. Note this uses the **devicectl identifier**, not the hardware UDID.
+
+```bash
+pkill -f "expo run:ios"
+xcrun devicectl device install app --device $DEVICECTL_ID \
+  ~/Library/Developer/Xcode/DerivedData/liftai-*/Build/Products/Release-iphoneos/liftai.app
+xcrun devicectl device process launch --device $DEVICECTL_ID com.sachitgoyal.liftai
+```
+
+Do not read the hang as a build failure — check the log for `Build Succeeded` first.
+
+### Verifying Swift before a build
+
+`swiftc -parse` is **not** a useful pre-check: it does syntax only, with no type-checking and
+no availability analysis. It happily accepted both an `ambiguous use of 'init'` and an
+iOS-17-only symbol referenced from an iOS-16 view. Only a real `xcodebuild` catches those, so
+don't report Swift as "verified" on the strength of `-parse`.
+
 ### With Clean Prebuild
 
 ```bash
