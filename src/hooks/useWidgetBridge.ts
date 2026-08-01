@@ -1,17 +1,27 @@
 import { useRef, useCallback } from 'react';
 import * as Sentry from '@sentry/react-native';
 import {
-  syncStateToWidget,
-  type WidgetState,
-} from '../services/workoutBridge';
-import {
   updateWorkoutActivityForSet,
   updateWorkoutActivityForRest,
-  getCurrentMaxRestSeconds,
 } from '../services/liveActivity';
 import type { LocalSet, ExerciseBlock } from '../types/workout';
 
 export type { LocalSet, ExerciseBlock } from '../types/workout';
+
+/**
+ * Which exercise and set the widget should describe right now.
+ *
+ * This used to be a wider `WidgetState` mirrored into App Group UserDefaults for the widget
+ * extension to read. The extension never read it — it takes 100% of its data from the
+ * ActivityKit ContentState — so the write was pure overhead on every sync, and the one
+ * "reader" was liveActivity reading back a value it had itself caused to be written.
+ */
+export interface WidgetCurrent {
+  exerciseName: string;
+  exerciseBlockIndex: number;
+  setNumber: number;
+  totalSets: number;
+}
 
 export interface UseWidgetBridgeOptions {
   blocksRef: React.MutableRefObject<ExerciseBlock[]>;
@@ -31,7 +41,7 @@ export interface UseWidgetBridgeOptions {
 
 export interface UseWidgetBridgeReturn {
   lastActiveBlockRef: React.MutableRefObject<number>;
-  buildWidgetState: (blocks: ExerciseBlock[], isResting: boolean, restEnd: number, preferBlockIdx?: number, restingExerciseId?: string) => WidgetState;
+  buildWidgetState: (blocks: ExerciseBlock[], isResting: boolean, restEnd: number, preferBlockIdx?: number, restingExerciseId?: string) => WidgetCurrent;
   /**
    * `restEnd` is an ABSOLUTE epoch-millis deadline. Passing it explicitly (together with
    * `isResting`) marks the call as an authoritative rest-state change; omitting it marks an
@@ -62,7 +72,7 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
   restingExerciseIdRef.current = restingExerciseId;
 
   const buildWidgetState = useCallback(
-    (blocks: ExerciseBlock[], isRestingArg: boolean, restEnd: number, preferBlockIdx?: number, restingExerciseId?: string): WidgetState => {
+    (blocks: ExerciseBlock[], isRestingArg: boolean, restEnd: number, preferBlockIdx?: number, restingExerciseId?: string): WidgetCurrent => {
       // Find first incomplete set, starting from the last-active block (wrap around)
       let currentBlockIdx = -1;
       let currentSetIdx = -1;
@@ -118,33 +128,17 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
       }
 
       if (currentBlockIdx < 0) {
-        return {
-          current: { exerciseName: 'Workout', exerciseBlockIndex: 0, setNumber: 1, totalSets: 1, restSeconds: 0, restEnabled: false },
-          isResting: isRestingArg,
-          restEndTime: restEnd,
-          restMaxSeconds: getCurrentMaxRestSeconds(),
-          workoutActive: true,
-        };
+        return { exerciseName: 'Workout', exerciseBlockIndex: 0, setNumber: 1, totalSets: 1 };
       }
 
       const block = blocks[currentBlockIdx];
       const set = block.sets[currentSetIdx];
 
-      const current = {
+      return {
         exerciseName: block.exercise.name,
         exerciseBlockIndex: currentBlockIdx,
         setNumber: set.set_number,
         totalSets: block.sets.length,
-        restSeconds: block.restSeconds,
-        restEnabled: block.restEnabled,
-      };
-
-      return {
-        current,
-        isResting: isRestingArg,
-        restEndTime: restEnd,
-        restMaxSeconds: getCurrentMaxRestSeconds(),
-        workoutActive: true,
       };
     },
     [],
@@ -159,10 +153,7 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
       // screen just by omitting it. Callers still pass it explicitly when they run before the
       // corresponding state has flushed (set completion arms the rest inside the same handler).
       const restingId = restingExerciseId ?? restingExerciseIdRef.current;
-      const state = buildWidgetState(b, resting, end, lastActiveBlockRef.current, restingId);
-
-      // Write to UserDefaults
-      syncStateToWidget(state);
+      const current = buildWidgetState(b, resting, end, lastActiveBlockRef.current, restingId);
 
       // An authoritative rest change supplies the deadline explicitly. Callers that merely
       // re-sync surrounding state (add exercise, un-complete a set) leave it undefined and
@@ -172,19 +163,19 @@ export function useWidgetBridge(options: UseWidgetBridgeOptions): UseWidgetBridg
       // Update ContentState (triggers widget view re-render)
       if (isAuthoritativeRest) {
         updateWorkoutActivityForRest(
-          state.current.exerciseName,
+          current.exerciseName,
           end,
-          state.current.setNumber,
-          state.current.totalSets,
+          current.setNumber,
+          current.totalSets,
           restTotalSeconds,
         ).catch(e => Sentry.captureException(e));
       } else {
         // updateWorkoutActivityForSet self-routes to the label-only refresh when a rest is
         // still live, so an incidental sync can no longer tear the countdown down.
         updateWorkoutActivityForSet(
-          state.current.exerciseName,
-          state.current.setNumber,
-          state.current.totalSets
+          current.exerciseName,
+          current.setNumber,
+          current.totalSets
         ).catch(e => Sentry.captureException(e));
       }
     },

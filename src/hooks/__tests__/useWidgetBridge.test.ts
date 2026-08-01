@@ -2,22 +2,15 @@ import { renderHook, act } from '@testing-library/react-native';
 import { useWidgetBridge, type ExerciseBlock, type UseWidgetBridgeOptions } from '../useWidgetBridge';
 import { createMockExercise } from '../../__tests__/helpers/factories';
 import type { Exercise, SetTag } from '../../types/database';
+import { updateWorkoutActivityForSet, updateWorkoutActivityForRest } from '../../services/liveActivity';
 
 // ─── Mocks ───
-
-jest.mock('../../services/workoutBridge', () => ({
-  syncStateToWidget: jest.fn(),
-  clearWidgetState: jest.fn(),
-}));
 
 jest.mock('../../services/liveActivity', () => ({
   updateWorkoutActivityForSet: jest.fn().mockResolvedValue(undefined),
   updateWorkoutActivityForRest: jest.fn().mockResolvedValue(undefined),
-  getCurrentMaxRestSeconds: jest.fn(() => 0),
 }));
 
-import { syncStateToWidget } from '../../services/workoutBridge';
-import { updateWorkoutActivityForSet, updateWorkoutActivityForRest, getCurrentMaxRestSeconds } from '../../services/liveActivity';
 
 // ─── Helpers ───
 
@@ -87,15 +80,10 @@ describe('useWidgetBridge', () => {
         0,
       );
 
-      expect(state.workoutActive).toBe(true);
-      expect(state.isResting).toBe(false);
-      expect(state.restEndTime).toBe(0);
-      expect(state.current.exerciseName).toBe('Bench Press');
-      expect(state.current.exerciseBlockIndex).toBe(0);
-      expect(state.current.setNumber).toBe(1);
-      expect(state.current.totalSets).toBe(2);
-      expect(state.current.restSeconds).toBe(150);
-      expect(state.current.restEnabled).toBe(true);
+      expect(state.exerciseName).toBe('Bench Press');
+      expect(state.exerciseBlockIndex).toBe(0);
+      expect(state.setNumber).toBe(1);
+      expect(state.totalSets).toBe(2);
     });
 
     it('handles empty blocks gracefully', () => {
@@ -104,11 +92,10 @@ describe('useWidgetBridge', () => {
 
       const state = result.current.buildWidgetState([], false, 0);
 
-      expect(state.workoutActive).toBe(true);
-      expect(state.current.exerciseName).toBe('Workout');
-      expect(state.current.exerciseBlockIndex).toBe(0);
-      expect(state.current.setNumber).toBe(1);
-      expect(state.current.totalSets).toBe(1);
+      expect(state.exerciseName).toBe('Workout');
+      expect(state.exerciseBlockIndex).toBe(0);
+      expect(state.setNumber).toBe(1);
+      expect(state.totalSets).toBe(1);
     });
 
     it('finds first incomplete set starting from preferBlockIdx', () => {
@@ -131,8 +118,8 @@ describe('useWidgetBridge', () => {
 
       // Starting from block 1, should find Deadlift's incomplete set
       const state = result.current.buildWidgetState([block0, block1], false, 0, 1);
-      expect(state.current.exerciseName).toBe('Deadlift');
-      expect(state.current.setNumber).toBe(1);
+      expect(state.exerciseName).toBe('Deadlift');
+      expect(state.setNumber).toBe(1);
     });
 
     it('falls back to last block when all sets complete', () => {
@@ -146,8 +133,8 @@ describe('useWidgetBridge', () => {
       const { result } = renderHook(() => useWidgetBridge(options));
 
       const state = result.current.buildWidgetState([block], false, 0);
-      expect(state.current.exerciseBlockIndex).toBe(0);
-      expect(state.current.setNumber).toBe(2); // Last completed set
+      expect(state.exerciseBlockIndex).toBe(0);
+      expect(state.setNumber).toBe(2); // Last completed set
     });
 
     it('includes rest state when resting', () => {
@@ -161,8 +148,6 @@ describe('useWidgetBridge', () => {
         restEnd,
       );
 
-      expect(state.isResting).toBe(true);
-      expect(state.restEndTime).toBe(restEnd);
     });
 
   });
@@ -176,11 +161,7 @@ describe('useWidgetBridge', () => {
         result.current.syncWidgetState(options.blocksRef.current, false, 0);
       });
 
-      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
-      const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
-      expect(writtenState.workoutActive).toBe(true);
-      expect(writtenState.current.exerciseName).toBe('Bench Press');
-      expect(writtenState.isResting).toBe(false);
+      expect(updateWorkoutActivityForSet).toHaveBeenCalledWith('Bench Press', 1, 2);
     });
 
     it('calls updateWorkoutActivityForSet when not resting', () => {
@@ -220,24 +201,12 @@ describe('useWidgetBridge', () => {
         result.current.syncWidgetState();
       });
 
-      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
-      const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
-      expect(writtenState.current.exerciseName).toBe('Bench Press');
+      expect(updateWorkoutActivityForSet).toHaveBeenCalledWith('Bench Press', 1, 2);
     });
 
-    it('propagates non-zero restMaxSeconds from liveActivity into widget state', () => {
-      (getCurrentMaxRestSeconds as jest.Mock).mockReturnValueOnce(180);
-      const options = makeOptions();
-      const { result } = renderHook(() => useWidgetBridge(options));
-
-      act(() => {
-        result.current.syncWidgetState(options.blocksRef.current, false, 0);
-      });
-
-      expect(syncStateToWidget).toHaveBeenCalledTimes(1);
-      const writtenState = (syncStateToWidget as jest.Mock).mock.calls[0][0];
-      expect(writtenState.restMaxSeconds).toBe(180);
-    });
+    // Removed: 'propagates non-zero restMaxSeconds into widget state'. The App Group mirror
+    // it asserted on is gone — the widget extension never read it. The denominator now lives
+    // only in liveActivity's module state and is covered by liveActivity-restDeadline.
   });
 
   // ─── BUG: Wrong exercise name after auto-reorder during rest ───
@@ -282,9 +251,9 @@ describe('useWidgetBridge', () => {
       // The resting block wins over the "next incomplete set" search — and crucially the
       // counter comes from the SAME block. Overriding only the name used to render
       // "Bench Press · Set 1/1" where the 1/1 actually described Squats.
-      expect(state.current.exerciseName).toBe('Bench Press');
-      expect(state.current.setNumber).toBe(2);
-      expect(state.current.totalSets).toBe(2);
+      expect(state.exerciseName).toBe('Bench Press');
+      expect(state.setNumber).toBe(2);
+      expect(state.totalSets).toBe(2);
     });
 
     it('syncWidgetState sends correct exercise to Live Activity during rest after reorder', () => {
@@ -347,8 +316,8 @@ describe('useWidgetBridge', () => {
       const state = result.current.buildWidgetState(blocks, true, Date.now() + 120000, 0);
 
       // Works correctly — Bench still has incomplete sets
-      expect(state.current.exerciseName).toBe('Bench Press');
-      expect(state.current.setNumber).toBe(2);
+      expect(state.exerciseName).toBe('Bench Press');
+      expect(state.setNumber).toBe(2);
     });
   });
 

@@ -21,7 +21,6 @@ import {
   scheduleTimerEndNotification,
   cancelTimerEndNotification,
   adjustRestTimerActivity,
-  applyPendingWidgetActions,
 } from '../liveActivity';
 import { setItem, getItemAndRemove } from '../../../modules/shared-user-defaults';
 
@@ -187,44 +186,6 @@ describe('Live Activity duplication bugs', () => {
 
   // ─── Poll Swift widget action queue ───
 
-  describe('applyPendingWidgetActions', () => {
-    it('returns 0 when no actions queued', () => {
-      expect(applyPendingWidgetActions()).toBe(0);
-    });
-
-    it('sums adjustRest deltas', () => {
-      setItem('liftai_action_queue', JSON.stringify([
-        { type: 'adjustRest', delta: 15, ts: Date.now() },
-        { type: 'adjustRest', delta: 15, ts: Date.now() },
-        { type: 'adjustRest', delta: -15, ts: Date.now() },
-      ]));
-
-      expect(applyPendingWidgetActions()).toBe(15);
-    });
-
-    it('returns -Infinity for skipRest', () => {
-      setItem('liftai_action_queue', JSON.stringify([
-        { type: 'adjustRest', delta: 15, ts: Date.now() },
-        { type: 'skipRest', delta: null, ts: Date.now() },
-      ]));
-
-      expect(applyPendingWidgetActions()).toBe(-Infinity);
-    });
-
-    it('clears the queue after reading', () => {
-      setItem('liftai_action_queue', JSON.stringify([
-        { type: 'adjustRest', delta: 15, ts: Date.now() },
-      ]));
-
-      applyPendingWidgetActions();
-      expect(getItemAndRemove).toHaveBeenCalledWith('liftai_action_queue');
-    });
-
-    it('returns 0 on Android', () => {
-      Object.defineProperty(Platform, 'OS', { value: 'android', writable: true });
-      expect(applyPendingWidgetActions()).toBe(0);
-    });
-  });
 
   // ─── BUG 4: safeUpdateActivity dedup can cause missed updates ───
   // If exercise name changes but set info stays the same, the JSON comparison

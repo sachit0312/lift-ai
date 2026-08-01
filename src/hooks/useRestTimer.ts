@@ -5,7 +5,6 @@ import {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   scheduleRestNotification,
-  applyPendingWidgetActions,
   resetRestProgressBaseline,
 } from '../services/liveActivity';
 
@@ -185,20 +184,8 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       } else if (nextState === 'active') {
         // ─── Resync rest timer on foreground return ───
         if (restRef.current !== null) {
-          // Apply any pending widget intent actions (e.g., +/-15s taps from lock screen)
-          const delta = applyPendingWidgetActions();
-          if (delta === -Infinity) {
-            // Widget user tapped "skip rest"
-            endRest(false);
-            return;
-          }
-          if (delta !== 0) {
-            currentEndTimeRef.current += delta * 1000;
-            setCurrentEndTime(currentEndTimeRef.current);
-            // sync Live Activity + notification through the debounced path
-            adjustRestTimerActivity(delta);
-          }
-
+          // The widget is read-only: it ships no AppIntent buttons, so there is no action
+          // queue to drain here. Just recompute against the wall clock.
           const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
           if (remaining <= 0) {
             endRest(false); // no vibrate — notification already fired

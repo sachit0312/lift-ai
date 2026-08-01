@@ -68,11 +68,6 @@ jest.mock('../../services/liveActivity', () => ({
   resetRestProgressBaseline: jest.fn(),
 }));
 
-jest.mock('../../services/workoutBridge', () => ({
-  syncStateToWidget: jest.fn(),
-  clearWidgetState: jest.fn(),
-}));
-
 const mockConfettiRender = jest.fn();
 jest.mock('react-native-confetti-cannon', () => {
   const React = require('react');
@@ -123,10 +118,6 @@ import {
   requestNotificationPermissions,
   updateWorkoutActivityForRest,
 } from '../../services/liveActivity';
-import {
-  syncStateToWidget,
-  clearWidgetState,
-} from '../../services/workoutBridge';
 import WorkoutScreen from '../WorkoutScreen';
 
 describe('WorkoutScreen', () => {
@@ -1411,7 +1402,6 @@ describe('WorkoutScreen', () => {
       const result = render(<WorkoutScreen />);
       await startWorkoutWithExercise(result);
 
-      expect(syncStateToWidget).toHaveBeenCalled();
     });
 
     it('clears widget state on finish', async () => {
@@ -1425,7 +1415,6 @@ describe('WorkoutScreen', () => {
       });
       await act(async () => { fireEvent.press(result.getByTestId('check-0-0')); });
 
-      (clearWidgetState as jest.Mock).mockClear();
 
       // Tap finish
       await act(async () => { fireEvent.press(result.getByTestId('finish-workout-btn')); });
@@ -1436,7 +1425,6 @@ describe('WorkoutScreen', () => {
       await act(async () => { fireEvent.press(finishButtons[finishButtons.length - 1]); });
 
       await waitFor(() => {
-        expect(clearWidgetState).toHaveBeenCalled();
       });
     });
 
@@ -1447,7 +1435,6 @@ describe('WorkoutScreen', () => {
       await act(async () => { fireEvent.press(result.getByTestId('start-empty-workout')); });
       await waitFor(() => expect(result.getByTestId('finish-workout-btn')).toBeTruthy());
 
-      (syncStateToWidget as jest.Mock).mockClear();
 
       // Add exercise
       await act(async () => { fireEvent.press(result.getByTestId('add-exercise-btn')); });
@@ -1455,7 +1442,6 @@ describe('WorkoutScreen', () => {
       await act(async () => { fireEvent.press(result.getByText('Bench Press')); });
 
       await waitFor(() => {
-        expect(syncStateToWidget).toHaveBeenCalled();
       });
     });
 

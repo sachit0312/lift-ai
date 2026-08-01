@@ -74,11 +74,6 @@ jest.mock('../../services/liveActivity', () => ({
   stopWorkoutActivity: jest.fn(),
 }));
 
-jest.mock('../../services/workoutBridge', () => ({
-  clearWidgetState: jest.fn(),
-  syncStateToWidget: jest.fn(),
-}));
-
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: (cb: () => void) => {
     const { useEffect } = require('react');

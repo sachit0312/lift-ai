@@ -11,7 +11,6 @@ const WIDGET_TARGET_NAME = 'LiveActivity';
 
 // New Swift files to add to the widget target (not replacing existing ones).
 // Empty: interactive buttons removed — widget is now read-only.
-const NEW_SWIFT_FILES = [];
 
 // Swift files that replace expo-live-activity defaults
 const REPLACEMENT_FILES = {
@@ -95,154 +94,14 @@ function withWidgetXcodeProjectFinalized(config) {
       fs.writeFileSync(entitlementsPath, plist.default.build(entitlements));
       console.log(`[withInteractiveLiveActivity] ✓ Merged App Groups entitlement into widget entitlements (finalized)`);
 
-      // Copy new Swift files
-      for (const file of NEW_SWIFT_FILES) {
-        const sourcePath = path.join(pluginSwiftDir, file);
-        const destPath = path.join(widgetPath, file);
-        if (fs.existsSync(sourcePath)) {
-          fs.copyFileSync(sourcePath, destPath);
-          console.log(`[withInteractiveLiveActivity] Copied ${file} (finalized)`);
-        }
-      }
-
-      // Add new files to Xcode project
-      addFilesToXcodeProject(platformProjectRoot, projectName);
+      // NOTE: this plugin only OVERWRITES files expo-live-activity already registered in the
+      // pbxproj (see REPLACEMENT_FILES), so there is nothing to add to the Xcode target. The
+      // ~130 lines of pbxproj surgery that used to run here iterated an empty file list and
+      // rewrote the project on every prebuild for no effect. If a genuinely new Swift file is
+      // ever needed in the widget target, restore it from git history rather than re-deriving.
       return config;
     },
   ]);
-}
-
-// Directly modify the .pbxproj file to add Swift files to the widget target
-function addFilesToXcodeProject(platformProjectRoot, projectName) {
-  const xcode = require('xcode');
-  const pbxprojPath = path.join(
-    platformProjectRoot,
-    `${projectName}.xcodeproj`,
-    'project.pbxproj'
-  );
-
-  if (!fs.existsSync(pbxprojPath)) {
-    console.warn('[withInteractiveLiveActivity] Could not find .pbxproj file');
-    return;
-  }
-
-  const project = xcode.project(pbxprojPath);
-  project.parseSync();
-
-  // Find the LiveActivity native target
-  const nativeTargets = project.pbxNativeTargetSection();
-  let widgetTargetUuid = null;
-
-  for (const key in nativeTargets) {
-    const target = nativeTargets[key];
-    if (typeof target === 'object' && target.name != null) {
-      const name = target.name.replace(/"/g, '');
-      if (name === WIDGET_TARGET_NAME) {
-        widgetTargetUuid = key;
-        break;
-      }
-    }
-  }
-
-  if (!widgetTargetUuid) {
-    console.warn('[withInteractiveLiveActivity] Could not find LiveActivity target in Xcode project');
-    return;
-  }
-
-  // Find the existing PBXSourcesBuildPhase for the widget target
-  const target = nativeTargets[widgetTargetUuid];
-  let sourcesBuildPhaseUuid = null;
-
-  if (target.buildPhases) {
-    for (const phase of target.buildPhases) {
-      const phaseUuid = phase.value;
-      const buildPhases = project.hash.project.objects['PBXSourcesBuildPhase'];
-      if (buildPhases && buildPhases[phaseUuid]) {
-        sourcesBuildPhaseUuid = phaseUuid;
-        break;
-      }
-    }
-  }
-
-  // Find the LiveActivity PBX group
-  const groups = project.hash.project.objects['PBXGroup'];
-  let widgetGroupKey = null;
-
-  for (const key in groups) {
-    if (key.endsWith('_comment')) continue;
-    const group = groups[key];
-    if (typeof group === 'object' && group.name != null) {
-      const name = group.name.replace(/"/g, '');
-      if (name === WIDGET_TARGET_NAME) {
-        widgetGroupKey = key;
-        break;
-      }
-    }
-  }
-
-  // Add each new Swift file to the project
-  for (const fileName of NEW_SWIFT_FILES) {
-    // Check if file is already in the project (idempotency)
-    const fileRefs = project.hash.project.objects['PBXFileReference'] || {};
-    let alreadyExists = false;
-    for (const refKey in fileRefs) {
-      const ref = fileRefs[refKey];
-      if (typeof ref === 'object' && ref.path === fileName) {
-        alreadyExists = true;
-        break;
-      }
-    }
-    if (alreadyExists) {
-      console.log(`[withInteractiveLiveActivity] ${fileName} already in project, skipping`);
-      continue;
-    }
-
-    const fileRefUuid = project.generateUuid();
-    const buildFileUuid = project.generateUuid();
-
-    // Add file reference
-    project.hash.project.objects['PBXFileReference'][fileRefUuid] = {
-      isa: 'PBXFileReference',
-      lastKnownFileType: 'sourcecode.swift',
-      path: fileName,
-      sourceTree: '"<group>"',
-    };
-    project.hash.project.objects['PBXFileReference'][`${fileRefUuid}_comment`] = fileName;
-
-    // Add build file
-    project.hash.project.objects['PBXBuildFile'] =
-      project.hash.project.objects['PBXBuildFile'] || {};
-    project.hash.project.objects['PBXBuildFile'][buildFileUuid] = {
-      isa: 'PBXBuildFile',
-      fileRef: fileRefUuid,
-      fileRef_comment: fileName,
-    };
-    project.hash.project.objects['PBXBuildFile'][`${buildFileUuid}_comment`] = `${fileName} in Sources`;
-
-    // Add to sources build phase
-    if (sourcesBuildPhaseUuid) {
-      const buildPhases = project.hash.project.objects['PBXSourcesBuildPhase'];
-      const phase = buildPhases[sourcesBuildPhaseUuid];
-      if (phase && phase.files) {
-        phase.files.push({
-          value: buildFileUuid,
-          comment: `${fileName} in Sources`,
-        });
-      }
-    }
-
-    // Add to PBX group
-    if (widgetGroupKey && groups[widgetGroupKey].children) {
-      groups[widgetGroupKey].children.push({
-        value: fileRefUuid,
-        comment: fileName,
-      });
-    }
-
-    console.log(`[withInteractiveLiveActivity] Added ${fileName} to widget target`);
-  }
-
-  fs.writeFileSync(pbxprojPath, project.writeSync());
 }
 
 module.exports = withInteractiveLiveActivity;

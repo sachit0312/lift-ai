@@ -84,11 +84,6 @@ jest.mock('../../services/liveActivity', () => ({
   stopWorkoutActivity: jest.fn(),
 }));
 
-jest.mock('../../services/workoutBridge', () => ({
-  clearWidgetState: jest.fn(),
-  syncStateToWidget: jest.fn(),
-}));
-
 // Capture the focus callback directly instead of wiring it through a real useEffect,
 // so the test can invoke "another focus" on demand — independent of React's effect
 // re-run rules (a `[]` dependency array would otherwise only ever fire once).

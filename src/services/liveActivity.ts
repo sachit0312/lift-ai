@@ -4,7 +4,7 @@ import type { LiveActivityState } from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
-import { getItem, getItemAndRemove, setItem, removeItem } from '../../modules/shared-user-defaults';
+import { getItem, setItem, removeItem } from '../../modules/shared-user-defaults';
 import { colors } from '../theme';
 
 // ─── Module-level state (singleton) ───
@@ -47,14 +47,6 @@ Notifications.setNotificationHandler({
 
 // ─── Public API ───
 
-/**
- * Returns true if a rest-end notification is currently scheduled.
- * Used by useRestTimer to decide whether to vibrate as fallback —
- * if the notification exists, it handles alerting; otherwise vibrate in-app.
- */
-export function isRestNotificationScheduled(): boolean {
-  return currentNotificationId !== null;
-}
 
 /**
  * Clears the rest progress-bar denominator so the next rest sets its own baseline.
@@ -407,33 +399,6 @@ export function stopRestTimerActivity(): void {
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to stop rest timer', e);
     Sentry.captureException(e);
-  }
-}
-
-// ─── Widget action queue ───
-
-/**
- * Read and clear pending widget intent actions from UserDefaults.
- * Called on foreground return to sync RN state with Swift widget adjustments.
- * Returns total delta in seconds (0 = no actions, -Infinity = skip rest).
- */
-export function applyPendingWidgetActions(): number {
-  if (Platform.OS !== 'ios') return 0;
-  try {
-    const raw = getItemAndRemove('liftai_action_queue');
-    if (!raw) return 0;
-    const actions: { type: string; delta?: number; ts: number }[] = JSON.parse(raw);
-    let totalDelta = 0;
-    for (const action of actions) {
-      if (action.type === 'skipRest') return -Infinity;
-      if (action.type === 'adjustRest' && action.delta != null) {
-        totalDelta += action.delta;
-      }
-    }
-    return totalDelta;
-  } catch (e) {
-    Sentry.captureException(e);
-    return 0;
   }
 }
 

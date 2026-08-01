@@ -8,8 +8,6 @@ jest.mock('../../services/liveActivity', () => ({
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
   scheduleRestNotification: jest.fn(),
-  isRestNotificationScheduled: jest.fn(() => true), // notification scheduled by default
-  applyPendingWidgetActions: jest.fn(() => 0), // default: no actions
   resetRestProgressBaseline: jest.fn(),
 }));
 
@@ -17,8 +15,6 @@ const {
   adjustRestTimerActivity,
   stopRestTimerActivity,
   scheduleRestNotification,
-  isRestNotificationScheduled,
-  applyPendingWidgetActions,
 } = require('../../services/liveActivity');
 
 // Capture the AppState listener so tests can simulate foreground return
@@ -421,53 +417,8 @@ describe('useRestTimer', () => {
       expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
     });
 
-    it('applies widget action queue delta before computing remaining time', () => {
-      const { result, onRestEnd } = setup();
-
-      act(() => {
-        result.current.startRestTimer(30, 'Bench', 'ex-1');
-      });
-
-      act(() => {
-        appStateCallback?.('background');
-      });
-
-      // Widget user tapped +15s while app was backgrounded
-      (applyPendingWidgetActions as jest.Mock).mockReturnValueOnce(15);
-
-      // 25 seconds pass — without the +15s, timer would have 5s left
-      // With the +15s, timer should have 20s left
-      jest.setSystemTime(new Date(Date.now() + 25000));
-
-      act(() => {
-        appStateCallback?.('active');
-      });
-
-      expect(result.current.isResting).toBe(true);
-      const remaining = Math.max(0, Math.round((result.current.currentEndTime - Date.now()) / 1000));
-      expect(remaining).toBe(20);
-    });
-
-    it('applies widget skipRest action by ending rest', () => {
-      const { result, onRestEnd } = setup();
-
-      act(() => {
-        result.current.startRestTimer(120, 'Bench', 'ex-1');
-      });
-
-      act(() => {
-        appStateCallback?.('background');
-      });
-
-      (applyPendingWidgetActions as jest.Mock).mockReturnValueOnce(-Infinity);
-
-      act(() => {
-        appStateCallback?.('active');
-      });
-
-      expect(result.current.isResting).toBe(false);
-      expect(onRestEnd).toHaveBeenCalledTimes(1);
-    });
+    // Removed: the two widget-action-queue tests. The widget ships no AppIntent buttons, so
+    // nothing ever wrote liftai_action_queue and applyPendingWidgetActions has been deleted.
 
     it('vibrates after 500ms foreground recovery if timer has remaining time then expires', () => {
       const { result, onRestEnd } = setup();

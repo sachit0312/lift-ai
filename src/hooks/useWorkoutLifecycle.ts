@@ -31,7 +31,6 @@ import {
   startWorkoutActivity,
   stopWorkoutActivity,
 } from '../services/liveActivity';
-import { clearWidgetState } from '../services/workoutBridge';
 import {
   getUpcomingWorkoutForToday,
   getUpcomingWorkoutById,
@@ -837,7 +836,6 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
             clearPendingNotes();
             dismissRest();
             stopWorkoutActivity();
-            clearWidgetState();
             setActiveWorkout(null);
             workoutRef.current = null;
             loadFailedRef.current = false;
@@ -983,7 +981,6 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
 
     dismissRest();
     stopWorkoutActivity();
-    clearWidgetState();
 
     try { Vibration.vibrate([0, 100, 50, 100, 50, 200]); } catch {}
 
