@@ -348,6 +348,65 @@ export async function resetDatabase(): Promise<void> {
   await dbInitPromise;
 }
 
+/**
+ * Serializes every transaction in the app onto a single promise chain.
+ *
+ * expo-sqlite's `withTransactionAsync` is literally `BEGIN / task / COMMIT` with a
+ * `catch → ROLLBACK`, issued on one shared connection with no mutual exclusion. Two
+ * overlapping calls therefore corrupt each other: the second `BEGIN` fails with "cannot start
+ * a transaction within a transaction", its catch fires a `ROLLBACK` that tears down the FIRST
+ * transaction's work, and whichever one commits last reports "cannot commit / cannot rollback
+ * - no transaction is active". One of the two transactions is silently discarded.
+ *
+ * That is not hypothetical — it is Sentry REACT-NATIVE-G, hit during a real workout. The
+ * overlap is easy to produce: `syncToSupabase` is fire-and-forget from eight call sites
+ * (including per-keystroke debounced note saves), the pull functions dedupe only against
+ * themselves so different pulls still race each other, and workout finish writes concurrently
+ * with all of it.
+ *
+ * Every transactional write must go through here. Calling `db.withTransactionAsync` directly
+ * reintroduces the bug, since a raw call does not join this queue.
+ */
+let transactionChain: Promise<unknown> = Promise.resolve();
+let inTransaction = false;
+
+export function runInTransaction<T>(
+  database: SQLite.SQLiteDatabase,
+  fn: () => Promise<T>,
+): Promise<T> {
+  // Serializing turns a nested call from a loud SQLite error into a silent deadlock — the
+  // inner call would queue behind the outer transaction that is waiting on it. Fail fast
+  // instead. Helpers that open their own transaction (clearLocalUpcomingWorkout,
+  // deleteWorkout, deleteTemplate, ...) must never be called from inside one; inline their
+  // statements instead, as pullUpcomingWorkout does.
+  if (inTransaction) {
+    const err = new Error(
+      'Nested runInTransaction: this would deadlock. Inline the inner writes instead of ' +
+      'calling a helper that opens its own transaction.',
+    );
+    Sentry.captureException(err);
+    return Promise.reject(err);
+  }
+
+  // withTransactionAsync resolves to void and drops whatever the task returned, so capture
+  // the value out of band.
+  const exec = async (): Promise<T> => {
+    let result!: T;
+    inTransaction = true;
+    try {
+      await database.withTransactionAsync(async () => { result = await fn(); });
+    } finally {
+      inTransaction = false;
+    }
+    return result;
+  };
+  // Chain off the settled result, never the rejection, so one failed transaction does not
+  // poison every subsequent one.
+  const run = transactionChain.then(exec, exec);
+  transactionChain = run.catch(() => {});
+  return run;
+}
+
 async function withDb<T>(label: string, fn: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {
   try {
     const database = await getDb();
@@ -664,7 +723,7 @@ export function updateTemplate(id: string, name: string): Promise<void> {
 
 export function deleteTemplate(id: string): Promise<void> {
   return withDb('deleteTemplate', async (database) => {
-    await database.withTransactionAsync(async () => {
+    await runInTransaction(database, async () => {
       await database.runAsync('DELETE FROM template_exercises WHERE template_id = ?', id);
       // workouts.template_id references templates(id) with no ON DELETE clause, and
       // foreign_keys = ON, so deleting a template that has ANY workout history raised
@@ -743,7 +802,7 @@ export function removeExerciseFromTemplate(id: string): Promise<void> {
     );
     if (row) {
       // Delete + re-compact in a single transaction for atomicity
-      await database.withTransactionAsync(async () => {
+      await runInTransaction(database, async () => {
         await database.runAsync('DELETE FROM template_exercises WHERE id = ?', id);
         const remaining = await database.getAllAsync<{ id: string }>(
           'SELECT id FROM template_exercises WHERE template_id = ? ORDER BY sort_order', row.template_id
@@ -767,7 +826,7 @@ export function updateTemplateExerciseOrder(templateId: string, orderedIds: stri
   return withDb('updateTemplateExerciseOrder', async (database) => {
     if (orderedIds.length === 0) return;
     const MAX_PER_CHUNK = 300;
-    await database.withTransactionAsync(async () => {
+    await runInTransaction(database, async () => {
       for (let start = 0; start < orderedIds.length; start += MAX_PER_CHUNK) {
         const chunk = orderedIds.slice(start, start + MAX_PER_CHUNK);
         const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
@@ -857,7 +916,7 @@ export function getActiveWorkout(): Promise<Workout | null> {
 
 export function deleteWorkout(id: string): Promise<void> {
   return withDb('deleteWorkout', async (database) => {
-    await database.withTransactionAsync(async () => {
+    await runInTransaction(database, async () => {
       await database.runAsync('DELETE FROM workout_sets WHERE workout_id = ?', id);
       await database.runAsync('DELETE FROM workouts WHERE id = ?', id);
     });
@@ -952,7 +1011,7 @@ export function stampExerciseOrder(workoutId: string, entries: Array<{ id: strin
     // Each entry contributes 3 binds: WHEN ?, THEN ?, IN (..., ?, ...).
     // SQLite's parameter limit is 999 — chunk defensively.
     const MAX_PER_CHUNK = 300;
-    await database.withTransactionAsync(async () => {
+    await runInTransaction(database, async () => {
       for (let i = 0; i < entries.length; i += MAX_PER_CHUNK) {
         const chunk = entries.slice(i, i + MAX_PER_CHUNK);
         const whens = chunk.map(() => 'WHEN ? THEN ?').join(' ');
@@ -1008,7 +1067,7 @@ export function insertSkippedPlaceholderSets(
 ): Promise<void> {
   if (skipped.length === 0) return Promise.resolve();
   return withDb('insertSkippedPlaceholderSets', async (database) => {
-    await database.withTransactionAsync(async () => {
+    await runInTransaction(database, async () => {
       for (const { exercise_id, programmed_order } of skipped) {
         // Idempotent per (workout, exercise). Every call previously inserted a fresh uuid(),
         // so any retry of the finish flow — the "Finish Failed, please try again" path, where
@@ -1044,7 +1103,7 @@ export function insertSkippedPlaceholderSets(
 
 export function applyWorkoutChangesToTemplate(plan: import('../utils/setDiff').TemplateUpdatePlan): Promise<void> {
   return withDb('applyWorkoutChangesToTemplate', async (database) => {
-    await database.withTransactionAsync(async () => {
+    await runInTransaction(database, async () => {
       for (const change of plan.setChanges) {
         const parts: string[] = [];
         const values: (string | number)[] = [];
@@ -1477,7 +1536,7 @@ export function getE1RMSummary(exerciseId: string): Promise<E1RMSummary | null> 
 
 export function clearLocalUpcomingWorkout(): Promise<void> {
   return withDb('clearLocalUpcomingWorkout', async (database) => {
-    await database.withTransactionAsync(async () => {
+    await runInTransaction(database, async () => {
       await database.runAsync('DELETE FROM upcoming_workout_sets');
       await database.runAsync('DELETE FROM upcoming_workout_exercises');
       await database.runAsync('DELETE FROM upcoming_workouts');

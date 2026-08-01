@@ -20,6 +20,13 @@ jest.mock('../../services/supabase', () => ({
 const runAsyncCalls: any[][] = [];
 
 jest.mock('../../services/database', () => ({
+  // Faithful stand-in for the real serializing wrapper: still routes through the mock db's
+  // withTransactionAsync, so transaction-boundary assertions keep working.
+  runInTransaction: jest.fn(async (database: any, fn: () => Promise<any>) => {
+    let result: any;
+    await database.withTransactionAsync(async () => { result = await fn(); });
+    return result;
+  }),
   getDb: jest.fn().mockResolvedValue({
     runAsync: jest.fn().mockImplementation((...args: any[]) => {
       runAsyncCalls.push(args);

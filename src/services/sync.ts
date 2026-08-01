@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
-import { getDb, clearLocalUpcomingWorkout } from './database';
+import { getDb, clearLocalUpcomingWorkout, runInTransaction } from './database';
 
 function handleSyncError(label: string, error: unknown): void {
   if (__DEV__) console.error(`Sync ${label} error:`, error);
@@ -184,7 +184,26 @@ interface SyncWorkoutSetRow {
   programmed_order: number | null;
 }
 
-export async function syncToSupabase(): Promise<void> {
+/**
+ * Coalesces concurrent pushes. This is fire-and-forget from eight call sites — including the
+ * debounced note savers, which fire per keystroke burst — so overlapping runs were routine.
+ * Each one re-reads and re-uploads the entire corpus, so a second concurrent pass duplicates
+ * every network request for no benefit while its local writes contend with the first.
+ *
+ * Deliberately NOT keyed by session user, unlike dedupePull: a push writes only rows already
+ * scoped to the current session, so joining an in-flight run can never leak another account's
+ * data the way serving a stale pull result could.
+ */
+let inFlightPush: Promise<void> | null = null;
+
+export function syncToSupabase(): Promise<void> {
+  if (inFlightPush) return inFlightPush;
+  const started = pushToSupabase().finally(() => { inFlightPush = null; });
+  inFlightPush = started;
+  return started;
+}
+
+async function pushToSupabase(): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
@@ -207,7 +226,7 @@ export async function syncToSupabase(): Promise<void> {
       //
       // Wrapped in a transaction so the merge and the cleanup delete cannot half-apply
       // and strand rows under 'local' or lose the real-user row entirely.
-      await db.withTransactionAsync(async () => {
+      await runInTransaction(db, async () => {
         await db.runAsync(
           `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
            SELECT ?, exercise_id, form_notes, machine_notes
@@ -558,7 +577,7 @@ async function pullExercises(): Promise<void> {
   // Safe because the pull functions run sequentially (see pullExercisesAndTemplates and both
   // call sites) — there is no concurrent transaction on this connection. The network fetch
   // above is deliberately outside the transaction so we never hold the write lock over IO.
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     for (const ex of exercises as PullExerciseRow[]) {
       await db.runAsync(
         `INSERT INTO exercises (id, user_id, name, type, muscle_groups, training_goal, description, created_at)
@@ -582,7 +601,7 @@ async function pullExercises(): Promise<void> {
 
   if (notesErr) { handleSyncError('pull exercise notes', notesErr); }
   else if (notes && notes.length > 0) {
-    await db.withTransactionAsync(async () => {
+    await runInTransaction(db, async () => {
       for (const n of notes) {
         await db.runAsync(
           `INSERT INTO user_exercise_notes (user_id, exercise_id, form_notes, machine_notes)
@@ -616,7 +635,7 @@ async function pullTemplates(): Promise<void> {
   const templateIds = templateList.map(t => t.id);
 
   // Upsert all templates — single commit (see the note in pullExercises).
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     for (const t of templateList) {
       await db.runAsync(
         `INSERT INTO templates (id, user_id, name, created_at, updated_at)
@@ -644,7 +663,7 @@ async function pullTemplates(): Promise<void> {
       teByTemplate.get(te.template_id)!.push(te);
     }
 
-    await db.withTransactionAsync(async () => {
+    await runInTransaction(db, async () => {
       for (const t of templateList) {
         const teList = teByTemplate.get(t.id) ?? [];
 
@@ -827,7 +846,7 @@ async function pullWorkoutHistoryInner(): Promise<void> {
     // partway leaves a partial-but-valid import that the next pull completes.
     for (let i = 0; i < workouts.length; i += WRITE_CHUNK_SIZE) {
       const chunk = workouts.slice(i, i + WRITE_CHUNK_SIZE);
-      await db.withTransactionAsync(async () => {
+      await runInTransaction(db, async () => {
         for (const w of chunk) {
           await db.runAsync(
           `INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids)
@@ -846,7 +865,7 @@ async function pullWorkoutHistoryInner(): Promise<void> {
 
     for (let i = 0; i < importableSets.length; i += WRITE_CHUNK_SIZE) {
       const chunk = importableSets.slice(i, i + WRITE_CHUNK_SIZE);
-      await db.withTransactionAsync(async () => {
+      await runInTransaction(db, async () => {
         for (const s of chunk) {
           await db.runAsync(
             `INSERT INTO workout_sets (id, workout_id, exercise_id, set_number, reps, weight, tag, rpe, is_completed, notes, target_weight, target_reps, target_rpe, exercise_order, programmed_order)
@@ -926,7 +945,7 @@ async function pullUpcomingWorkoutInner(): Promise<void> {
     }
 
     // Every fetch succeeded — now swap local state atomically.
-    await db.withTransactionAsync(async () => {
+    await runInTransaction(db, async () => {
       // Deletes are inlined rather than calling clearLocalUpcomingWorkout(): that helper
       // opens its own withTransactionAsync, and SQLite rejects a nested transaction.
       await db.runAsync('DELETE FROM upcoming_workout_sets');

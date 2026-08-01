@@ -18,6 +18,13 @@ let mockTransactionCount = 0;
 const runLog: string[] = []; // 'workout' | 'set', in call order
 
 jest.mock('../../services/database', () => ({
+  // Faithful stand-in for the real serializing wrapper: still routes through the mock db's
+  // withTransactionAsync, so transaction-boundary assertions keep working.
+  runInTransaction: jest.fn(async (database: any, fn: () => Promise<any>) => {
+    let result: any;
+    await database.withTransactionAsync(async () => { result = await fn(); });
+    return result;
+  }),
   getDb: jest.fn().mockResolvedValue({
     runAsync: jest.fn().mockImplementation((sql: string) => {
       if (typeof sql === 'string' && sql.includes('INSERT INTO workouts')) runLog.push('workout');

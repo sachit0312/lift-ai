@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/sachitgoyal/code/lift-ai/.codex/hooks/block-sensitive-files.sh'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/sachitgoyal/code/lift-ai/.codex/hooks/run-tests.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/sachitgoyal/code/lift-ai/.codex/hooks/type-check.sh'"
+          }
+        ]
+      }
+    ]
+  }
+}
