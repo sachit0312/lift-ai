@@ -233,6 +233,7 @@ export function refreshWorkoutActivityDuringRest(
       title: exerciseName,
       subtitle: `Set ${setNumber}/${totalSets}|${currentMaxRestSeconds}`,
       progressBar: { date: currentEndTime },
+      staleDate: currentEndTime,
     });
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to refresh workout activity during rest', e);
@@ -273,6 +274,10 @@ export async function updateWorkoutActivityForRest(
       title: exerciseName,
       subtitle: `Set ${setNumber}/${totalSets}|${currentMaxRestSeconds}`,
       progressBar: { date: endTime },
+      // Marks the activity stale exactly when the rest ends. The JS runtime is suspended
+      // while the phone is locked, so this is the only way the widget can drop the countdown
+      // at the deadline — Live Activities have no timeline and no scheduled re-render.
+      staleDate: endTime,
     });
     // Notifications are NOT scheduled here — they're managed by useRestTimer.
     // Scheduling here caused duplicates because this function is also called

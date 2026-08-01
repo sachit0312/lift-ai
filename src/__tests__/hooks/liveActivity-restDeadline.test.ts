@@ -125,6 +125,9 @@ describe('liveActivity rest deadline & progress denominator', () => {
       title: 'Bench',
       subtitle: 'Set 2/3|120',
       progressBar: { date: deadline },
+      // staleDate === the rest deadline: the only mechanism that can make the widget drop
+      // the countdown when it expires while the phone is locked and JS is suspended.
+      staleDate: deadline,
     });
   });
 
@@ -151,6 +154,7 @@ describe('liveActivity rest deadline & progress denominator', () => {
         title: 'Bench',
         subtitle: 'Set 3/3|120',
         progressBar: { date: deadline },
+        staleDate: deadline,
       });
     });
 

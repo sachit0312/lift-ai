@@ -16,7 +16,7 @@
     "submit:ios": "eas submit --platform ios --profile production",
     "update:prod": "eas update --channel production",
     "update:preview": "eas update --channel preview",
-    "postinstall": "node patches/fix-devicectl-json-version.js"
+    "postinstall": "node patches/fix-devicectl-json-version.js && patch-package"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
@@ -60,6 +60,7 @@
     "babel-preset-expo": "^54.0.10",
     "jest": "^29.7.0",
     "jest-expo": "^54.0.16",
+    "patch-package": "^8.0.1",
     "typescript": "~5.9.2"
   },
   "private": true,

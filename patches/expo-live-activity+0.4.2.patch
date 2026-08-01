@@ -1,0 +1,91 @@
+diff --git a/node_modules/expo-live-activity/build/index.d.ts b/node_modules/expo-live-activity/build/index.d.ts
+index 1253114..7458e2b 100644
+--- a/node_modules/expo-live-activity/build/index.d.ts
++++ b/node_modules/expo-live-activity/build/index.d.ts
+@@ -14,6 +14,8 @@ export type LiveActivityState = {
+     progressBar?: ProgressBarType;
+     imageName?: string;
+     dynamicIslandImageName?: string;
++    /** Epoch ms at which iOS marks the activity stale. Patched in by lift-ai. */
++    staleDate?: number;
+ };
+ export type NativeLiveActivityState = {
+     title: string;
+diff --git a/node_modules/expo-live-activity/ios/ExpoLiveActivityModule.swift b/node_modules/expo-live-activity/ios/ExpoLiveActivityModule.swift
+index 6fdf9f5..9f7966b 100644
+--- a/node_modules/expo-live-activity/ios/ExpoLiveActivityModule.swift
++++ b/node_modules/expo-live-activity/ios/ExpoLiveActivityModule.swift
+@@ -25,6 +25,12 @@ public class ExpoLiveActivityModule: Module {
+ 
+     @Field
+     var dynamicIslandImageName: String?
++
++    /// Epoch milliseconds at which the system should mark this activity stale.
++    /// Patched in by lift-ai: upstream passes nil for every ActivityContent, which leaves no
++    /// way to make the widget re-render at a future time while the app is suspended.
++    @Field
++    var staleDate: Double?
+   }
+ 
+   struct LiveActivityConfig: Record {
+@@ -193,6 +199,12 @@ public class ExpoLiveActivityModule: Module {
+       ?? false
+   }
+ 
++  /// Converts the JS-supplied epoch-millis staleDate into a Date, or nil when absent.
++  private static func staleDate(from state: LiveActivityState) -> Date? {
++    guard let ms = state.staleDate, ms > 0 else { return nil }
++    return Date(timeIntervalSince1970: ms / 1000)
++  }
++
+   public func definition() -> ModuleDefinition {
+     Name("ExpoLiveActivity")
+ 
+@@ -254,14 +266,14 @@ public class ExpoLiveActivityModule: Module {
+ 
+         let activity = try Activity.request(
+           attributes: attributes,
+-          content: .init(state: initialState, staleDate: nil),
++          content: .init(state: initialState, staleDate: Self.staleDate(from: state)),
+           pushType: pushNotificationsEnabled ? .token : nil
+         )
+ 
+         Task {
+           var newState = activity.content.state
+           try await updateImages(state: state, newState: &newState)
+-          await activity.update(ActivityContent(state: newState, staleDate: nil))
++          await activity.update(ActivityContent(state: newState, staleDate: Self.staleDate(from: state)))
+         }
+ 
+         return activity.id
+@@ -289,7 +301,7 @@ public class ExpoLiveActivityModule: Module {
+         )
+         try await updateImages(state: state, newState: &newState)
+         await activity.end(
+-          ActivityContent(state: newState, staleDate: nil),
++          ActivityContent(state: newState, staleDate: Self.staleDate(from: state)),
+           dismissalPolicy: .immediate
+         )
+       }
+@@ -315,7 +327,7 @@ public class ExpoLiveActivityModule: Module {
+           progress: state.progressBar?.progress
+         )
+         try await updateImages(state: state, newState: &newState)
+-        await activity.update(ActivityContent(state: newState, staleDate: nil))
++        await activity.update(ActivityContent(state: newState, staleDate: Self.staleDate(from: state)))
+       }
+     }
+   }
+diff --git a/node_modules/expo-live-activity/src/index.ts b/node_modules/expo-live-activity/src/index.ts
+index 675bc9e..67459c3 100644
+--- a/node_modules/expo-live-activity/src/index.ts
++++ b/node_modules/expo-live-activity/src/index.ts
+@@ -23,6 +23,8 @@ export type LiveActivityState = {
+   progressBar?: ProgressBarType
+   imageName?: string
+   dynamicIslandImageName?: string
++  /** Epoch ms at which iOS marks the activity stale. Patched in by lift-ai. */
++  staleDate?: number
+ }
+ 
+ export type NativeLiveActivityState = {

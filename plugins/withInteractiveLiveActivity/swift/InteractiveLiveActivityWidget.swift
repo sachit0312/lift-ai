@@ -48,8 +48,14 @@ struct LiveActivityAttributes: ActivityAttributes {
 struct LiveActivityWidget: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: LiveActivityAttributes.self) { context in
-      // Lock screen: use interactive view
-      LiveActivityView(contentState: context.state, attributes: context.attributes)
+      // Lock screen: use interactive view. isStale is threaded through so the rest section can
+      // disappear at the deadline without the app pushing an update — the only mechanism
+      // available while the phone is locked and the JS runtime is suspended.
+      LiveActivityView(
+        contentState: context.state,
+        attributes: context.attributes,
+        isStale: context.isStale
+      )
         .activityBackgroundTint(
           context.attributes.backgroundColor.map { Color(hex: $0) }
         )
@@ -59,7 +65,12 @@ struct LiveActivityWidget: Widget {
       // Dynamic Island: keep original behavior (read-only)
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading, priority: 1) {
-          dynamicIslandExpandedLeading(title: context.state.title, subtitle: context.state.subtitle)
+          // Strip the "|150" transport suffix — this region prints the subtitle verbatim, so
+          // the raw value showed the user "Set 3/4|150".
+          dynamicIslandExpandedLeading(
+            title: context.state.title,
+            subtitle: liveActivityDisplaySubtitle(context.state.subtitle)
+          )
             .dynamicIsland(verticalPlacement: .belowIfTooWide)
             .padding(.leading, 5)
             .applyWidgetURL(from: context.attributes.deepLinkUrl)
@@ -72,7 +83,7 @@ struct LiveActivityWidget: Widget {
           }
         }
         DynamicIslandExpandedRegion(.bottom) {
-          if context.state.timerEndDateInMilliseconds != nil {
+          if context.state.timerEndDateInMilliseconds != nil && !context.isStale {
             dynamicIslandExpandedBottom(
               contentState: context.state,
               progressViewTint: context.attributes.progressViewTint
@@ -82,29 +93,47 @@ struct LiveActivityWidget: Widget {
           }
         }
       } compactLeading: {
-        if let dynamicIslandImageName = context.state.dynamicIslandImageName {
-          resizableImage(imageName: dynamicIslandImageName)
-            .frame(maxWidth: 23, maxHeight: 23)
+        // The app never sets dynamicIslandImageName, so this region used to be permanently
+        // blank. A dumbbell at least identifies whose activity this is.
+        Image(systemName: "dumbbell.fill")
+          .foregroundStyle(context.attributes.progressViewTint.map { Color(hex: $0) } ?? .purple)
+          .applyWidgetURL(from: context.attributes.deepLinkUrl)
+      } compactTrailing: {
+        // Outside rest the timer regions rendered nothing, so for most of a workout the
+        // Dynamic Island was an empty pill. Fall back to the set counter.
+        if let date = context.state.timerEndDateInMilliseconds, !context.isStale {
+          compactTimer(
+            endDate: date,
+            timerType: context.attributes.timerType ?? .circular,
+            progressViewTint: context.attributes.progressViewTint
+          ).applyWidgetURL(from: context.attributes.deepLinkUrl)
+        } else if let counter = setCounter(context.state.subtitle) {
+          Text(counter)
+            .font(.system(size: 14, weight: .semibold))
+            .minimumScaleFactor(0.8)
             .applyWidgetURL(from: context.attributes.deepLinkUrl)
         }
-      } compactTrailing: {
-        if let date = context.state.timerEndDateInMilliseconds {
-          compactTimer(
-            endDate: date,
-            timerType: context.attributes.timerType ?? .circular,
-            progressViewTint: context.attributes.progressViewTint
-          ).applyWidgetURL(from: context.attributes.deepLinkUrl)
-        }
       } minimal: {
-        if let date = context.state.timerEndDateInMilliseconds {
+        if let date = context.state.timerEndDateInMilliseconds, !context.isStale {
           compactTimer(
             endDate: date,
             timerType: context.attributes.timerType ?? .circular,
             progressViewTint: context.attributes.progressViewTint
           ).applyWidgetURL(from: context.attributes.deepLinkUrl)
+        } else {
+          Image(systemName: "dumbbell.fill")
+            .foregroundStyle(context.attributes.progressViewTint.map { Color(hex: $0) } ?? .purple)
+            .applyWidgetURL(from: context.attributes.deepLinkUrl)
         }
       }
     }
+  }
+
+  /// "Set 3/4" -> "3/4", for the compact Dynamic Island where space is tight.
+  private func setCounter(_ subtitle: String?) -> String? {
+    guard let cleaned = liveActivityDisplaySubtitle(subtitle) else { return nil }
+    let stripped = cleaned.replacingOccurrences(of: "Set ", with: "")
+    return stripped.contains("/") ? stripped : nil
   }
 
   @ViewBuilder
@@ -171,7 +200,14 @@ struct LiveActivityWidget: Widget {
       return Date.now ... max(Date.now, endDate)
     }()
 
-    return ProgressView(timerInterval: interval, countsDown: true)
+    // Explicit empty labels — the DefaultDateProgressLabel overload draws its own countdown
+    // text above the bar, duplicating the timer in the expanded Dynamic Island.
+    return ProgressView(
+      timerInterval: interval,
+      countsDown: true,
+      label: { EmptyView() },
+      currentValueLabel: { EmptyView() }
+    )
       .id(endMs) // Force SwiftUI recreation on timer adjustments
       .foregroundStyle(.white)
       .tint(progressViewTint.map { Color(hex: $0) })
