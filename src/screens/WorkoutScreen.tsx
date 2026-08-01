@@ -58,15 +58,15 @@ export default function WorkoutScreen() {
   const { debouncedSaveNotes, flushPendingNotes, clearPendingNotes } = useNotesDebounce();
 
   // Rest timer (extracted to hook)
-  const syncWidgetStateRef = useRef<(blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number, restingExerciseName?: string) => void>(() => {});
+  const syncWidgetStateRef = useRef<(blocks?: ExerciseBlock[], isResting?: boolean, restEnd?: number, restingExerciseId?: string, restTotalSeconds?: number) => void>(() => {});
   const onRestEnd = useCallback(() => {
     syncWidgetStateRef.current(undefined, false, 0);
   }, []);
-  const onRestUpdate = useCallback((resting: boolean, endTime: number, exerciseName?: string) => {
-    syncWidgetStateRef.current(undefined, resting, endTime, exerciseName);
+  const onRestUpdate = useCallback((resting: boolean, endTime: number, restingExerciseId?: string, totalSeconds?: number) => {
+    syncWidgetStateRef.current(undefined, resting, endTime, restingExerciseId, totalSeconds);
   }, []);
   const {
-    restTotal, restExerciseName,
+    restTotal, restExerciseName, restExerciseId,
     isResting, currentEndTime,
     startRestTimer, adjustRestTimer, dismissRest,
   } = useRestTimer({ onRestEnd, onRestUpdate });
@@ -79,6 +79,7 @@ export default function WorkoutScreen() {
     blocksRef,
     isResting,
     restEndTime: currentEndTime,
+    restingExerciseId: restExerciseId,
   });
 
   // Keep ref in sync so rest timer callbacks always get latest syncWidgetState

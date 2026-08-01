@@ -643,7 +643,14 @@ describe('WorkoutScreen', () => {
         expect.any(Number),
         expect.any(Number),
         expect.any(Number),
+        expect.any(Number),
       );
+
+      // Exactly one push. startRestTimer no longer syncs the widget itself — it returns the
+      // deadline and the completion handler does a single authoritative sync with the
+      // post-completion blocks. The old two-push shape briefly rendered the just-completed
+      // set on the lock screen before the correct one replaced it.
+      expect((updateWorkoutActivityForRest as jest.Mock).mock.calls).toHaveLength(1);
     });
 
     it('stops Live Activity when rest timer is dismissed', async () => {

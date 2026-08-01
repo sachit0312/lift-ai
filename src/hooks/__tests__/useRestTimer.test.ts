@@ -64,30 +64,43 @@ describe('useRestTimer', () => {
     expect(result.current.currentEndTime).toBe(0);
   });
 
-  it('startRestTimer sets correct state and calls onRestUpdate', () => {
+  it('startRestTimer sets correct state and returns the deadline', () => {
     const { result, onRestUpdate } = setup();
 
+    let returned = 0;
     act(() => {
-      result.current.startRestTimer(120, 'Bench Press');
+      returned = result.current.startRestTimer(120, 'Bench Press', 'ex-1');
     });
 
     expect(result.current.restTotal).toBe(120);
     expect(result.current.restExerciseName).toBe('Bench Press');
+    expect(result.current.restExerciseId).toBe('ex-1');
     expect(result.current.isResting).toBe(true);
     expect(result.current.currentEndTime).toBeGreaterThan(0);
 
-    expect(onRestUpdate).toHaveBeenCalledTimes(1);
-    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number), 'Bench Press');
-    // End time should be roughly now + 120s
-    const endTime = onRestUpdate.mock.calls[0][1];
-    expect(endTime).toBeGreaterThanOrEqual(Date.now() + 119 * 1000);
+    // The deadline is RETURNED, not pushed through onRestUpdate. The caller owns the widget
+    // sync because only it holds the post-completion block list; syncing from both places
+    // showed the just-completed set on the lock screen before the correct one replaced it.
+    expect(onRestUpdate).not.toHaveBeenCalled();
+    expect(returned).toBe(result.current.currentEndTime);
+    expect(returned).toBeGreaterThanOrEqual(Date.now() + 119 * 1000);
+  });
+
+  it('clears restExerciseId when the rest ends', () => {
+    const { result } = setup();
+
+    act(() => { result.current.startRestTimer(120, 'Bench Press', 'ex-1'); });
+    expect(result.current.restExerciseId).toBe('ex-1');
+
+    act(() => { result.current.dismissRest(); });
+    expect(result.current.restExerciseId).toBe('');
   });
 
   it('startRestTimer schedules notification', () => {
     const { result } = setup();
 
     act(() => {
-      result.current.startRestTimer(90, 'Squats');
+      result.current.startRestTimer(90, 'Squats', 'ex-1');
     });
 
     expect(scheduleRestNotification).toHaveBeenCalledWith(90);
@@ -97,7 +110,7 @@ describe('useRestTimer', () => {
     const { result, onRestEnd } = setup();
 
     act(() => {
-      result.current.startRestTimer(3, 'Squats');
+      result.current.startRestTimer(3, 'Squats', 'ex-1');
     });
 
     expect(result.current.isResting).toBe(true);
@@ -130,7 +143,7 @@ describe('useRestTimer', () => {
     const { result, onRestEnd } = setup();
 
     act(() => {
-      result.current.startRestTimer(1, 'Bench');
+      result.current.startRestTimer(1, 'Bench', 'ex-1');
     });
 
     // Timer expires — first endRest call
@@ -157,7 +170,7 @@ describe('useRestTimer', () => {
     const { result, onRestUpdate } = setup();
 
     act(() => {
-      result.current.startRestTimer(60, 'Deadlift');
+      result.current.startRestTimer(60, 'Deadlift', 'ex-1');
     });
     onRestUpdate.mockClear();
 
@@ -168,7 +181,9 @@ describe('useRestTimer', () => {
 
     expect(result.current.restTotal).toBe(75);
     expect(adjustRestTimerActivity).toHaveBeenCalledWith(15);
-    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
+    // The resting exercise and the grown denominator ride along. Omitting them made the widget
+    // fall back to "first incomplete set" and retitle the lock screen to a different exercise.
+    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number), 'ex-1', 75);
 
     onRestUpdate.mockClear();
     const beforeEndTime = result.current.currentEndTime;
@@ -180,7 +195,8 @@ describe('useRestTimer', () => {
 
     expect(result.current.restTotal).toBe(75); // restTotal never decreases (matches lock screen widget)
     expect(adjustRestTimerActivity).toHaveBeenCalledWith(-30);
-    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number));
+    // Denominator stays at 75 — it only ever grows, so the bar can't jump backwards on -15s.
+    expect(onRestUpdate).toHaveBeenCalledWith(true, expect.any(Number), 'ex-1', 75);
     // Verify currentEndTime actually moved backward by 30s
     expect(result.current.currentEndTime).toBe(beforeEndTime - 30000);
   });
@@ -189,7 +205,7 @@ describe('useRestTimer', () => {
     const { result, onRestEnd } = setup();
 
     act(() => {
-      result.current.startRestTimer(10, 'Curls');
+      result.current.startRestTimer(10, 'Curls', 'ex-1');
     });
     jest.clearAllMocks();
 
@@ -210,7 +226,7 @@ describe('useRestTimer', () => {
     const { result, onRestEnd } = setup();
 
     act(() => {
-      result.current.startRestTimer(90, 'OHP');
+      result.current.startRestTimer(90, 'OHP', 'ex-1');
     });
 
     expect(result.current.isResting).toBe(true);
@@ -231,7 +247,7 @@ describe('useRestTimer', () => {
     const { result } = setup();
 
     act(() => {
-      result.current.startRestTimer(60, 'Bench Press');
+      result.current.startRestTimer(60, 'Bench Press', 'ex-1');
     });
 
     act(() => {
@@ -241,7 +257,7 @@ describe('useRestTimer', () => {
 
     // Start a new timer
     act(() => {
-      result.current.startRestTimer(90, 'Squats');
+      result.current.startRestTimer(90, 'Squats', 'ex-1');
     });
 
     expect(result.current.restTotal).toBe(90);
@@ -253,7 +269,7 @@ describe('useRestTimer', () => {
     const { result } = setup();
 
     act(() => {
-      result.current.startRestTimer(120, 'Rows');
+      result.current.startRestTimer(120, 'Rows', 'ex-1');
     });
 
     // Simulate backgrounding: advance Date.now by 75s without firing interval
@@ -273,7 +289,7 @@ describe('useRestTimer', () => {
     const { result, onRestEnd } = setup();
 
     act(() => {
-      result.current.startRestTimer(120, 'Rows');
+      result.current.startRestTimer(120, 'Rows', 'ex-1');
     });
 
     // Simulate backgrounding: advance Date.now past end time
@@ -306,7 +322,7 @@ describe('useRestTimer', () => {
     const { result, unmount } = setup();
 
     act(() => {
-      result.current.startRestTimer(60, 'Bench');
+      result.current.startRestTimer(60, 'Bench', 'ex-1');
     });
 
     expect(result.current.isResting).toBe(true);
@@ -335,7 +351,7 @@ describe('useRestTimer', () => {
       const { result, onRestEnd } = setup();
 
       act(() => {
-        result.current.startRestTimer(5, 'Bench');
+        result.current.startRestTimer(5, 'Bench', 'ex-1');
       });
 
       // Go to background
@@ -360,7 +376,7 @@ describe('useRestTimer', () => {
       const { result, onRestEnd } = setup();
 
       act(() => {
-        result.current.startRestTimer(2, 'Bench');
+        result.current.startRestTimer(2, 'Bench', 'ex-1');
       });
 
       // Go to background
@@ -393,7 +409,7 @@ describe('useRestTimer', () => {
       const { result, onRestEnd } = setup();
 
       act(() => {
-        result.current.startRestTimer(2, 'Bench');
+        result.current.startRestTimer(2, 'Bench', 'ex-1');
       });
 
       // Timer expires naturally — app stayed in foreground
@@ -409,7 +425,7 @@ describe('useRestTimer', () => {
       const { result, onRestEnd } = setup();
 
       act(() => {
-        result.current.startRestTimer(30, 'Bench');
+        result.current.startRestTimer(30, 'Bench', 'ex-1');
       });
 
       act(() => {
@@ -436,7 +452,7 @@ describe('useRestTimer', () => {
       const { result, onRestEnd } = setup();
 
       act(() => {
-        result.current.startRestTimer(120, 'Bench');
+        result.current.startRestTimer(120, 'Bench', 'ex-1');
       });
 
       act(() => {
@@ -457,7 +473,7 @@ describe('useRestTimer', () => {
       const { result, onRestEnd } = setup();
 
       act(() => {
-        result.current.startRestTimer(5, 'Bench');
+        result.current.startRestTimer(5, 'Bench', 'ex-1');
       });
 
       // Go to background
@@ -490,6 +506,31 @@ describe('useRestTimer', () => {
       expect(onRestEnd).toHaveBeenCalledTimes(1);
       expect(Vibration.vibrate).toHaveBeenCalledWith([0, 200, 100, 200]);
     });
+
+    it('does not vibrate when re-backgrounded inside the 500ms recovery window', () => {
+      const { result, onRestEnd } = setup();
+
+      act(() => { result.current.startRestTimer(5, 'Bench', 'ex-1'); });
+      act(() => { appStateCallback?.('background'); });
+
+      jest.setSystemTime(new Date(Date.now() + 2000));
+
+      // Foreground return arms the 500ms wasBackgrounded reset...
+      act(() => { appStateCallback?.('active'); });
+      // ...but the user locks the phone again 200ms later, well inside that window.
+      act(() => { jest.advanceTimersByTime(200); });
+      act(() => { appStateCallback?.('background'); });
+
+      // The stale reset timeout must have been cancelled. If it fires here it clears
+      // wasBackgroundedRef, and the expiry below vibrates on top of the notification that
+      // already alerted the user — the exact double-alert the flag exists to prevent.
+      act(() => { jest.advanceTimersByTime(400); });
+      jest.setSystemTime(new Date(Date.now() + 4000));
+      act(() => { jest.advanceTimersByTime(4000); });
+
+      expect(onRestEnd).toHaveBeenCalledTimes(1);
+      expect(Vibration.vibrate).not.toHaveBeenCalledWith([0, 200, 100, 200]);
+    });
   });
 
   // ─── BUG: Rapid timer restarts ───
@@ -502,7 +543,7 @@ describe('useRestTimer', () => {
 
       // Start first timer
       act(() => {
-        result.current.startRestTimer(3, 'Bench');
+        result.current.startRestTimer(3, 'Bench', 'ex-1');
       });
 
       // 1 second passes
@@ -512,7 +553,7 @@ describe('useRestTimer', () => {
 
       // User completes another set — new timer starts
       act(() => {
-        result.current.startRestTimer(3, 'Squats');
+        result.current.startRestTimer(3, 'Squats', 'ex-1');
       });
 
       // Advance past where the FIRST timer would have expired
@@ -539,7 +580,7 @@ describe('useRestTimer', () => {
 
       // Start and let timer expire
       act(() => {
-        result.current.startRestTimer(1, 'Bench');
+        result.current.startRestTimer(1, 'Bench', 'ex-1');
       });
       act(() => {
         jest.advanceTimersByTime(1000);
@@ -549,7 +590,7 @@ describe('useRestTimer', () => {
 
       // Start another timer — endingRef should be reset
       act(() => {
-        result.current.startRestTimer(1, 'Squats');
+        result.current.startRestTimer(1, 'Squats', 'ex-1');
       });
       act(() => {
         jest.advanceTimersByTime(1000);

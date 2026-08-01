@@ -74,7 +74,9 @@ function setup(initialBlocks: ExerciseBlock[]) {
   const originalBestE1RMRef = { current: new Map<string, number | undefined>() };
   const currentBestE1RMRef = { current: new Map<string, number | undefined>() };
   const lastActiveBlockRef = { current: 0 };
-  const startRestTimer = jest.fn();
+  // Returns the absolute rest deadline, mirroring the real hook — the caller passes it
+  // straight to syncWidgetState instead of waiting for isResting state to flush.
+  const startRestTimer = jest.fn((seconds: number) => Date.now() + seconds * 1000);
   const syncWidgetState = jest.fn();
   const onConfetti = jest.fn();
 
@@ -410,14 +412,21 @@ describe('useSetCompletion – completion & validation', () => {
       result.current.handleToggleComplete(0, 0);
     });
 
-    expect(startRestTimer).toHaveBeenCalledWith(120, 'A');
+    expect(startRestTimer).toHaveBeenCalledWith(120, 'A', 'a');
     // The widget is also re-synced explicitly with the POST-completion blocks. startRestTimer
     // reaches the widget via useRestTimer's onRestUpdate, which reads blocksRef — and that ref
     // still holds the pre-completion list inside this handler, which is what left the lock
     // screen counter one set behind for the whole workout.
     expect(syncWidgetState).toHaveBeenCalledTimes(1);
-    const [syncedBlocks, , , restingName] = syncWidgetState.mock.calls[0];
-    expect(restingName).toBe('A');
+    const [syncedBlocks, resting, restEnd, restingId, restTotal] = syncWidgetState.mock.calls[0];
+    // The rest state is passed EXPLICITLY rather than left to default from isRestingRef, which
+    // has not flushed inside this handler. Defaulting it sent the widget down the non-rest
+    // branch and tore the countdown off the lock screen ~500ms after arming it.
+    expect(resting).toBe(true);
+    expect(typeof restEnd).toBe('number');
+    expect(restEnd).toBeGreaterThan(Date.now());
+    expect(restingId).toBe('a');
+    expect(restTotal).toBe(120);
     expect(syncedBlocks[0].sets[0].is_completed).toBe(true);
   });
 

@@ -44,7 +44,7 @@ describe('Batch 3 Task 6: adjust debounces notification reschedules', () => {
     const { startWorkoutActivity, updateWorkoutActivityForRest, adjustRestTimerActivity, scheduleRestNotification } = require('../../services/liveActivity');
 
     await startWorkoutActivity('Bench', 'Set 1/3');
-    await updateWorkoutActivityForRest('Bench', 60, 1, 3);
+    await updateWorkoutActivityForRest('Bench', Date.now() + 60 * 1000, 1, 3, 60);
 
     // Schedule a notification so cancelTimerEndNotification's guard is satisfied
     // on the subsequent debounced reschedule (deviation from plan: production
@@ -79,7 +79,7 @@ describe('Batch 3 Task 6: adjust debounces notification reschedules', () => {
     const { startWorkoutActivity, updateWorkoutActivityForRest, adjustRestTimerActivity, scheduleRestNotification } = require('../../services/liveActivity');
 
     await startWorkoutActivity('Bench', 'Set 1/3');
-    await updateWorkoutActivityForRest('Bench', 30, 1, 3);
+    await updateWorkoutActivityForRest('Bench', Date.now() + 30 * 1000, 1, 3, 30);
 
     // Schedule a notification so cancelTimerEndNotification's guard is satisfied
     scheduleRestNotification(30);

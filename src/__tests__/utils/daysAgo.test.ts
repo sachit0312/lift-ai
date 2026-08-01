@@ -6,8 +6,10 @@ import { daysAgo } from '../../utils/daysAgo';
 
 describe('Batch 7 Task 3: daysAgo', () => {
   it('returns 0 for a timestamp earlier today', () => {
-    const earlierToday = new Date();
-    earlierToday.setHours(earlierToday.getHours() - 1);
+    // Anchored to the start of today rather than "one hour ago" — the latter is the previous
+    // calendar day whenever the suite runs between midnight and 01:00, so this failed nightly.
+    const now = new Date();
+    const earlierToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     expect(daysAgo(earlierToday.toISOString())).toBe(0);
   });
 
