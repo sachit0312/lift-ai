@@ -6,6 +6,20 @@ let mockAuthStateCallback: ((event: string, session: any) => unknown) | null = n
 let mockInitialSession: any = null;
 let mockGetSessionMode: 'immediate' | 'pending' = 'immediate';
 let mockPendingGetSessionResolve: ((value: { data: { session: any } }) => void) | null = null;
+let mockDurableOwner: string | null = null;
+let mockSecureStoreReadError: Error | null = null;
+let mockSecureStoreWriteError: Error | null = null;
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(() => {
+    if (mockSecureStoreReadError) return Promise.reject(mockSecureStoreReadError);
+    return Promise.resolve(mockDurableOwner);
+  }),
+  setItemAsync: jest.fn(() => {
+    if (mockSecureStoreWriteError) return Promise.reject(mockSecureStoreWriteError);
+    return Promise.resolve();
+  }),
+}));
 
 jest.mock('../../services/supabase', () => ({
   supabase: {
@@ -42,6 +56,7 @@ jest.mock('../../services/sync', () => ({
 }));
 
 import * as Sentry from '@sentry/react-native';
+import * as SecureStore from 'expo-secure-store';
 import { resetDatabase } from '../../services/database';
 import {
   pullExercisesAndTemplatesStrict,
@@ -90,6 +105,9 @@ describe('AuthContext reconciliation', () => {
     mockInitialSession = null;
     mockGetSessionMode = 'immediate';
     mockPendingGetSessionResolve = null;
+    mockDurableOwner = null;
+    mockSecureStoreReadError = null;
+    mockSecureStoreWriteError = null;
     mockResetDatabase.mockResolvedValue(undefined);
     mockPullExercisesAndTemplatesStrict.mockResolvedValue(undefined);
     mockPullWorkoutHistoryStrict.mockResolvedValue(undefined);
@@ -279,5 +297,68 @@ describe('AuthContext reconciliation', () => {
     expect(rowsWritten).toEqual(['B']);
     expect(getByTestId('authPhase').props.children).toBe('ready');
     jest.useRealTimers();
+  });
+
+  it('resets and strictly pulls when a restored B session disagrees with the durable A owner', async () => {
+    // This is the crash window: B's Supabase session persisted, but the A -> B SQLite reset
+    // never ran before the process died. The durable marker remains A and must block B from
+    // rendering that SQLite file until reset + all pulls finish.
+    mockInitialSession = sessionFor('user-A');
+    mockDurableOwner = 'user-A';
+    const firstLaunch = render(<AuthProvider><AuthPhaseProbe /></AuthProvider>);
+    await waitFor(() => expect(firstLaunch.getByTestId('authPhase').props.children).toBe('ready'));
+    firstLaunch.unmount();
+
+    mockInitialSession = sessionFor('user-B');
+    const upcoming = deferred<void>();
+    mockPullUpcomingWorkoutStrict.mockReturnValueOnce(upcoming.promise);
+
+    const { getByTestId } = render(
+      <AuthProvider><AuthPhaseProbe /></AuthProvider>,
+    );
+
+    await waitFor(() => expect(mockResetDatabase).toHaveBeenCalledTimes(1));
+    expect(getByTestId('authPhase').props.children).toBe('syncing');
+    expect(mockPullExercisesAndTemplatesStrict).toHaveBeenCalledWith('user-B');
+    expect(mockPullWorkoutHistoryStrict).toHaveBeenCalledWith('user-B');
+    expect(mockPullUpcomingWorkoutStrict).toHaveBeenCalledWith('user-B');
+
+    await act(async () => {
+      upcoming.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(getByTestId('authPhase').props.children).toBe('ready'));
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+      'liftai-local-data-owner',
+      'user-B',
+    );
+  });
+
+  it('treats a durable-owner read failure as unknown and reconciles before ready', async () => {
+    const ownerReadError = new Error('secure storage unavailable');
+    mockInitialSession = sessionFor('user-A');
+    mockSecureStoreReadError = ownerReadError;
+
+    const { getByTestId } = render(
+      <AuthProvider><AuthPhaseProbe /></AuthProvider>,
+    );
+
+    await waitFor(() => expect(mockResetDatabase).toHaveBeenCalledTimes(1));
+    expect(Sentry.captureException).toHaveBeenCalledWith(ownerReadError);
+    await waitFor(() => expect(getByTestId('authPhase').props.children).toBe('ready'));
+  });
+
+  it('reports durable-owner write failure without exposing data before reconciliation', async () => {
+    const ownerWriteError = new Error('secure storage write failed');
+    mockInitialSession = sessionFor('user-A');
+    mockSecureStoreWriteError = ownerWriteError;
+
+    const { getByTestId } = render(
+      <AuthProvider><AuthPhaseProbe /></AuthProvider>,
+    );
+
+    await waitFor(() => expect(mockResetDatabase).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getByTestId('authPhase').props.children).toBe('ready'));
+    expect(Sentry.captureException).toHaveBeenCalledWith(ownerWriteError);
   });
 });

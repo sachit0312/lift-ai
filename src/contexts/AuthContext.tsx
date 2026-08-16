@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../services/supabase';
 import { resetDatabase, setCurrentUserId, isDatabaseHealthy } from '../services/database';
 import {
@@ -11,6 +12,7 @@ import {
 import { withTimeout } from '../utils/withTimeout';
 
 const SYNC_TIMEOUT_MS = 30000;
+const LOCAL_DATA_OWNER_KEY = 'liftai-local-data-owner';
 
 export type AuthPhase = 'initializing' | 'syncing' | 'ready';
 
@@ -18,6 +20,26 @@ interface AuthContextValue {
   session: Session | null;
   user: User | null;
   authPhase: AuthPhase;
+}
+
+async function readDurableLocalDataOwner(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(LOCAL_DATA_OWNER_KEY);
+  } catch (error) {
+    Sentry.captureException(error);
+    return null;
+  }
+}
+
+async function persistDurableLocalDataOwner(userId: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(LOCAL_DATA_OWNER_KEY, userId);
+  } catch (error) {
+    // The current reconciliation has already isolated and pulled this user's data. Retaining
+    // that in-memory owner is safe; a later launch will conservatively reset if this marker
+    // could not be persisted.
+    Sentry.captureException(error);
+  }
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -103,6 +125,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               );
               if (completed && isCurrentReconciliation(generation, userId)) {
                 localDataOwnerRef.current = userId;
+                await persistDurableLocalDataOwner(userId);
+                if (!isCurrentReconciliation(generation, userId)) return;
                 setAuthPhase('ready');
               }
             } catch (error) {
@@ -131,14 +155,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     supabase.auth.getSession()
-      .then(({ data: { session: restoredSession } }) => {
+      .then(async ({ data: { session: restoredSession } }) => {
         // An auth event won the race. Its synchronous capture is newer than this stale read.
         if (isDisposed || authGenerationRef.current !== initialGeneration) return;
 
         previousUserIdRef.current = restoredSession?.user?.id ?? null;
-        // A restored session means the data on disk already belongs to this user, so a later
-        // sign-out/sign-in cycle in this app session is a resume, not an account switch.
-        localDataOwnerRef.current = restoredSession?.user?.id ?? null;
         setSession(restoredSession);
         // Keep the database module's currentUserId in sync with the rehydrated session.
         // Without this, cold-start writes to user_exercise_notes land under 'local'
@@ -146,6 +167,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCurrentUserId(restoredSession?.user?.id ?? 'local');
         if (restoredSession?.user) {
           Sentry.setUser({ email: restoredSession.user.email, id: restoredSession.user.id });
+
+          // Supabase persists a session independently from SQLite. A process can therefore
+          // die after B's session is saved but before A's database is reset. Only a durable
+          // ownership marker written after a completed reconciliation can prove this file is
+          // safe to expose as B's local data.
+          const durableOwner = await readDurableLocalDataOwner();
+          if (isDisposed || authGenerationRef.current !== initialGeneration) return;
+
+          localDataOwnerRef.current = durableOwner;
+          if (durableOwner === restoredSession.user.id) {
+            setAuthPhase('ready');
+            return;
+          }
+
+          const generation = authGenerationRef.current + 1;
+          authGenerationRef.current = generation;
+          setAuthPhase('syncing');
+          scheduleReconciliation(generation, restoredSession.user.id, durableOwner);
         }
       })
       .catch((error) => {

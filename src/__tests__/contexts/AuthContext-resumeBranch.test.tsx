@@ -27,6 +27,12 @@ let authStateCallback: ((event: string, session: unknown) => void) | null = null
 let mockGetSessionResult: { data: { session: { user: { id: string } } | null } } = {
   data: { session: null },
 };
+let mockDurableOwner: string | null = null;
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(() => Promise.resolve(mockDurableOwner)),
+  setItemAsync: jest.fn(() => Promise.resolve()),
+}));
 
 jest.mock('../../services/supabase', () => ({
   supabase: {
@@ -96,11 +102,13 @@ describe('AuthContext: three-way resume/switch/cold-start branch', () => {
     mockIsDatabaseHealthy.mockResolvedValue(true);
     authStateCallback = null;
     mockGetSessionResult = { data: { session: null } };
+    mockDurableOwner = null;
   });
 
   it('(a) sign out then sign back in as the SAME user: healthy DB -> resetDatabase NOT called', async () => {
     // Restored session for user-A seeds both previousUserIdRef and localDataOwnerRef.
     mockGetSessionResult = { data: { session: { user: { id: 'user-A' } } } };
+    mockDurableOwner = 'user-A';
     await renderAuth();
 
     // Sign out: previousUserIdRef clears to null, but localDataOwnerRef.current stays 'user-A'.
@@ -117,6 +125,7 @@ describe('AuthContext: three-way resume/switch/cold-start branch', () => {
 
   it('(b) same-account resume but isDatabaseHealthy() is false -> resetDatabase IS called', async () => {
     mockGetSessionResult = { data: { session: { user: { id: 'user-A' } } } };
+    mockDurableOwner = 'user-A';
     await renderAuth();
 
     await fireAuthEvent('SIGNED_OUT', null);
@@ -130,6 +139,7 @@ describe('AuthContext: three-way resume/switch/cold-start branch', () => {
 
   it('(c) genuine account switch -> resetDatabase IS called regardless of DB health', async () => {
     mockGetSessionResult = { data: { session: { user: { id: 'user-A' } } } };
+    mockDurableOwner = 'user-A';
     await renderAuth();
 
     await fireAuthEvent('SIGNED_OUT', null);
@@ -157,6 +167,7 @@ describe('AuthContext: three-way resume/switch/cold-start branch', () => {
 
   it('authPhase returns to "ready" after the resume branch completes', async () => {
     mockGetSessionResult = { data: { session: { user: { id: 'user-A' } } } };
+    mockDurableOwner = 'user-A';
     const { getByTestId } = await renderAuth();
 
     await fireAuthEvent('SIGNED_OUT', null);
