@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as LiveActivity from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
+import * as Sentry from '@sentry/react-native';
 
 // Must import after mocks are set up via jest.config.js moduleNameMapper
 import {
@@ -11,12 +12,24 @@ import {
   updateWorkoutActivityForSet,
   updateWorkoutActivityForRest,
   stopWorkoutActivity,
+  scheduleRestNotification,
   scheduleTimerEndNotification,
   cancelTimerEndNotification,
 } from '../liveActivity';
 
+const foregroundNotificationHandler = (
+  Notifications.setNotificationHandler as jest.Mock
+).mock.calls[0][0] as {
+  handleNotification: () => Promise<Record<string, boolean>>;
+};
+
 // Helper to flush async microtasks (notification scheduling is async)
 const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
+const flushNotificationQueue = async () => {
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => process.nextTick(resolve));
+  }
+};
 
 describe('liveActivity service', () => {
   const originalPlatform = Platform.OS;
@@ -30,6 +43,18 @@ describe('liveActivity service', () => {
 
   afterAll(() => {
     Object.defineProperty(Platform, 'OS', { value: originalPlatform, writable: true });
+  });
+
+  describe('foreground notification presentation', () => {
+    it('does not add a foreground rest completion to Notification Center', async () => {
+      await expect(foregroundNotificationHandler.handleNotification()).resolves.toEqual(
+        expect.objectContaining({
+          shouldShowBanner: false,
+          shouldShowList: false,
+          shouldPlaySound: false,
+        }),
+      );
+    });
   });
 
   describe('startWorkoutActivity', () => {
@@ -132,11 +157,12 @@ describe('liveActivity service', () => {
   });
 
   describe('scheduleTimerEndNotification', () => {
-    it('schedules banner notification with title, body, and matching seconds', async () => {
+    it('schedules one replaceable banner notification with the expected alert content', async () => {
       await scheduleTimerEndNotification(90);
 
       expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
         expect.objectContaining({
+          identifier: 'liftai-rest-complete',
           content: expect.objectContaining({
             sound: 'default',
             interruptionLevel: 'timeSensitive',
@@ -149,6 +175,26 @@ describe('liveActivity service', () => {
       const callArg = (Notifications.scheduleNotificationAsync as jest.Mock).mock.calls[0][0];
       expect(callArg.content.title).toBe('Rest Complete');
       expect(callArg.content.body).toBe('Time for your next set');
+    });
+
+    it.each([
+      ['pending cancellation', Notifications.cancelScheduledNotificationAsync],
+      ['delivered dismissal', Notifications.dismissNotificationAsync],
+    ])('continues scheduling when %s fails', async (_operationName, cleanupOperation) => {
+      const cleanupError = new Error('notification cleanup failed');
+      (cleanupOperation as jest.Mock).mockRejectedValueOnce(cleanupError);
+
+      scheduleRestNotification(90);
+      await flushNotificationQueue();
+
+      expect(Notifications.cancelScheduledNotificationAsync)
+        .toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.dismissNotificationAsync)
+        .toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ identifier: 'liftai-rest-complete' }),
+      );
+      expect(Sentry.captureException).toHaveBeenCalledWith(cleanupError);
     });
   });
 
@@ -231,7 +277,7 @@ describe('liveActivity service', () => {
       jest.useRealTimers();
     });
 
-    it('cancels notification when rest is stopped', async () => {
+    it('removes pending and delivered notifications when rest is stopped', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       // Schedule a notification so we can verify it gets cancelled
       await scheduleTimerEndNotification(120);
@@ -244,7 +290,8 @@ describe('liveActivity service', () => {
       await new Promise(resolve => setImmediate(resolve));
       await new Promise(resolve => setImmediate(resolve));
 
-      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('mock-notification-id');
+      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.dismissNotificationAsync).toHaveBeenCalledWith('liftai-rest-complete');
     });
 
     it('no-ops when no activity is active', () => {

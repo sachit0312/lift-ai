@@ -102,8 +102,6 @@ describe('Live Activity duplication bugs', () => {
       scheduleRestNotification(120);
       await flushNotificationChain();
 
-      const firstNotifId = (Notifications.scheduleNotificationAsync as jest.Mock).mock.results[0]?.value;
-
       jest.clearAllMocks();
 
       // Second rest starts immediately (user completes another set fast)
@@ -111,9 +109,14 @@ describe('Live Activity duplication bugs', () => {
       await flushNotificationChain();
 
       // Should have cancelled the first notification
-      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('mock-notification-id');
+      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('liftai-rest-complete');
       // And scheduled a new one
       expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+      expect(
+        (Notifications.cancelScheduledNotificationAsync as jest.Mock).mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        (Notifications.scheduleNotificationAsync as jest.Mock).mock.invocationCallOrder[0],
+      );
     });
 
     it('stopRestTimerActivity cancels notification even without active activity', async () => {
@@ -125,7 +128,8 @@ describe('Live Activity duplication bugs', () => {
       stopRestTimerActivity();
       await flushNotificationChain();
 
-      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('mock-notification-id');
+      expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.dismissNotificationAsync).toHaveBeenCalledWith('liftai-rest-complete');
     });
 
     it('rapid adjust+stop does not leave orphaned notifications', async () => {

@@ -18,17 +18,25 @@ jest.mock('expo-live-activity', () => ({
 }));
 
 const mockCancel = jest.fn().mockResolvedValue(undefined);
+const mockDismiss = jest.fn().mockResolvedValue(undefined);
 const mockSchedule = jest.fn().mockResolvedValue('notif-id');
 
 jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
   scheduleNotificationAsync: mockSchedule,
   cancelScheduledNotificationAsync: mockCancel,
+  dismissNotificationAsync: mockDismiss,
   requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   SchedulableTriggerInputTypes: { TIME_INTERVAL: 'timeInterval' },
 }));
 
 (Platform as any).OS = 'ios';
+
+const flushNotificationQueue = async () => {
+  for (let i = 0; i < 10; i++) {
+    await Promise.resolve();
+  }
+};
 
 describe('Batch 3 Task 6: adjust debounces notification reschedules', () => {
   beforeEach(() => {
@@ -46,15 +54,9 @@ describe('Batch 3 Task 6: adjust debounces notification reschedules', () => {
     await startWorkoutActivity('Bench', 'Set 1/3');
     await updateWorkoutActivityForRest('Bench', Date.now() + 60 * 1000, 1, 3, 60);
 
-    // Schedule a notification so cancelTimerEndNotification's guard is satisfied
-    // on the subsequent debounced reschedule (deviation from plan: production
-    // only calls cancelScheduledNotificationAsync when currentNotificationId is set).
+    // Schedule the initial notification before exercising the debounced reschedule path.
     scheduleRestNotification(60);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Drain the initial scheduleRestNotification call (if any) by running pending microtasks
-    await Promise.resolve();
+    await flushNotificationQueue();
     mockSchedule.mockClear();
     mockCancel.mockClear();
 
@@ -81,12 +83,9 @@ describe('Batch 3 Task 6: adjust debounces notification reschedules', () => {
     await startWorkoutActivity('Bench', 'Set 1/3');
     await updateWorkoutActivityForRest('Bench', Date.now() + 30 * 1000, 1, 3, 30);
 
-    // Schedule a notification so cancelTimerEndNotification's guard is satisfied
+    // Schedule the initial notification before exercising the expired-adjust path.
     scheduleRestNotification(30);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    await Promise.resolve();
+    await flushNotificationQueue();
     mockSchedule.mockClear();
     mockCancel.mockClear();
 

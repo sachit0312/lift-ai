@@ -10,7 +10,6 @@ import { colors } from '../theme';
 // ─── Module-level state (singleton) ───
 
 let currentActivityId: string | null = null;
-let currentNotificationId: string | null = null;
 let currentEndTime: number = 0;
 let currentExerciseName: string = '';
 let currentSetNumber: number = 1;
@@ -32,6 +31,7 @@ const MIN_UPDATE_INTERVAL_MS = 500;
 
 let pendingNotificationReschedule: { endTime: number; timeoutId: ReturnType<typeof setTimeout> } | null = null;
 const NOTIFICATION_DEBOUNCE_MS = 300;
+const REST_NOTIFICATION_ID = 'liftai-rest-complete';
 
 // ─── Configure notification handler ───
 
@@ -41,7 +41,7 @@ Notifications.setNotificationHandler({
     shouldPlaySound: false,
     shouldSetBadge: false,
     shouldShowBanner: false,
-    shouldShowList: true,
+    shouldShowList: false,
   }),
 });
 
@@ -95,13 +95,11 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
     }
   }
 
-  // A previous process died (force-quit or crash) mid-rest. currentNotificationId is JS module
-  // state and went with it, but the scheduled iOS notification did not — and cancel-by-id can
-  // no longer reach it. Without this, a "Rest Complete" banner fires with sound minutes later
-  // for a rest that no longer exists. Safe here specifically because this branch means no rest
-  // is live in THIS process, so there is no legitimate notification to destroy.
+  // A previous process may have died mid-rest. The stable notification identifier survives the
+  // lost JS module state, so clear both a pending request and a delivered "Rest Complete" card
+  // without touching unrelated notifications from this app.
   if (adoptedFromPreviousProcess) {
-    serializedNotificationOp(() => Notifications.cancelAllScheduledNotificationsAsync());
+    await cancelTimerEndNotification();
   }
 
   // If we already have an activity, try to update it (idempotent — no stacking)
@@ -130,9 +128,8 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
     currentEndTime = 0;
     currentExerciseName = exerciseName;
     currentMaxRestSeconds = 0;
-    // Same reasoning as the adopt path: starting a workout means no rest is live, so any
-    // scheduled rest notification is an orphan from a process that died.
-    serializedNotificationOp(() => Notifications.cancelAllScheduledNotificationsAsync());
+    // Starting a fresh workout means no rest is live. Targeted cleanup removes a stale rest
+    // request/card while preserving any unrelated app notifications.
     await cancelTimerEndNotification();
 
     const activityId = LiveActivity.startActivity(
@@ -516,7 +513,8 @@ function doUpdate(contentState: LiveActivityState, json: string): void {
 
 export async function scheduleTimerEndNotification(seconds: number): Promise<void> {
   try {
-    currentNotificationId = await Notifications.scheduleNotificationAsync({
+    await Notifications.scheduleNotificationAsync({
+      identifier: REST_NOTIFICATION_ID,
       content: {
         title: 'Rest Complete',
         body: 'Time for your next set',
@@ -535,11 +533,14 @@ export async function scheduleTimerEndNotification(seconds: number): Promise<voi
 }
 
 export async function cancelTimerEndNotification(): Promise<void> {
-  if (currentNotificationId) {
-    const idToCancel = currentNotificationId;
-    currentNotificationId = null;
-    try {
-      await Notifications.cancelScheduledNotificationAsync(idToCancel);
-    } catch {}
+  const cleanupResults = await Promise.allSettled([
+    Notifications.cancelScheduledNotificationAsync(REST_NOTIFICATION_ID),
+    Notifications.dismissNotificationAsync(REST_NOTIFICATION_ID),
+  ]);
+
+  for (const result of cleanupResults) {
+    if (result.status === 'rejected') {
+      Sentry.captureException(result.reason);
+    }
   }
 }
