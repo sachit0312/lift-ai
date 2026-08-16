@@ -35,8 +35,14 @@ enum RestTimerSnapshotStore {
   static let snapshotKey = "liftai_rest_timer_snapshot"
 
   static func read() -> RestTimerSnapshot? {
+    guard let defaults = UserDefaults(suiteName: appGroupId) else {
+      return nil
+    }
+    // Refresh the cross-process suite before decoding. The containing app explicitly
+    // synchronizes its writes, and the intent extension may remain alive across rest sessions.
+    defaults.synchronize()
+
     guard
-      let defaults = UserDefaults(suiteName: appGroupId),
       let raw = defaults.string(forKey: snapshotKey),
       let data = raw.data(using: .utf8),
       let snapshot = try? JSONDecoder().decode(RestTimerSnapshot.self, from: data),

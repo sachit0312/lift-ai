@@ -62,6 +62,20 @@ struct ParsedSetState {
 // MARK: - Rest Timer Controls
 
 @available(iOS 17.0, *)
+private struct RestTimerControlButtonStyle: ButtonStyle {
+  let background: Color
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .background(
+        background.opacity(configuration.isPressed ? 0.72 : 1),
+        in: RoundedRectangle(cornerRadius: 12)
+      )
+      .scaleEffect(configuration.isPressed ? 0.97 : 1)
+  }
+}
+
+@available(iOS 17.0, *)
 struct RestTimerControls: View {
   let tintHex: String?
 
@@ -77,8 +91,7 @@ struct RestTimerControls: View {
           .frame(maxWidth: .infinity, minHeight: 44)
           .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+      .buttonStyle(RestTimerControlButtonStyle(background: .white.opacity(0.12)))
       .accessibilityLabel("Decrease rest by 15 seconds")
 
       Button(intent: IncreaseRestIntent()) {
@@ -87,8 +100,7 @@ struct RestTimerControls: View {
           .frame(maxWidth: .infinity, minHeight: 44)
           .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .background(tint.opacity(0.28), in: RoundedRectangle(cornerRadius: 12))
+      .buttonStyle(RestTimerControlButtonStyle(background: tint.opacity(0.28)))
       .accessibilityLabel("Increase rest by 15 seconds")
     }
     .foregroundStyle(.white)

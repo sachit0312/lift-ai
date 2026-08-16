@@ -21,7 +21,9 @@ import {
   scheduleTimerEndNotification,
   cancelTimerEndNotification,
   adjustRestTimerActivity,
+  resetRestProgressBaseline,
 } from '../liveActivity';
+import { readRestTimerSnapshot } from '../restTimerSnapshot';
 import { setItem, getItemAndRemove } from '../../../modules/shared-user-defaults';
 
 // __resetStore is a test helper only in the mock (src/__mocks__/shared-user-defaults.ts)
@@ -62,6 +64,22 @@ describe('Live Activity duplication bugs', () => {
 
       expect(LiveActivity.startActivity).toHaveBeenCalledTimes(1);
       expect(LiveActivity.updateActivity).toHaveBeenCalledTimes(2);
+    });
+
+    it('preserves an active rest snapshot when a focus reload reuses the activity', async () => {
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+      resetRestProgressBaseline();
+      const deadline = Date.now() + 120_000;
+      await updateWorkoutActivityForRest('Bench Press', deadline, 1, 4, 120);
+      const sessionId = readRestTimerSnapshot()?.sessionId;
+
+      await startWorkoutActivity('Bench Press', 'Set 2/4');
+
+      expect(readRestTimerSnapshot()).toMatchObject({
+        sessionId,
+        endTimeMs: deadline,
+        isActive: true,
+      });
     });
 
     it('creates new activity when existing one is dead (not found)', async () => {

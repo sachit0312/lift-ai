@@ -92,8 +92,6 @@ export async function requestNotificationPermissions(): Promise<void> {
  */
 export async function startWorkoutActivity(exerciseName: string, subtitle: string): Promise<void> {
   if (Platform.OS !== 'ios') return;
-  currentRestSessionId = '';
-  clearCurrentRestTimerSnapshot();
 
   // Adopt an activity left behind by a previous app process (force-quit / crash) so we update
   // it rather than stacking a second widget beside it. If it is already gone, updateActivity
@@ -117,6 +115,17 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
   // If we already have an activity, try to update it (idempotent — no stacking)
   if (currentActivityId) {
     try {
+      // Focus reloads call this entry point even while a rest is live. Preserve the running
+      // deadline and its shared intent snapshot instead of replacing the activity with a
+      // read-only set state and disabling the lock-screen controls.
+      if (currentEndTime > 0) {
+        refreshWorkoutActivityDuringRest(
+          currentExerciseName,
+          currentSetNumber,
+          currentTotalSets,
+        );
+        return;
+      }
       LiveActivity.updateActivity(currentActivityId, { title: exerciseName, subtitle });
       currentExerciseName = exerciseName;
       lastContentStateJSON = JSON.stringify({ title: exerciseName, subtitle });
@@ -140,6 +149,8 @@ export async function startWorkoutActivity(exerciseName: string, subtitle: strin
     currentEndTime = 0;
     currentExerciseName = exerciseName;
     currentMaxRestSeconds = 0;
+    currentRestSessionId = '';
+    clearCurrentRestTimerSnapshot();
     // Starting a fresh workout means no rest is live. Targeted cleanup removes a stale rest
     // request/card while preserving any unrelated app notifications.
     await cancelTimerEndNotification();
