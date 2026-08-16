@@ -26,6 +26,7 @@ jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
   scheduleNotificationAsync: jest.fn().mockResolvedValue('notif-id'),
   cancelScheduledNotificationAsync: jest.fn().mockResolvedValue(undefined),
+  dismissNotificationAsync: jest.fn().mockResolvedValue(undefined),
   cancelAllScheduledNotificationsAsync: jest.fn().mockResolvedValue(undefined),
   requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   SchedulableTriggerInputTypes: { TIME_INTERVAL: 'timeInterval' },
@@ -177,12 +178,13 @@ describe('liveActivity rest deadline & progress denominator', () => {
       expect(LiveActivity.updateActivity.mock.calls.length).toBe(callsAfterRestStart);
     });
 
-    it('cancels orphaned notifications when adopting an activity from a dead process', async () => {
+    it('removes only the orphaned rest notification when adopting an activity from a dead process', async () => {
       const sud = require('../../../modules/shared-user-defaults');
       const Notifications = require('expo-notifications');
       // A previous process force-quit mid-rest: the activity id survived in the App Group but
-      // currentNotificationId did not, so cancel-by-id can no longer reach the pending
-      // "Rest Complete" banner. Only a blanket cancel clears it.
+      // In-memory notification state did not. The stable identifier must still reach both a
+      // pending request and a delivered "Rest Complete" notification without touching other
+      // app notifications.
       (sud.getItem as jest.Mock).mockImplementation((key: string) =>
         key === 'liftai_live_activity_id' ? 'stale-activity-id' : null,
       );
@@ -192,7 +194,11 @@ describe('liveActivity rest deadline & progress denominator', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(Notifications.cancelAllScheduledNotificationsAsync).toHaveBeenCalled();
+      expect(Notifications.cancelScheduledNotificationAsync)
+        .toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.dismissNotificationAsync)
+        .toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.cancelAllScheduledNotificationsAsync).not.toHaveBeenCalled();
     });
 
     it('drops the persisted activity id when the activity is gone', async () => {

@@ -58,12 +58,14 @@ git commit -m "docs: design rest notification lifecycle"
 - Modify: `src/__mocks__/expo-notifications.ts`
 - Modify: `src/services/__tests__/liveActivity.test.ts`
 - Modify: `src/services/__tests__/liveActivity.duplication.test.ts`
+- Modify: `src/__tests__/hooks/liveActivity-restDeadline.test.ts`
+- Modify: `src/__tests__/hooks/liveActivity-notificationDebounce.test.ts`
 
 **Interfaces:**
 - Consumes: `Notifications.scheduleNotificationAsync`, `Notifications.cancelScheduledNotificationAsync`, `Notifications.dismissNotificationAsync`, and the existing serialized notification queue.
 - Produces: `REST_NOTIFICATION_ID = 'liftai-rest-complete'` as the single request identity used by all rest scheduling and cleanup paths. No new exported application API.
 
-- [ ] **Step 1: Add the Expo dismissal test double**
+- [x] **Step 1: Add the Expo dismissal test double**
 
 Add the external boundary mock:
 
@@ -71,7 +73,7 @@ Add the external boundary mock:
 export const dismissNotificationAsync = jest.fn().mockResolvedValue(undefined);
 ```
 
-- [ ] **Step 2: Write failing notification lifecycle tests**
+- [x] **Step 2: Write failing notification lifecycle tests**
 
 Extend `liveActivity.test.ts` so the tests assert these literal outcomes:
 
@@ -92,7 +94,7 @@ expect(await foregroundHandler.handleNotification()).toEqual(
 
 Update the duplication regression expectations to use the stable identifier instead of the mock-generated identifier.
 
-- [ ] **Step 3: Run the focused tests and verify RED**
+- [x] **Step 3: Run the focused tests and verify RED**
 
 Run:
 
@@ -100,13 +102,14 @@ Run:
 npx jest --runInBand --runTestsByPath \
   src/services/__tests__/liveActivity.test.ts \
   src/services/__tests__/liveActivity.duplication.test.ts \
+  src/__tests__/hooks/liveActivity-restDeadline.test.ts \
   --testPathIgnorePatterns='/node_modules/|/src/__tests__/helpers/' \
   --forceExit
 ```
 
 Expected: failures show the request has no stable identifier, foreground `shouldShowList` is `true`, dismissal is absent, and cancellation still targets the generated mock identifier.
 
-- [ ] **Step 4: Implement the minimal lifecycle change**
+- [x] **Step 4: Implement the minimal lifecycle change**
 
 In `liveActivity.ts`, define the stable identifier and use it at every boundary:
 
@@ -135,18 +138,20 @@ await Promise.allSettled([
 
 Capture any rejected cleanup result in Sentry. Use the same helper for cold-start orphan cleanup instead of broad notification dismissal.
 
-- [ ] **Step 5: Run the focused tests and verify GREEN**
+- [x] **Step 5: Run the focused tests and verify GREEN**
 
 Run the Step 3 command again.
 
-Expected: both suites pass with zero failed tests.
+Expected: all three suites pass with zero failed tests.
 
-- [ ] **Step 6: Commit the behavior and regression tests**
+- [x] **Step 6: Commit the behavior and regression tests**
 
 ```bash
 git add src/services/liveActivity.ts src/__mocks__/expo-notifications.ts \
   src/services/__tests__/liveActivity.test.ts \
-  src/services/__tests__/liveActivity.duplication.test.ts
+  src/services/__tests__/liveActivity.duplication.test.ts \
+  src/__tests__/hooks/liveActivity-restDeadline.test.ts \
+  src/__tests__/hooks/liveActivity-notificationDebounce.test.ts
 git commit -m "fix: collapse rest completion notifications"
 ```
 
@@ -177,11 +182,13 @@ npx jest --runInBand --runTestsByPath \
   src/services/__tests__/liveActivity.test.ts \
   src/services/__tests__/liveActivity.duplication.test.ts \
   src/hooks/__tests__/useRestTimer.test.ts \
+  src/__tests__/hooks/liveActivity-restDeadline.test.ts \
+  src/__tests__/hooks/liveActivity-notificationDebounce.test.ts \
   --testPathIgnorePatterns='/node_modules/|/src/__tests__/helpers/' \
   --forceExit
 ```
 
-Expected: three suites pass with zero failed tests.
+Expected: all five suites pass with zero failed tests.
 
 - [ ] **Step 3: Run the broad Jest suite with worktree-safe ignores**
 
