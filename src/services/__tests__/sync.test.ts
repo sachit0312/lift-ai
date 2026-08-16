@@ -701,22 +701,20 @@ describe('syncToSupabase', () => {
     expect(exerciseBuilder.upsert.mock.calls.map(([rows]: any[]) => rows[0].name)).toEqual(['A', 'B']);
   });
 
-  it('queues a new session drain instead of letting the previous session satisfy it', async () => {
+  it('does not start a new-generation pass for a dirty request made before the account switch', async () => {
     const sessionA = { ...MOCK_SESSION, user: { id: 'user-a' } };
     const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
     let currentSession = sessionA;
     mockGetSession.mockImplementation(async () => ({ data: { session: currentSession } }));
     setCurrentUserId('user-a');
 
-    // This fails if a B caller joins A's in-flight promise: B is never uploaded, and any
-    // continuation of the stale A pass would write more than its already-issued exercise upsert.
+    // This fails when each pass snapshots auth independently: the second request is queued while
+    // A is active, then starts an immediate B pass before AuthContext has isolated SQLite.
     let localExercises = [
       { id: 'ex-a', name: 'A', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
     ];
-    let localTemplates: Array<{ id: string; name: string }> = [];
     __mockDb.getAllAsync.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM exercises')) return localExercises;
-      if (sql === 'SELECT id, name FROM templates') return localTemplates;
       return [];
     });
 
@@ -735,106 +733,21 @@ describe('syncToSupabase', () => {
       return { error: null };
     });
     mockFromHandlers.exercises = exerciseBuilder;
-    const templateBuilder = mockQueryBuilder();
-    mockFromHandlers.templates = templateBuilder;
 
     const firstPush = syncToSupabase();
     await firstUpsertStarted;
 
+    // This is still A's request. It must not be repurposed into a B push after the switch.
+    const queuedBeforeSwitch = syncToSupabase();
     currentSession = sessionB;
     setCurrentUserId('user-b');
-    localExercises = [
-      { id: 'ex-b', name: 'B', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
-    ];
-    localTemplates = [{ id: 'tpl-b', name: 'B template' }];
-    const secondPush = syncToSupabase();
     releaseFirstUpsert();
 
-    await Promise.all([firstPush, secondPush]);
+    await Promise.all([firstPush, queuedBeforeSwitch]);
 
-    expect(exerciseBuilder.upsert).toHaveBeenCalledTimes(2);
-    expect(exerciseBuilder.upsert.mock.calls.map(([rows]: any[]) => rows[0])).toEqual([
-      expect.objectContaining({ id: 'ex-a', user_id: 'user-a' }),
-      expect.objectContaining({ id: 'ex-b', user_id: 'user-b' }),
-    ]);
-    expect(templateBuilder.upsert).toHaveBeenCalledWith(
-      [{ id: 'tpl-b', name: 'B template', user_id: 'user-b' }],
-      { onConflict: 'id' },
-    );
-    expect(templateBuilder.upsert).toHaveBeenCalledTimes(1);
-  });
-
-  it('stops an A pass before it can upload B rows while B session discovery is still pending', async () => {
-    const sessionA = { ...MOCK_SESSION, user: { id: 'user-a' } };
-    const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
-    let currentSession = sessionA;
-    let sessionCalls = 0;
-    let resolveBSession!: (value: { data: { session: typeof sessionB } }) => void;
-    const delayedBSession = new Promise<{ data: { session: typeof sessionB } }>((resolve) => {
-      resolveBSession = resolve;
-    });
-    let signalBSessionRequest!: () => void;
-    const bSessionRequested = new Promise<void>((resolve) => { signalBSessionRequest = resolve; });
-    mockGetSession.mockImplementation(() => {
-      sessionCalls += 1;
-      // Hold B's second pass lookup. Its request already set the dirty bit synchronously.
-      if (sessionCalls === 2) {
-        signalBSessionRequest();
-        return delayedBSession;
-      }
-      return Promise.resolve({ data: { session: currentSession } });
-    });
-    setCurrentUserId('user-a');
-
-    let localExercises = [
-      { id: 'ex-a', name: 'A', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
-    ];
-    let localTemplates: Array<{ id: string; name: string }> = [];
-    __mockDb.getAllAsync.mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM exercises')) return localExercises;
-      if (sql === 'SELECT id, name FROM templates') return localTemplates;
-      return [];
-    });
-
-    let releaseFirstUpsert!: () => void;
-    const firstUpsertReleased = new Promise<void>((resolve) => { releaseFirstUpsert = resolve; });
-    let signalFirstUpsert!: () => void;
-    const firstUpsertStarted = new Promise<void>((resolve) => { signalFirstUpsert = resolve; });
-    const exerciseBuilder = mockQueryBuilder();
-    let blockFirstUpsert = true;
-    exerciseBuilder.upsert.mockImplementation(async () => {
-      if (blockFirstUpsert) {
-        blockFirstUpsert = false;
-        signalFirstUpsert();
-        await firstUpsertReleased;
-      }
-      return { error: null };
-    });
-    const templateBuilder = mockQueryBuilder();
-    mockFromHandlers.exercises = exerciseBuilder;
-    mockFromHandlers.templates = templateBuilder;
-
-    const firstPush = syncToSupabase();
-    await firstUpsertStarted;
-
-    currentSession = sessionB;
-    setCurrentUserId('user-b');
-    localExercises = [
-      { id: 'ex-b', name: 'B', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
-    ];
-    localTemplates = [{ id: 'tpl-b', name: 'B template' }];
-    const secondPush = syncToSupabase();
-    expect(secondPush).toBe(firstPush);
-    releaseFirstUpsert();
-
-    await bSessionRequested;
-    expect(templateBuilder.upsert).not.toHaveBeenCalled();
-
-    resolveBSession({ data: { session: sessionB } });
-    await Promise.all([firstPush, secondPush]);
-
-    expect(templateBuilder.upsert).toHaveBeenCalledWith(
-      [{ id: 'tpl-b', name: 'B template', user_id: 'user-b' }],
+    expect(exerciseBuilder.upsert).toHaveBeenCalledTimes(1);
+    expect(exerciseBuilder.upsert).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'ex-a', user_id: 'user-a' })],
       { onConflict: 'id' },
     );
   });
@@ -843,21 +756,7 @@ describe('syncToSupabase', () => {
     const sessionA = { ...MOCK_SESSION, user: { id: 'user-a' } };
     const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
     let currentSession = sessionA;
-    let sessionCalls = 0;
-    let resolveBSession!: (value: { data: { session: typeof sessionB } }) => void;
-    const delayedBSession = new Promise<{ data: { session: typeof sessionB } }>((resolve) => {
-      resolveBSession = resolve;
-    });
-    let signalBSessionRequest!: () => void;
-    const bSessionRequested = new Promise<void>((resolve) => { signalBSessionRequest = resolve; });
-    mockGetSession.mockImplementation(() => {
-      sessionCalls += 1;
-      if (sessionCalls === 2) {
-        signalBSessionRequest();
-        return delayedBSession;
-      }
-      return Promise.resolve({ data: { session: currentSession } });
-    });
+    mockGetSession.mockImplementation(() => Promise.resolve({ data: { session: currentSession } }));
     setCurrentUserId('user-a');
 
     let localWorkouts = Array.from({ length: 501 }, (_, index) => ({
@@ -901,12 +800,46 @@ describe('syncToSupabase', () => {
     expect(secondPush).toBe(firstPush);
     releaseFirstChunk();
 
-    await bSessionRequested;
+    await Promise.all([firstPush, secondPush]);
     expect(workoutBuilder.upsert).toHaveBeenCalledTimes(1);
     expect(workoutBuilder.upsert.mock.calls[0][0]).toHaveLength(500);
+  });
 
-    resolveBSession({ data: { session: sessionB } });
-    await Promise.all([firstPush, secondPush]);
+  it('runs a trailing pass when a request arrives while the preceding pass throws', async () => {
+    setSessionAuthenticated();
+
+    const unexpectedError = new Error('first snapshot failed');
+    let releaseFirstRead!: () => void;
+    const firstReadReleased = new Promise<void>((resolve) => { releaseFirstRead = resolve; });
+    let signalFirstRead!: () => void;
+    const firstReadStarted = new Promise<void>((resolve) => { signalFirstRead = resolve; });
+    let failFirstExerciseRead = true;
+    __mockDb.getAllAsync.mockImplementation(async (sql: string) => {
+      if (!sql.includes('FROM exercises')) return [];
+      if (failFirstExerciseRead) {
+        failFirstExerciseRead = false;
+        signalFirstRead();
+        await firstReadReleased;
+        throw unexpectedError;
+      }
+      return [{ id: 'ex-after-error', name: 'after error', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' }];
+    });
+    const exerciseBuilder = mockQueryBuilder();
+    mockFromHandlers.exercises = exerciseBuilder;
+
+    const firstPush = syncToSupabase();
+    await firstReadStarted;
+    const trailingPush = syncToSupabase();
+    releaseFirstRead();
+
+    await expect(Promise.all([firstPush, trailingPush])).resolves.toEqual([undefined, undefined]);
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(unexpectedError);
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
+    expect(exerciseBuilder.upsert).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'ex-after-error' })],
+      { onConflict: 'id' },
+    );
   });
 });
 

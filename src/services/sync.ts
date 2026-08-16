@@ -211,24 +211,35 @@ export function syncToSupabase(): Promise<void> {
 }
 
 async function drainPushes(): Promise<void> {
+  // A caller can mark this drain dirty before AuthContext has reset SQLite for an account
+  // switch. The entire drain therefore belongs to the generation that started it: it must
+  // never turn that pre-reset request into a push of the next account's in-progress local rows.
+  const expectedGeneration = authGeneration();
   try {
-    while (pushRequested) {
+    while (pushRequested && authGeneration() === expectedGeneration) {
       pushRequested = false;
-      await pushToSupabase();
+      try {
+        await pushToSupabase(expectedGeneration);
+      } catch (err) {
+        // Sync is best-effort. Keep a request that arrived during this failed pass dirty so it
+        // receives its own trailing snapshot, rather than clearing it in the drain cleanup.
+        handleSyncError('syncToSupabase', err);
+      }
     }
-  } catch (err) {
-    handleSyncError('syncToSupabase', err);
   } finally {
-    pushRequested = false;
+    // Requests made under a newer auth generation cannot safely run until AuthContext finishes
+    // account isolation and issues a fresh sync request.
+    if (authGeneration() !== expectedGeneration) {
+      pushRequested = false;
+    }
     // This executes synchronously when the final pass settles. A later caller sees null and
     // starts a fresh drain instead of setting a dirty bit on a promise that is about to resolve.
     inFlightPush = null;
   }
 }
 
-async function pushToSupabase(): Promise<void> {
+async function pushToSupabase(expectedGeneration: number): Promise<void> {
   try {
-    const expectedGeneration = authGeneration();
     const { data: { session } } = await supabase.auth.getSession();
     const canContinue = () => authGeneration() === expectedGeneration;
     if (!session || !canContinue()) return;
