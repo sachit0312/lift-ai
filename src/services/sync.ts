@@ -1,7 +1,12 @@
 import * as Sentry from '@sentry/react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { getDb, clearLocalUpcomingWorkout, runInTransaction } from './database';
+import {
+  getDb,
+  clearLocalUpcomingWorkout,
+  getCurrentUserGeneration,
+  runInTransaction,
+} from './database';
 
 function handleSyncError(label: string, error: unknown): void {
   if (__DEV__) console.error(`Sync ${label} error:`, error);
@@ -98,9 +103,11 @@ async function upsertInChunks<T>(
   rows: T[],
   onConflict: string,
   label: string,
+  canContinue?: () => boolean,
 ): Promise<boolean> {
   let ok = true;
   for (let i = 0; i < rows.length; i += UPSERT_CHUNK_SIZE) {
+    if (canContinue && !canContinue()) return false;
     const { error } = await supabase
       .from(table)
       .upsert(rows.slice(i, i + UPSERT_CHUNK_SIZE), { onConflict });
@@ -186,19 +193,38 @@ interface SyncWorkoutSetRow {
 /** A coalesced push generation. Requests from a different session invalidate this generation. */
 interface PushDrain {
   sessionUserId: string | null;
+  authGeneration: number;
   pushRequested: boolean;
   stale: boolean;
   completion: Promise<void>;
-  finish: () => void;
+  resolve: () => void;
+  reject: (error: unknown) => void;
 }
 
 let inFlightPush: PushDrain | null = null;
 const queuedPushes: PushDrain[] = [];
 
-function createPushDrain(sessionUserId: string | null): PushDrain {
-  let finish!: () => void;
-  const completion = new Promise<void>((resolve) => { finish = resolve; });
-  return { sessionUserId, pushRequested: true, stale: false, completion, finish };
+function authGeneration(): number {
+  // Some narrowly mocked pull-only test modules do not provide the new optional signal.
+  return getCurrentUserGeneration?.() ?? 0;
+}
+
+function createPushDrain(sessionUserId: string | null, generation: number): PushDrain {
+  let resolve!: () => void;
+  let reject!: (error: unknown) => void;
+  const completion = new Promise<void>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return {
+    sessionUserId,
+    authGeneration: generation,
+    pushRequested: true,
+    stale: false,
+    completion,
+    resolve,
+    reject,
+  };
 }
 
 /**
@@ -208,10 +234,12 @@ function createPushDrain(sessionUserId: string | null): PushDrain {
  * accidentally satisfy B's request.
  */
 export function syncToSupabase(): Promise<void> {
-  return requestPushDrain();
+  // AuthContext advances this synchronously before the new user's asynchronous session lookup.
+  // Capturing it here prevents the old push from writing newly-pulled rows during that gap.
+  return requestPushDrain(authGeneration());
 }
 
-async function requestPushDrain(): Promise<void> {
+async function requestPushDrain(requestGeneration: number): Promise<void> {
   let sessionUserId: string | null;
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -221,13 +249,23 @@ async function requestPushDrain(): Promise<void> {
     return;
   }
 
-  if (inFlightPush?.sessionUserId === sessionUserId && !inFlightPush.stale) {
+  // An auth event happened while getSession was pending. This stale request must not invalidate
+  // the current user's drain merely because Secure Store returned an older snapshot late.
+  if (requestGeneration !== authGeneration()) return inFlightPush?.completion;
+
+  if (
+    inFlightPush?.sessionUserId === sessionUserId
+    && inFlightPush.authGeneration === requestGeneration
+    && !inFlightPush.stale
+  ) {
     inFlightPush.pushRequested = true;
     return inFlightPush.completion;
   }
 
   const queued = queuedPushes.find((drain) =>
-    drain.sessionUserId === sessionUserId && !drain.stale,
+    drain.sessionUserId === sessionUserId
+    && drain.authGeneration === requestGeneration
+    && !drain.stale,
   );
   if (queued) {
     queued.pushRequested = true;
@@ -240,34 +278,53 @@ async function requestPushDrain(): Promise<void> {
   if (inFlightPush) inFlightPush.stale = true;
   for (const drain of queuedPushes) drain.stale = true;
 
-  const next = createPushDrain(sessionUserId);
+  const next = createPushDrain(sessionUserId, requestGeneration);
   if (inFlightPush) {
     queuedPushes.push(next);
   } else {
     inFlightPush = next;
-    void runPushDrain(next);
+    startPushDrain(next);
   }
   return next.completion;
 }
 
-async function runPushDrain(drain: PushDrain): Promise<void> {
-  try {
-    while (!drain.stale && drain.pushRequested) {
-      drain.pushRequested = false;
-      await pushToSupabase(
-        drain.sessionUserId,
-        () => inFlightPush === drain && !drain.stale,
-      );
-    }
-  } finally {
-    if (inFlightPush === drain) inFlightPush = null;
-    drain.finish();
+function startPushDrain(drain: PushDrain): void {
+  void runPushDrain(drain).then(
+    () => finishPushDrain(drain),
+    (error) => {
+      try {
+        handleSyncError('syncToSupabase', error);
+      } catch (reportingError) {
+        if (__DEV__) console.error('Failed to report sync drain error:', reportingError);
+      }
+      finishPushDrain(drain, true, error);
+    },
+  );
+}
 
-    const next = queuedPushes.shift();
-    if (next) {
-      inFlightPush = next;
-      void runPushDrain(next);
-    }
+function finishPushDrain(drain: PushDrain, failed = false, error?: unknown): void {
+  if (inFlightPush === drain) inFlightPush = null;
+  if (failed) drain.reject(error);
+  else drain.resolve();
+
+  const next = queuedPushes.shift();
+  if (next) {
+    inFlightPush = next;
+    startPushDrain(next);
+  }
+}
+
+async function runPushDrain(drain: PushDrain): Promise<void> {
+  while (!drain.stale && drain.pushRequested) {
+    drain.pushRequested = false;
+    await pushToSupabase(
+      drain.sessionUserId,
+      () => (
+        inFlightPush === drain
+        && !drain.stale
+        && authGeneration() === drain.authGeneration
+      ),
+    );
   }
 }
 
@@ -395,7 +452,7 @@ async function pushToSupabase(
         exercise_coach_notes: textToJsonb(w.exercise_coach_notes),
         planned_exercise_ids: textToJsonb(w.planned_exercise_ids),
       }));
-      workoutsOk = await upsertInChunks('workouts', mappedWorkouts, 'id', 'workouts');
+      workoutsOk = await upsertInChunks('workouts', mappedWorkouts, 'id', 'workouts', canContinue);
     }
     if (!canContinue()) return;
 
@@ -413,13 +470,13 @@ async function pushToSupabase(
           ...s,
           is_completed: !!s.is_completed,
         }));
-        await upsertInChunks('workout_sets', mapped, 'id', 'workout_sets');
+        await upsertInChunks('workout_sets', mapped, 'id', 'workout_sets', canContinue);
       }
     }
 
     if (__DEV__) console.log('Sync to Supabase complete');
   } catch (err) {
-    handleSyncError('syncToSupabase', err);
+    throw err;
   }
 }
 

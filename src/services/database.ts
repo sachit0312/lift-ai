@@ -259,8 +259,20 @@ const RESET_TABLES = [
 
 // ─── Current User ID (set by AuthContext on login/logout) ───
 let currentUserId = 'local';
-export function setCurrentUserId(id: string) { currentUserId = id; }
+let currentUserGeneration = 0;
+
+/**
+ * AuthContext calls this synchronously from every auth-state event. The generation lets an
+ * in-flight service operation detect an account change without waiting for another async
+ * getSession() lookup, which may still be blocked behind the auth lock or Secure Store.
+ */
+export function setCurrentUserId(id: string) {
+  if (currentUserId === id) return;
+  currentUserId = id;
+  currentUserGeneration += 1;
+}
 export function getCurrentUserId(): string { return currentUserId; }
+export function getCurrentUserGeneration(): number { return currentUserGeneration; }
 
 /**
  * Returns the effective user id for DB reads/writes.

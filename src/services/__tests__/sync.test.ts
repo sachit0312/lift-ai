@@ -39,6 +39,7 @@ import {
   pullWorkoutHistoryStrict,
 } from '../sync';
 import { supabase } from '../supabase';
+import { setCurrentUserId } from '../database';
 
 // Cast for type safety
 const mockGetSession = supabase.auth.getSession as jest.Mock;
@@ -522,11 +523,12 @@ describe('syncToSupabase', () => {
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
   });
 
-  it('catches unexpected errors and reports to Sentry', async () => {
+  it('rejects direct callers after reporting an unexpected push error', async () => {
     const thrownError = new Error('Unexpected database failure');
-    mockGetSession.mockRejectedValue(thrownError);
+    setSessionAuthenticated();
+    __mockDb.getAllAsync.mockRejectedValue(thrownError);
 
-    await syncToSupabase(); // should not throw
+    await expect(syncToSupabase()).rejects.toBe(thrownError);
 
     expect(Sentry.captureException).toHaveBeenCalledWith(thrownError);
   });
@@ -759,6 +761,140 @@ describe('syncToSupabase', () => {
       { onConflict: 'id' },
     );
     expect(templateBuilder.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops an A pass before it can upload B rows while B session discovery is still pending', async () => {
+    const sessionA = { ...MOCK_SESSION, user: { id: 'user-a' } };
+    const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
+    let currentSession = sessionA;
+    let sessionCalls = 0;
+    let resolveBSession!: (value: { data: { session: typeof sessionB } }) => void;
+    const delayedBSession = new Promise<{ data: { session: typeof sessionB } }>((resolve) => {
+      resolveBSession = resolve;
+    });
+    mockGetSession.mockImplementation(() => {
+      sessionCalls += 1;
+      // A request drain, then its first A push, have already read the session. Hold B's
+      // scheduler lookup so A resumes before B can mark the old drain stale.
+      if (sessionCalls === 3) return delayedBSession;
+      return Promise.resolve({ data: { session: currentSession } });
+    });
+    setCurrentUserId('user-a');
+
+    let localExercises = [
+      { id: 'ex-a', name: 'A', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    let localTemplates: Array<{ id: string; name: string }> = [];
+    __mockDb.getAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM exercises')) return localExercises;
+      if (sql === 'SELECT id, name FROM templates') return localTemplates;
+      return [];
+    });
+
+    let releaseFirstUpsert!: () => void;
+    const firstUpsertReleased = new Promise<void>((resolve) => { releaseFirstUpsert = resolve; });
+    let signalFirstUpsert!: () => void;
+    const firstUpsertStarted = new Promise<void>((resolve) => { signalFirstUpsert = resolve; });
+    const exerciseBuilder = mockQueryBuilder();
+    let blockFirstUpsert = true;
+    exerciseBuilder.upsert.mockImplementation(async () => {
+      if (blockFirstUpsert) {
+        blockFirstUpsert = false;
+        signalFirstUpsert();
+        await firstUpsertReleased;
+      }
+      return { error: null };
+    });
+    const templateBuilder = mockQueryBuilder();
+    mockFromHandlers.exercises = exerciseBuilder;
+    mockFromHandlers.templates = templateBuilder;
+
+    const firstPush = syncToSupabase();
+    await firstUpsertStarted;
+
+    currentSession = sessionB;
+    setCurrentUserId('user-b');
+    localExercises = [
+      { id: 'ex-b', name: 'B', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    localTemplates = [{ id: 'tpl-b', name: 'B template' }];
+    const secondPush = syncToSupabase();
+    releaseFirstUpsert();
+
+    await firstPush;
+    expect(templateBuilder.upsert).not.toHaveBeenCalled();
+
+    resolveBSession({ data: { session: sessionB } });
+    await secondPush;
+
+    expect(templateBuilder.upsert).toHaveBeenCalledWith(
+      [{ id: 'tpl-b', name: 'B template', user_id: 'user-b' }],
+      { onConflict: 'id' },
+    );
+  });
+
+  it('stops a stale multi-chunk workout upsert before its next chunk', async () => {
+    const sessionA = { ...MOCK_SESSION, user: { id: 'user-a' } };
+    const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
+    let currentSession = sessionA;
+    let sessionCalls = 0;
+    let resolveBSession!: (value: { data: { session: typeof sessionB } }) => void;
+    const delayedBSession = new Promise<{ data: { session: typeof sessionB } }>((resolve) => {
+      resolveBSession = resolve;
+    });
+    mockGetSession.mockImplementation(() => {
+      sessionCalls += 1;
+      if (sessionCalls === 3) return delayedBSession;
+      return Promise.resolve({ data: { session: currentSession } });
+    });
+    setCurrentUserId('user-a');
+
+    let localWorkouts = Array.from({ length: 501 }, (_, index) => ({
+      id: `workout-a-${index}`,
+      template_id: null,
+      upcoming_workout_id: null,
+      started_at: '2026-01-01T10:00:00Z',
+      finished_at: '2026-01-01T11:00:00Z',
+      coach_notes: null,
+      exercise_coach_notes: null,
+      session_notes: null,
+      planned_exercise_ids: null,
+    }));
+    __mockDb.getAllAsync.mockImplementation(async (sql: string) =>
+      sql.includes('FROM workouts WHERE finished_at IS NOT NULL') ? localWorkouts : [],
+    );
+
+    let releaseFirstChunk!: () => void;
+    const firstChunkReleased = new Promise<void>((resolve) => { releaseFirstChunk = resolve; });
+    let signalFirstChunk!: () => void;
+    const firstChunkStarted = new Promise<void>((resolve) => { signalFirstChunk = resolve; });
+    const workoutBuilder = mockQueryBuilder();
+    let blockFirstChunk = true;
+    workoutBuilder.upsert.mockImplementation(async () => {
+      if (blockFirstChunk) {
+        blockFirstChunk = false;
+        signalFirstChunk();
+        await firstChunkReleased;
+      }
+      return { error: null };
+    });
+    mockFromHandlers.workouts = workoutBuilder;
+
+    const firstPush = syncToSupabase();
+    await firstChunkStarted;
+
+    currentSession = sessionB;
+    setCurrentUserId('user-b');
+    localWorkouts = [];
+    const secondPush = syncToSupabase();
+    releaseFirstChunk();
+
+    await firstPush;
+    expect(workoutBuilder.upsert).toHaveBeenCalledTimes(1);
+    expect(workoutBuilder.upsert.mock.calls[0][0]).toHaveLength(500);
+
+    resolveBSession({ data: { session: sessionB } });
+    await secondPush;
   });
 });
 
