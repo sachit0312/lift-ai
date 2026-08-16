@@ -98,7 +98,7 @@ describe('AuthContext: SIGNED_IN with same user ID', () => {
     expect(mockPullExercisesAndTemplates.mock.calls.length).toBe(firstPullExercisesCount);
     expect(mockPullWorkoutHistory.mock.calls.length).toBe(firstPullWorkoutCount);
     expect(mockPullUpcomingWorkout.mock.calls.length).toBe(firstPullUpcomingCount);
-    // setCurrentUserId is still called unconditionally on every auth event (per CLAUDE.md)
+    // setCurrentUserId is still called unconditionally on every auth event (per AGENTS.md)
     expect(mockSetCurrentUserId).toHaveBeenCalledWith('user-A');
   });
 

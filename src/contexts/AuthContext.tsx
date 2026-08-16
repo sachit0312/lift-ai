@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     // finished workout that had not been pushed yet (logged with no signal,
                     // then interrupted by a token expiry).
                     //
-                    // But CLAUDE.md documents sign-out/sign-in as THE fix for a corrupted
+                    // But AGENTS.md documents sign-out/sign-in as THE fix for a corrupted
                     // SQLite file, and that is almost always a same-account action — so
                     // skipping the reset unconditionally would remove the only recovery
                     // route. Probe the file first and still reset when it is actually broken.

@@ -5,7 +5,7 @@
  *   (a) same-account resume (localDataOwnerRef === newUserId) -> consult isDatabaseHealthy(),
  *       skip resetDatabase() when healthy
  *   (b) same-account resume but isDatabaseHealthy() reports corruption -> resetDatabase() IS
- *       called (this is the corruption-recovery path CLAUDE.md documents: sign out, sign back
+ *       called (this is the corruption-recovery path AGENTS.md documents: sign out, sign back
  *       in as yourself)
  *   (c) genuine account switch (localDataOwnerRef is a DIFFERENT known user) -> resetDatabase()
  *       IS called regardless of health, so one user's local data can never leak into another's

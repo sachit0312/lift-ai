@@ -291,7 +291,7 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
  *
  * Sign-in no longer resets the database unconditionally (that destroyed unsynced finished
  * workouts when the same user simply signed back in), but the documented corruption-recovery
- * path in CLAUDE.md is precisely "sign out and back in". This probe preserves that: a same-user
+ * path in AGENTS.md is precisely "sign out and back in". This probe preserves that: a same-user
  * resume keeps its local data when the file is healthy and still gets the nuclear reset when
  * it is not. Reads one row from each table sync/PR paths depend on — enough to surface the
  * "database disk image is malformed" class of failure without scanning anything.
@@ -1559,4 +1559,3 @@ export function clearAllLocalData(): Promise<void> {
     await database.runAsync('DELETE FROM exercises');
   });
 }
-
