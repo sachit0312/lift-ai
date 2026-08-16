@@ -12,11 +12,19 @@ jest.mock('../services/database', () => ({
   clearAllLocalData: (...args: any[]) => mockClearAllLocalData(...args),
 }));
 
-jest.mock('../services/sync', () => ({
-  pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
-  pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),
-  pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
-}));
+jest.mock('../services/sync', () => {
+  const pullExercisesAndTemplates = jest.fn().mockResolvedValue(undefined);
+  const pullWorkoutHistory = jest.fn().mockResolvedValue(undefined);
+  const pullUpcomingWorkout = jest.fn().mockResolvedValue(undefined);
+  return {
+    pullExercisesAndTemplates,
+    pullExercisesAndTemplatesStrict: pullExercisesAndTemplates,
+    pullWorkoutHistory,
+    pullWorkoutHistoryStrict: pullWorkoutHistory,
+    pullUpcomingWorkout,
+    pullUpcomingWorkoutStrict: pullUpcomingWorkout,
+  };
+});
 
 // Authoritative mock session the test controls
 let mockInitialSession: any = null;

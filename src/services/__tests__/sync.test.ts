@@ -27,7 +27,17 @@ jest.mock('../database', () => ({
 }));
 
 // Import after mocks are set up
-import { syncToSupabase, deleteTemplateFromSupabase, deleteTemplateExerciseFromSupabase, pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../sync';
+import {
+  syncToSupabase,
+  deleteTemplateFromSupabase,
+  deleteTemplateExerciseFromSupabase,
+  pullUpcomingWorkout,
+  pullUpcomingWorkoutStrict,
+  pullExercisesAndTemplates,
+  pullExercisesAndTemplatesStrict,
+  pullWorkoutHistory,
+  pullWorkoutHistoryStrict,
+} from '../sync';
 import { supabase } from '../supabase';
 
 // Cast for type safety
@@ -98,6 +108,32 @@ function seedLocalExercises(ids: string[]) {
     typeof sql === 'string' && sql.includes('FROM exercises') ? ids.map(id => ({ id })) : [],
   );
 }
+
+describe('strict auth pull variants', () => {
+  it('rejects exercise/template auth pulls when Supabase returns an error', async () => {
+    setSessionAuthenticated();
+    const error = { message: 'exercises query failed', code: '500' };
+    mockFromHandlers.exercises = mockQueryBuilder(null, error);
+
+    await expect(pullExercisesAndTemplatesStrict()).rejects.toBe(error);
+  });
+
+  it('rejects history auth pulls when Supabase returns an error', async () => {
+    setSessionAuthenticated();
+    const error = { message: 'workouts query failed', code: '500' };
+    mockFromHandlers.workouts = mockQueryBuilder(null, error);
+
+    await expect(pullWorkoutHistoryStrict()).rejects.toBe(error);
+  });
+
+  it('rejects upcoming-workout auth pulls when Supabase returns an error', async () => {
+    setSessionAuthenticated();
+    const error = { message: 'upcoming workouts query failed', code: '500' };
+    mockFromHandlers.upcoming_workouts = mockQueryBuilder(null, error);
+
+    await expect(pullUpcomingWorkoutStrict()).rejects.toBe(error);
+  });
+});
 
 // ============================================================
 // syncToSupabase

@@ -34,23 +34,26 @@ jest.mock('../../services/database', () => ({
 
 jest.mock('../../services/sync', () => ({
   pullExercisesAndTemplates: jest.fn(),
+  pullExercisesAndTemplatesStrict: jest.fn(),
   pullWorkoutHistory: jest.fn(),
+  pullWorkoutHistoryStrict: jest.fn(),
   pullUpcomingWorkout: jest.fn(),
+  pullUpcomingWorkoutStrict: jest.fn(),
 }));
 
 import * as Sentry from '@sentry/react-native';
 import { resetDatabase } from '../../services/database';
 import {
-  pullExercisesAndTemplates,
-  pullUpcomingWorkout,
-  pullWorkoutHistory,
+  pullExercisesAndTemplatesStrict,
+  pullUpcomingWorkoutStrict,
+  pullWorkoutHistoryStrict,
 } from '../../services/sync';
 import { AuthProvider, useAuth } from '../../contexts/AuthContext';
 
 const mockResetDatabase = resetDatabase as jest.Mock;
-const mockPullExercisesAndTemplates = pullExercisesAndTemplates as jest.Mock;
-const mockPullWorkoutHistory = pullWorkoutHistory as jest.Mock;
-const mockPullUpcomingWorkout = pullUpcomingWorkout as jest.Mock;
+const mockPullExercisesAndTemplatesStrict = pullExercisesAndTemplatesStrict as jest.Mock;
+const mockPullWorkoutHistoryStrict = pullWorkoutHistoryStrict as jest.Mock;
+const mockPullUpcomingWorkoutStrict = pullUpcomingWorkoutStrict as jest.Mock;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -88,9 +91,9 @@ describe('AuthContext reconciliation', () => {
     mockGetSessionMode = 'immediate';
     mockPendingGetSessionResolve = null;
     mockResetDatabase.mockResolvedValue(undefined);
-    mockPullExercisesAndTemplates.mockResolvedValue(undefined);
-    mockPullWorkoutHistory.mockResolvedValue(undefined);
-    mockPullUpcomingWorkout.mockResolvedValue(undefined);
+    mockPullExercisesAndTemplatesStrict.mockResolvedValue(undefined);
+    mockPullWorkoutHistoryStrict.mockResolvedValue(undefined);
+    mockPullUpcomingWorkoutStrict.mockResolvedValue(undefined);
   });
 
   it('returns from SIGNED_IN before reconciliation starts while getSession is auth-locked', async () => {
@@ -129,9 +132,9 @@ describe('AuthContext reconciliation', () => {
     const history = deferred<void>();
     const upcoming = deferred<void>();
     mockResetDatabase.mockReturnValueOnce(reset.promise);
-    mockPullExercisesAndTemplates.mockReturnValueOnce(exercises.promise);
-    mockPullWorkoutHistory.mockReturnValueOnce(history.promise);
-    mockPullUpcomingWorkout.mockReturnValueOnce(upcoming.promise);
+    mockPullExercisesAndTemplatesStrict.mockReturnValueOnce(exercises.promise);
+    mockPullWorkoutHistoryStrict.mockReturnValueOnce(history.promise);
+    mockPullUpcomingWorkoutStrict.mockReturnValueOnce(upcoming.promise);
 
     const { getByTestId } = render(
       <AuthProvider><AuthPhaseProbe /></AuthProvider>,
@@ -144,15 +147,15 @@ describe('AuthContext reconciliation', () => {
     await flushReconciliation();
     expect(getByTestId('authPhase').props.children).toBe('syncing');
     expect(mockResetDatabase).toHaveBeenCalledTimes(1);
-    expect(mockPullExercisesAndTemplates).not.toHaveBeenCalled();
+    expect(mockPullExercisesAndTemplatesStrict).not.toHaveBeenCalled();
 
     await act(async () => {
       reset.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(mockPullExercisesAndTemplates).toHaveBeenCalledTimes(1);
-    expect(mockPullWorkoutHistory).not.toHaveBeenCalled();
+    expect(mockPullExercisesAndTemplatesStrict).toHaveBeenCalledTimes(1);
+    expect(mockPullWorkoutHistoryStrict).not.toHaveBeenCalled();
     expect(getByTestId('authPhase').props.children).toBe('syncing');
 
     await act(async () => {
@@ -160,8 +163,8 @@ describe('AuthContext reconciliation', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(mockPullWorkoutHistory).toHaveBeenCalledTimes(1);
-    expect(mockPullUpcomingWorkout).not.toHaveBeenCalled();
+    expect(mockPullWorkoutHistoryStrict).toHaveBeenCalledTimes(1);
+    expect(mockPullUpcomingWorkoutStrict).not.toHaveBeenCalled();
     expect(getByTestId('authPhase').props.children).toBe('syncing');
 
     await act(async () => {
@@ -169,7 +172,7 @@ describe('AuthContext reconciliation', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(mockPullUpcomingWorkout).toHaveBeenCalledTimes(1);
+    expect(mockPullUpcomingWorkoutStrict).toHaveBeenCalledTimes(1);
     expect(getByTestId('authPhase').props.children).toBe('syncing');
 
     await act(async () => {
@@ -191,9 +194,9 @@ describe('AuthContext reconciliation', () => {
 
     // A stale job must not reset or pull into B's local database.
     expect(mockResetDatabase).toHaveBeenCalledTimes(1);
-    expect(mockPullExercisesAndTemplates).toHaveBeenCalledTimes(1);
-    expect(mockPullWorkoutHistory).toHaveBeenCalledTimes(1);
-    expect(mockPullUpcomingWorkout).toHaveBeenCalledTimes(1);
+    expect(mockPullExercisesAndTemplatesStrict).toHaveBeenCalledTimes(1);
+    expect(mockPullWorkoutHistoryStrict).toHaveBeenCalledTimes(1);
+    expect(mockPullUpcomingWorkoutStrict).toHaveBeenCalledTimes(1);
   });
 
   it('stays fail-closed when reset fails before any pull', async () => {
@@ -211,9 +214,70 @@ describe('AuthContext reconciliation', () => {
     await flushReconciliation();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(resetError);
-    expect(mockPullExercisesAndTemplates).not.toHaveBeenCalled();
-    expect(mockPullWorkoutHistory).not.toHaveBeenCalled();
-    expect(mockPullUpcomingWorkout).not.toHaveBeenCalled();
+    expect(mockPullExercisesAndTemplatesStrict).not.toHaveBeenCalled();
+    expect(mockPullWorkoutHistoryStrict).not.toHaveBeenCalled();
+    expect(mockPullUpcomingWorkoutStrict).not.toHaveBeenCalled();
     expect(getByTestId('authPhase').props.children).toBe('syncing');
+  });
+
+  it('waits for a timed-out A pull to quiesce before B can reset or become ready', async () => {
+    jest.useFakeTimers();
+    const staleExercises = deferred<void>();
+    const rowsWritten: string[] = [];
+    let exercisePulls = 0;
+    const reset = jest.fn(async () => {
+      rowsWritten.length = 0;
+    });
+    const pullExercises = jest.fn(() => {
+      exercisePulls += 1;
+      if (exercisePulls === 1) {
+        return staleExercises.promise.then(() => {
+          rowsWritten.push('A');
+        });
+      }
+      rowsWritten.push('B');
+      return Promise.resolve();
+    });
+    mockResetDatabase.mockImplementation(reset);
+    mockPullExercisesAndTemplatesStrict.mockImplementation(pullExercises);
+
+    const { getByTestId } = render(
+      <AuthProvider><AuthPhaseProbe /></AuthProvider>,
+    );
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    act(() => {
+      mockAuthStateCallback!('SIGNED_IN', sessionFor('user-A'));
+    });
+    await flushReconciliation();
+    expect(pullExercises).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(30000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      mockAuthStateCallback!('SIGNED_IN', sessionFor('user-B'));
+    });
+    await flushReconciliation();
+
+    // B must remain behind A's still-running pull. Resetting B before A settles lets A write
+    // after B's cleanup and leaves old-account rows in B's database.
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(getByTestId('authPhase').props.children).toBe('syncing');
+
+    await act(async () => {
+      staleExercises.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(reset).toHaveBeenCalledTimes(2));
+    expect(rowsWritten).toEqual(['B']);
+    expect(getByTestId('authPhase').props.children).toBe('ready');
+    jest.useRealTimers();
   });
 });

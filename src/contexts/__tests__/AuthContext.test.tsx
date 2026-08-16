@@ -25,11 +25,19 @@ jest.mock('../../services/database', () => ({
   setCurrentUserId: jest.fn(),
 }));
 
-jest.mock('../../services/sync', () => ({
-  pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
-  pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
-  pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),
-}));
+jest.mock('../../services/sync', () => {
+  const pullUpcomingWorkout = jest.fn().mockResolvedValue(undefined);
+  const pullExercisesAndTemplates = jest.fn().mockResolvedValue(undefined);
+  const pullWorkoutHistory = jest.fn().mockResolvedValue(undefined);
+  return {
+    pullUpcomingWorkout,
+    pullUpcomingWorkoutStrict: pullUpcomingWorkout,
+    pullExercisesAndTemplates,
+    pullExercisesAndTemplatesStrict: pullExercisesAndTemplates,
+    pullWorkoutHistory,
+    pullWorkoutHistoryStrict: pullWorkoutHistory,
+  };
+});
 
 // Sentry is mocked globally via moduleNameMapper, but we import it to assert on calls
 import * as Sentry from '@sentry/react-native';

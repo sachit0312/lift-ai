@@ -3,7 +3,11 @@ import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '../services/supabase';
 import { resetDatabase, setCurrentUserId, isDatabaseHealthy } from '../services/database';
-import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
+import {
+  pullUpcomingWorkoutStrict,
+  pullExercisesAndTemplatesStrict,
+  pullWorkoutHistoryStrict,
+} from '../services/sync';
 import { withTimeout } from '../utils/withTimeout';
 
 const SYNC_TIMEOUT_MS = 30000;
@@ -68,11 +72,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!isCurrentReconciliation(generation, userId)) return false;
-      await pullExercisesAndTemplates();
+      await pullExercisesAndTemplatesStrict();
       if (!isCurrentReconciliation(generation, userId)) return false;
-      await pullWorkoutHistory();
+      await pullWorkoutHistoryStrict();
       if (!isCurrentReconciliation(generation, userId)) return false;
-      await pullUpcomingWorkout();
+      await pullUpcomingWorkoutStrict();
       return isCurrentReconciliation(generation, userId);
     };
 
@@ -89,9 +93,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .catch(() => undefined)
           .then(async () => {
             if (!isCurrentReconciliation(generation, userId)) return;
+            const reconciliation = reconcileSignedInUser(generation, userId, localOwnerAtEvent);
+            let reportedError: unknown;
             try {
               const completed = await withTimeout(
-                reconcileSignedInUser(generation, userId, localOwnerAtEvent),
+                reconciliation,
                 SYNC_TIMEOUT_MS,
                 'sign-in sync timeout',
               );
@@ -100,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setAuthPhase('ready');
               }
             } catch (error) {
+              reportedError = error;
               Sentry.captureException(error);
               if (__DEV__) console.error('Failed to sync data on sign in:', error);
 
@@ -107,6 +114,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // so a timed-out pull cannot later mark ready or continue into later pulls.
               if (isCurrentReconciliation(generation, userId)) {
                 authGenerationRef.current += 1;
+              }
+            } finally {
+              // A timeout only settles the race, not the SQLite/network work it raced. Keep
+              // this queue slot until the original operation settles so the next account's
+              // reset cannot run before stale writes have quiesced.
+              try {
+                await reconciliation;
+              } catch (error) {
+                if (error !== reportedError) Sentry.captureException(error);
               }
             }
           });
