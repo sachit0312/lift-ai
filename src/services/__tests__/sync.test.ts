@@ -705,6 +705,7 @@ describe('syncToSupabase', () => {
     const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
     let currentSession = sessionA;
     mockGetSession.mockImplementation(async () => ({ data: { session: currentSession } }));
+    setCurrentUserId('user-a');
 
     // This fails if a B caller joins A's in-flight promise: B is never uploaded, and any
     // continuation of the stale A pass would write more than its already-issued exercise upsert.
@@ -740,13 +741,12 @@ describe('syncToSupabase', () => {
     await firstUpsertStarted;
 
     currentSession = sessionB;
+    setCurrentUserId('user-b');
     localExercises = [
       { id: 'ex-b', name: 'B', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
     ];
     localTemplates = [{ id: 'tpl-b', name: 'B template' }];
     const secondPush = syncToSupabase();
-    // Allow the session-aware scheduler to observe B before A's blocked upsert continues.
-    await Promise.resolve();
     releaseFirstUpsert();
 
     await Promise.all([firstPush, secondPush]);
@@ -772,11 +772,15 @@ describe('syncToSupabase', () => {
     const delayedBSession = new Promise<{ data: { session: typeof sessionB } }>((resolve) => {
       resolveBSession = resolve;
     });
+    let signalBSessionRequest!: () => void;
+    const bSessionRequested = new Promise<void>((resolve) => { signalBSessionRequest = resolve; });
     mockGetSession.mockImplementation(() => {
       sessionCalls += 1;
-      // A request drain, then its first A push, have already read the session. Hold B's
-      // scheduler lookup so A resumes before B can mark the old drain stale.
-      if (sessionCalls === 3) return delayedBSession;
+      // Hold B's second pass lookup. Its request already set the dirty bit synchronously.
+      if (sessionCalls === 2) {
+        signalBSessionRequest();
+        return delayedBSession;
+      }
       return Promise.resolve({ data: { session: currentSession } });
     });
     setCurrentUserId('user-a');
@@ -819,13 +823,14 @@ describe('syncToSupabase', () => {
     ];
     localTemplates = [{ id: 'tpl-b', name: 'B template' }];
     const secondPush = syncToSupabase();
+    expect(secondPush).toBe(firstPush);
     releaseFirstUpsert();
 
-    await firstPush;
+    await bSessionRequested;
     expect(templateBuilder.upsert).not.toHaveBeenCalled();
 
     resolveBSession({ data: { session: sessionB } });
-    await secondPush;
+    await Promise.all([firstPush, secondPush]);
 
     expect(templateBuilder.upsert).toHaveBeenCalledWith(
       [{ id: 'tpl-b', name: 'B template', user_id: 'user-b' }],
@@ -842,9 +847,14 @@ describe('syncToSupabase', () => {
     const delayedBSession = new Promise<{ data: { session: typeof sessionB } }>((resolve) => {
       resolveBSession = resolve;
     });
+    let signalBSessionRequest!: () => void;
+    const bSessionRequested = new Promise<void>((resolve) => { signalBSessionRequest = resolve; });
     mockGetSession.mockImplementation(() => {
       sessionCalls += 1;
-      if (sessionCalls === 3) return delayedBSession;
+      if (sessionCalls === 2) {
+        signalBSessionRequest();
+        return delayedBSession;
+      }
       return Promise.resolve({ data: { session: currentSession } });
     });
     setCurrentUserId('user-a');
@@ -887,14 +897,15 @@ describe('syncToSupabase', () => {
     setCurrentUserId('user-b');
     localWorkouts = [];
     const secondPush = syncToSupabase();
+    expect(secondPush).toBe(firstPush);
     releaseFirstChunk();
 
-    await firstPush;
+    await bSessionRequested;
     expect(workoutBuilder.upsert).toHaveBeenCalledTimes(1);
     expect(workoutBuilder.upsert.mock.calls[0][0]).toHaveLength(500);
 
     resolveBSession({ data: { session: sessionB } });
-    await secondPush;
+    await Promise.all([firstPush, secondPush]);
   });
 });
 

@@ -190,151 +190,48 @@ interface SyncWorkoutSetRow {
   programmed_order: number | null;
 }
 
-/** A coalesced push generation. Requests from a different session invalidate this generation. */
-interface PushDrain {
-  sessionUserId: string | null;
-  authGeneration: number;
-  pushRequested: boolean;
-  stale: boolean;
-  completion: Promise<void>;
-  resolve: () => void;
-  reject: (error: unknown) => void;
-}
-
-let inFlightPush: PushDrain | null = null;
-const queuedPushes: PushDrain[] = [];
+let inFlightPush: Promise<void> | null = null;
+let pushRequested = false;
 
 function authGeneration(): number {
   // Some narrowly mocked pull-only test modules do not provide the new optional signal.
   return getCurrentUserGeneration?.() ?? 0;
 }
 
-function createPushDrain(sessionUserId: string | null, generation: number): PushDrain {
-  let resolve!: () => void;
-  let reject!: (error: unknown) => void;
-  const completion = new Promise<void>((onResolve, onReject) => {
-    resolve = onResolve;
-    reject = onReject;
-  });
-  return {
-    sessionUserId,
-    authGeneration: generation,
-    pushRequested: true,
-    stale: false,
-    completion,
-    resolve,
-    reject,
-  };
-}
-
 /**
- * Coalesces callers made during one pass into one drain, while retaining a dirty bit for a
- * request that lands after a pass has already snapshotted local rows. A different signed-in
- * user invalidates the old generation and gets a separately queued drain, so an A pass cannot
- * accidentally satisfy B's request.
+ * Coalesces all callers onto one dirty drain. A call made after a pass has snapshotted local rows
+ * leaves pushRequested set, so the drain takes one more snapshot before resolving every caller.
  */
 export function syncToSupabase(): Promise<void> {
-  // AuthContext advances this synchronously before the new user's asynchronous session lookup.
-  // Capturing it here prevents the old push from writing newly-pulled rows during that gap.
-  return requestPushDrain(authGeneration());
+  pushRequested = true;
+  if (!inFlightPush) {
+    inFlightPush = drainPushes();
+  }
+  return inFlightPush;
 }
 
-async function requestPushDrain(requestGeneration: number): Promise<void> {
-  let sessionUserId: string | null;
+async function drainPushes(): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    sessionUserId = session?.user.id ?? null;
+    while (pushRequested) {
+      pushRequested = false;
+      await pushToSupabase();
+    }
   } catch (err) {
     handleSyncError('syncToSupabase', err);
-    return;
-  }
-
-  // An auth event happened while getSession was pending. This stale request must not invalidate
-  // the current user's drain merely because Secure Store returned an older snapshot late.
-  if (requestGeneration !== authGeneration()) return inFlightPush?.completion;
-
-  if (
-    inFlightPush?.sessionUserId === sessionUserId
-    && inFlightPush.authGeneration === requestGeneration
-    && !inFlightPush.stale
-  ) {
-    inFlightPush.pushRequested = true;
-    return inFlightPush.completion;
-  }
-
-  const queued = queuedPushes.find((drain) =>
-    drain.sessionUserId === sessionUserId
-    && drain.authGeneration === requestGeneration
-    && !drain.stale,
-  );
-  if (queued) {
-    queued.pushRequested = true;
-    return queued.completion;
-  }
-
-  // An account switch makes every prior requested pass stale. The in-progress network request
-  // cannot be cancelled, but pushToSupabase checks this generation before beginning another
-  // table write and the stale drain never starts an additional pass.
-  if (inFlightPush) inFlightPush.stale = true;
-  for (const drain of queuedPushes) drain.stale = true;
-
-  const next = createPushDrain(sessionUserId, requestGeneration);
-  if (inFlightPush) {
-    queuedPushes.push(next);
-  } else {
-    inFlightPush = next;
-    startPushDrain(next);
-  }
-  return next.completion;
-}
-
-function startPushDrain(drain: PushDrain): void {
-  void runPushDrain(drain).then(
-    () => finishPushDrain(drain),
-    (error) => {
-      try {
-        handleSyncError('syncToSupabase', error);
-      } catch (reportingError) {
-        if (__DEV__) console.error('Failed to report sync drain error:', reportingError);
-      }
-      finishPushDrain(drain, true, error);
-    },
-  );
-}
-
-function finishPushDrain(drain: PushDrain, failed = false, error?: unknown): void {
-  if (inFlightPush === drain) inFlightPush = null;
-  if (failed) drain.reject(error);
-  else drain.resolve();
-
-  const next = queuedPushes.shift();
-  if (next) {
-    inFlightPush = next;
-    startPushDrain(next);
+    throw err;
+  } finally {
+    // This executes synchronously when the final pass settles. A later caller sees null and
+    // starts a fresh drain instead of setting a dirty bit on a promise that is about to resolve.
+    inFlightPush = null;
   }
 }
 
-async function runPushDrain(drain: PushDrain): Promise<void> {
-  while (!drain.stale && drain.pushRequested) {
-    drain.pushRequested = false;
-    await pushToSupabase(
-      drain.sessionUserId,
-      () => (
-        inFlightPush === drain
-        && !drain.stale
-        && authGeneration() === drain.authGeneration
-      ),
-    );
-  }
-}
-
-async function pushToSupabase(
-  expectedSessionUserId: string | null,
-  canContinue: () => boolean,
-): Promise<void> {
+async function pushToSupabase(): Promise<void> {
   try {
+    const expectedGeneration = authGeneration();
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session || session.user.id !== expectedSessionUserId || !canContinue()) return;
+    const canContinue = () => authGeneration() === expectedGeneration;
+    if (!session || !canContinue()) return;
 
     const db = await getDb();
     if (!canContinue()) return;
