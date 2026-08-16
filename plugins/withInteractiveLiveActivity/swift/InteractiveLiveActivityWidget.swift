@@ -1,49 +1,5 @@
-import ActivityKit
 import SwiftUI
 import WidgetKit
-
-struct LiveActivityAttributes: ActivityAttributes {
-  struct ContentState: Codable, Hashable {
-    var title: String
-    var subtitle: String?
-    var timerEndDateInMilliseconds: Double?
-    var progress: Double?
-    var imageName: String?
-    var dynamicIslandImageName: String?
-  }
-
-  var name: String
-  var backgroundColor: String?
-  var titleColor: String?
-  var subtitleColor: String?
-  var progressViewTint: String?
-  var progressViewLabelColor: String?
-  var deepLinkUrl: String?
-  var timerType: DynamicIslandTimerType?
-  var padding: Int?
-  var paddingDetails: PaddingDetails?
-  var imagePosition: String?
-  var imageWidth: Int?
-  var imageHeight: Int?
-  var imageWidthPercent: Double?
-  var imageHeightPercent: Double?
-  var imageAlign: String?
-  var contentFit: String?
-
-  enum DynamicIslandTimerType: String, Codable {
-    case circular
-    case digital
-  }
-
-  struct PaddingDetails: Codable, Hashable {
-    var top: Int?
-    var bottom: Int?
-    var left: Int?
-    var right: Int?
-    var vertical: Int?
-    var horizontal: Int?
-  }
-}
 
 struct LiveActivityWidget: Widget {
   var body: some WidgetConfiguration {
@@ -62,7 +18,6 @@ struct LiveActivityWidget: Widget {
         .activitySystemActionForegroundColor(Color.black)
         .applyWidgetURL(from: context.attributes.deepLinkUrl)
     } dynamicIsland: { context in
-      // Dynamic Island: keep original behavior (read-only)
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading, priority: 1) {
           // Strip the "|150" transport suffix — this region prints the subtitle verbatim, so
@@ -202,16 +157,22 @@ struct LiveActivityWidget: Widget {
 
     // Explicit empty labels — the DefaultDateProgressLabel overload draws its own countdown
     // text above the bar, duplicating the timer in the expanded Dynamic Island.
-    return ProgressView(
-      timerInterval: interval,
-      countsDown: true,
-      label: { EmptyView() },
-      currentValueLabel: { EmptyView() }
-    )
-      .id(endMs) // Force SwiftUI recreation on timer adjustments
-      .foregroundStyle(.white)
-      .tint(progressViewTint.map { Color(hex: $0) })
-      .padding(.top, 5)
+    return VStack(spacing: 8) {
+      ProgressView(
+        timerInterval: interval,
+        countsDown: true,
+        label: { EmptyView() },
+        currentValueLabel: { EmptyView() }
+      )
+        .id(endMs) // Force SwiftUI recreation on timer adjustments
+        .foregroundStyle(.white)
+        .tint(progressViewTint.map { Color(hex: $0) })
+
+      if #available(iOS 17.0, *) {
+        RestTimerControls(tintHex: progressViewTint)
+      }
+    }
+    .padding(.top, 5)
   }
 
   private func circularTimer(endDate: Double) -> some View {

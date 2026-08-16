@@ -59,6 +59,43 @@ struct ParsedSetState {
 
 }
 
+// MARK: - Rest Timer Controls
+
+@available(iOS 17.0, *)
+struct RestTimerControls: View {
+  let tintHex: String?
+
+  private var tint: Color {
+    tintHex.map { Color(hex: $0) } ?? .purple
+  }
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Button(intent: DecreaseRestIntent()) {
+        Text("−15s")
+          .font(.system(size: 15, weight: .semibold, design: .rounded))
+          .frame(maxWidth: .infinity, minHeight: 44)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+      .accessibilityLabel("Decrease rest by 15 seconds")
+
+      Button(intent: IncreaseRestIntent()) {
+        Text("+15s")
+          .font(.system(size: 15, weight: .semibold, design: .rounded))
+          .frame(maxWidth: .infinity, minHeight: 44)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .background(tint.opacity(0.28), in: RoundedRectangle(cornerRadius: 12))
+      .accessibilityLabel("Increase rest by 15 seconds")
+    }
+    .foregroundStyle(.white)
+    .invalidatableContent()
+  }
+}
+
 // MARK: - Interactive Lock Screen View (iOS 17+)
 
 @available(iOS 17.0, *)
@@ -166,6 +203,9 @@ struct UnifiedWorkoutView: View {
         )
         .id(restEndTime)  // Force recreation on timer adjustment
         .tint(attributes.progressViewTint.map { Color(hex: $0) })
+        .invalidatableContent()
+
+        RestTimerControls(tintHex: attributes.progressViewTint)
       }
     }
     .padding(.horizontal, 12)

@@ -9,8 +9,14 @@ const path = require('path');
 const APP_GROUP_ID = 'group.com.sachitgoyal.liftai';
 const WIDGET_TARGET_NAME = 'LiveActivity';
 
-// New Swift files to add to the widget target (not replacing existing ones).
-// Empty: interactive buttons removed — widget is now read-only.
+// Shared by the app and widget targets. App Intents must be discoverable by the
+// containing app, while the widget also needs the intent and ActivityAttributes
+// types in order to render interactive controls.
+const SHARED_SWIFT_FILES = [
+  'LiveActivityAttributes.swift',
+  'RestTimerIntents.swift',
+  'RestTimerSnapshotStore.swift',
+];
 
 // Swift files that replace expo-live-activity defaults
 const REPLACEMENT_FILES = {
@@ -70,6 +76,14 @@ function withWidgetXcodeProjectFinalized(config) {
         }
       }
 
+      // Copy shared sources beside the widget files, then compile the same source
+      // files into both targets so ActivityKit sees one compatible schema.
+      for (const fileName of SHARED_SWIFT_FILES) {
+        const sourcePath = path.join(pluginSwiftDir, fileName);
+        const destPath = path.join(widgetPath, fileName);
+        fs.copyFileSync(sourcePath, destPath);
+      }
+
       // Verify replacement worked by checking for the interactive struct name
       const viewPath = path.join(widgetPath, 'LiveActivityView.swift');
       if (fs.existsSync(viewPath)) {
@@ -94,14 +108,103 @@ function withWidgetXcodeProjectFinalized(config) {
       fs.writeFileSync(entitlementsPath, plist.default.build(entitlements));
       console.log(`[withInteractiveLiveActivity] ✓ Merged App Groups entitlement into widget entitlements (finalized)`);
 
-      // NOTE: this plugin only OVERWRITES files expo-live-activity already registered in the
-      // pbxproj (see REPLACEMENT_FILES), so there is nothing to add to the Xcode target. The
-      // ~130 lines of pbxproj surgery that used to run here iterated an empty file list and
-      // rewrote the project on every prebuild for no effect. If a genuinely new Swift file is
-      // ever needed in the widget target, restore it from git history rather than re-deriving.
+      addSwiftFilesToXcodeProject(
+        platformProjectRoot,
+        projectName,
+        SHARED_SWIFT_FILES,
+      );
       return config;
     },
   ]);
 }
 
+function unquote(value) {
+  return String(value ?? '').replaceAll('"', '');
+}
+
+function addSwiftFilesToXcodeProject(platformProjectRoot, projectName, fileNames) {
+  const xcode = require('xcode');
+  const projectPath = path.join(
+    platformProjectRoot,
+    `${projectName}.xcodeproj`,
+    'project.pbxproj',
+  );
+  const project = xcode.project(projectPath);
+  project.parseSync();
+
+  const objects = project.hash.project.objects;
+  const nativeTargets = objects.PBXNativeTarget;
+  const targetNames = [projectName, WIDGET_TARGET_NAME];
+  const sourcePhases = targetNames.map((targetName) => {
+    const targetKey = Object.keys(nativeTargets).find(
+      (key) => !key.endsWith('_comment') && unquote(nativeTargets[key]?.name) === targetName,
+    );
+    if (!targetKey) {
+      throw new Error(`[withInteractiveLiveActivity] Missing Xcode target: ${targetName}`);
+    }
+
+    const phaseKey = nativeTargets[targetKey].buildPhases
+      .map((phase) => phase.value)
+      .find((key) => objects.PBXSourcesBuildPhase?.[key]);
+    if (!phaseKey) {
+      throw new Error(`[withInteractiveLiveActivity] Missing Sources phase: ${targetName}`);
+    }
+    return { targetName, phaseKey };
+  });
+
+  const liveActivityGroupKey = Object.keys(objects.PBXGroup).find((key) => {
+    if (key.endsWith('_comment')) return false;
+    const group = objects.PBXGroup[key];
+    return unquote(group?.name ?? group?.path) === WIDGET_TARGET_NAME;
+  });
+  if (!liveActivityGroupKey) {
+    throw new Error('[withInteractiveLiveActivity] Missing LiveActivity Xcode group');
+  }
+  const liveActivityGroup = objects.PBXGroup[liveActivityGroupKey];
+
+  for (const fileName of fileNames) {
+    let fileRefKey = Object.keys(objects.PBXFileReference).find(
+      (key) => !key.endsWith('_comment') && unquote(objects.PBXFileReference[key]?.path) === fileName,
+    );
+    if (!fileRefKey) {
+      fileRefKey = project.generateUuid();
+      objects.PBXFileReference[fileRefKey] = {
+        isa: 'PBXFileReference',
+        lastKnownFileType: 'sourcecode.swift',
+        path: fileName,
+        sourceTree: '"<group>"',
+      };
+      objects.PBXFileReference[`${fileRefKey}_comment`] = fileName;
+    }
+
+    if (!liveActivityGroup.children.some((child) => child.value === fileRefKey)) {
+      liveActivityGroup.children.push({ value: fileRefKey, comment: fileName });
+    }
+
+    for (const { targetName, phaseKey } of sourcePhases) {
+      const sourcePhase = objects.PBXSourcesBuildPhase[phaseKey];
+      const alreadyIncluded = sourcePhase.files.some(({ value }) => (
+        objects.PBXBuildFile[value]?.fileRef === fileRefKey
+      ));
+      if (alreadyIncluded) continue;
+
+      const buildFileKey = project.generateUuid();
+      const buildFileComment = `${fileName} in Sources`;
+      objects.PBXBuildFile[buildFileKey] = {
+        isa: 'PBXBuildFile',
+        fileRef: fileRefKey,
+        fileRef_comment: fileName,
+      };
+      objects.PBXBuildFile[`${buildFileKey}_comment`] = buildFileComment;
+      sourcePhase.files.push({ value: buildFileKey, comment: buildFileComment });
+      console.log(
+        `[withInteractiveLiveActivity] Added ${fileName} to ${targetName} Sources`,
+      );
+    }
+  }
+
+  fs.writeFileSync(projectPath, project.writeSync());
+}
+
 module.exports = withInteractiveLiveActivity;
+module.exports.addSwiftFilesToXcodeProject = addSwiftFilesToXcodeProject;
