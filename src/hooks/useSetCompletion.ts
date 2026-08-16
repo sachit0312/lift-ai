@@ -29,6 +29,30 @@ function applyReorderSplice(
   return next;
 }
 
+/**
+ * Return where an exercise should move when its first set is completed.
+ * The calculation is intentionally based on the array being transformed: a
+ * confirmed exercise removal may be reduced before a queued completion update.
+ */
+function getReorderInsertIndex(
+  blocks: ExerciseBlock[],
+  exerciseId: string,
+): number | null {
+  const currentIdx = blocks.findIndex(b => b.exercise.id === exerciseId);
+  if (currentIdx < 0) return null;
+
+  const block = blocks[currentIdx];
+  if (block.sets.some(s => s.is_completed)) return null;
+
+  let completedPrefixCount = 0;
+  for (const candidate of blocks) {
+    if (candidate.sets.every(s => s.is_completed)) completedPrefixCount++;
+    else break;
+  }
+
+  return currentIdx > completedPrefixCount ? completedPrefixCount : null;
+}
+
 // ─── Types ───
 
 export interface UseSetCompletionOptions {
@@ -157,24 +181,10 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
     const newCompleted = !set.is_completed;
 
     // Pre-compute reorder decision using blocksRef (safe: hasn't re-rendered yet)
-    let shouldReorder = false;
-    let reorderInsertIdx = 0;
-    if (newCompleted) {
-      const prevCompletedCount = block.sets.filter(s => s.is_completed).length;
-      if (prevCompletedCount === 0) {
-        const blocks = blocksRef.current;
-        let preCheckCompleted = 0;
-        for (const b of blocks) {
-          if (b.sets.every(s => s.is_completed)) preCheckCompleted++;
-          else break;
-        }
-        const preCheckIdx = blocks.findIndex(b => b.exercise.id === block.exercise.id);
-        if (preCheckIdx > preCheckCompleted) {
-          shouldReorder = true;
-          reorderInsertIdx = preCheckCompleted;
-        }
-      }
-    }
+    const reorderInsertIdx = newCompleted
+      ? getReorderInsertIndex(blocksRef.current, block.exercise.id)
+      : null;
+    const shouldReorder = reorderInsertIdx !== null;
 
     // Pre-compute PR result (pure CPU, ~0.1ms)
     // Read bestE1RM from ref (always in sync) rather than blocksRef (may lag behind render)
@@ -217,20 +227,30 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
     // its argument and values captured above, so both invocations produce identical output.
     const applyUpdate = (source: ExerciseBlock[]): ExerciseBlock[] => {
       const next = [...source];
+      const currentBlockIdx = next.findIndex(b => b.exercise.id === block.exercise.id);
+      if (currentBlockIdx < 0) return next;
+
+      const currentSetIdx = next[currentBlockIdx].sets.findIndex(candidate => candidate.id === set.id);
+      if (currentSetIdx < 0) return next;
+
+      const currentReorderInsertIdx = newCompleted
+        ? getReorderInsertIndex(next, block.exercise.id)
+        : null;
+
       // 1. Apply completion + auto-fill
-      const updatedBlock = { ...next[blockIdx], sets: [...next[blockIdx].sets] };
-      updatedBlock.sets[setIdx] = {
-        ...updatedBlock.sets[setIdx],
+      const updatedBlock = { ...next[currentBlockIdx], sets: [...next[currentBlockIdx].sets] };
+      updatedBlock.sets[currentSetIdx] = {
+        ...updatedBlock.sets[currentSetIdx],
         weight: set.weight,
         reps: set.reps,
         rpe: set.rpe,
         is_completed: newCompleted,
       };
-      next[blockIdx] = updatedBlock;
+      next[currentBlockIdx] = updatedBlock;
 
       // 2. Apply reorder (if needed) — use shared helper to avoid duplication
-      const reordered = shouldReorder
-        ? applyReorderSplice(next, block.exercise.id, reorderInsertIdx)
+      const reordered = currentReorderInsertIdx !== null
+        ? applyReorderSplice(next, block.exercise.id, currentReorderInsertIdx)
         : next;
 
       // 3. Apply PR bestE1RM update (if needed)

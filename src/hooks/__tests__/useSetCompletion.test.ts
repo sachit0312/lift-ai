@@ -276,6 +276,29 @@ describe('useSetCompletion – auto-reorder', () => {
     expect(names(after2)).toEqual(['A', 'C', 'D', 'B']);
   });
 
+  it('reorders the intended exercise when an earlier completed block is removed before the queued update runs', () => {
+    const blocks = [
+      makeCompletedBlock('A'),
+      makeCompletedBlock('B'),
+      makeBlock('C'),
+      makeBlock('D'),
+    ];
+    const { result, applyStateUpdate } = setup(blocks);
+
+    act(() => {
+      result.current.handleToggleComplete(3, 0); // Queue completion of D below A and B
+    });
+
+    // React may reduce the confirmed removal before this queued completion update.
+    // B is gone, so D must now resolve by identity and move directly below A.
+    const afterRemoval = [blocks[0], blocks[2], blocks[3]];
+    const updated = applyStateUpdate(afterRemoval);
+
+    expect(names(updated)).toEqual(['A', 'D', 'C']);
+    expect(updated[1].sets[0].is_completed).toBe(true);
+    expect(updated[2].sets[0].is_completed).toBe(false);
+  });
+
   it('shows reorder toast with exercise name', () => {
     const blocks = [makeBlock('A'), makeBlock('B'), makeBlock('Deadlift')];
     const { result } = setup(blocks);
