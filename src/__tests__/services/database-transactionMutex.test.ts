@@ -80,6 +80,35 @@ describe('runInTransaction', () => {
     expect(db.state.rolledBack).toBe(0);
   });
 
+  it('queues a transaction that arrives while another callback is active', async () => {
+    const db = makeFakeDb();
+    const order: string[] = [];
+    let releaseA!: () => void;
+    let signalAStarted!: () => void;
+    const aCanFinish = new Promise<void>((resolve) => { releaseA = resolve; });
+    const aStarted = new Promise<void>((resolve) => { signalAStarted = resolve; });
+
+    // This catches a process-global "in transaction" flag: B is independent work that arrives
+    // after A has started, so it must wait rather than be mistaken for a nested call.
+    const a = runInTransaction(db, async () => {
+      order.push('a:start');
+      signalAStarted();
+      await aCanFinish;
+      order.push('a:end');
+    });
+    await aStarted;
+    const b = runInTransaction(db, async () => {
+      order.push('b:start');
+      order.push('b:end');
+    });
+    releaseA();
+
+    await Promise.all([a, b]);
+
+    expect(order).toEqual(['a:start', 'a:end', 'b:start', 'b:end']);
+    expect(db.state.maxDepth).toBe(1);
+  });
+
   it('returns the task result, which withTransactionAsync itself discards', async () => {
     const db = makeFakeDb();
     await expect(runInTransaction(db, async () => 42)).resolves.toBe(42);
@@ -117,8 +146,8 @@ describe('runInTransaction', () => {
 
     // Serializing converts a nested transaction from a loud SQLite error into a silent hang:
     // the inner call queues behind the outer one that is awaiting it. Must fail fast.
-    const outer = runInTransaction(db, async () => {
-      await runInTransaction(db, async () => 'inner');
+    const outer = runInTransaction(db, async (context) => {
+      await runInTransaction(db, async () => 'inner', context);
     });
 
     await expect(outer).rejects.toThrow(/Nested runInTransaction/);

@@ -368,18 +368,27 @@ export async function resetDatabase(): Promise<void> {
  * reintroduces the bug, since a raw call does not join this queue.
  */
 let transactionChain: Promise<unknown> = Promise.resolve();
-let inTransaction = false;
+declare const transactionContextBrand: unique symbol;
+
+/**
+ * Opaque capability for detecting an attempt to start a transaction from inside its own
+ * callback. Callers receive it from runInTransaction; they cannot construct one themselves.
+ */
+export type TransactionContext = { readonly [transactionContextBrand]: true };
+
+let activeTransactionContext: TransactionContext | undefined;
 
 export function runInTransaction<T>(
   database: SQLite.SQLiteDatabase,
-  fn: () => Promise<T>,
+  fn: (context: TransactionContext) => Promise<T>,
+  context?: TransactionContext,
 ): Promise<T> {
-  // Serializing turns a nested call from a loud SQLite error into a silent deadlock — the
-  // inner call would queue behind the outer transaction that is waiting on it. Fail fast
-  // instead. Helpers that open their own transaction (clearLocalUpcomingWorkout,
-  // deleteWorkout, deleteTemplate, ...) must never be called from inside one; inline their
+  // A context-free call is independent work and must queue behind the active transaction. Only
+  // a callback that explicitly forwards its own context is nested and would deadlock waiting
+  // for itself. Helpers that open their own transaction (clearLocalUpcomingWorkout,
+  // deleteWorkout, deleteTemplate, ...) must never receive this context; inline their
   // statements instead, as pullUpcomingWorkout does.
-  if (inTransaction) {
+  if (context !== undefined && context === activeTransactionContext) {
     const err = new Error(
       'Nested runInTransaction: this would deadlock. Inline the inner writes instead of ' +
       'calling a helper that opens its own transaction.',
@@ -392,11 +401,12 @@ export function runInTransaction<T>(
   // the value out of band.
   const exec = async (): Promise<T> => {
     let result!: T;
-    inTransaction = true;
+    const transactionContext = {} as TransactionContext;
+    activeTransactionContext = transactionContext;
     try {
-      await database.withTransactionAsync(async () => { result = await fn(); });
+      await database.withTransactionAsync(async () => { result = await fn(transactionContext); });
     } finally {
-      inTransaction = false;
+      activeTransactionContext = undefined;
     }
     return result;
   };
@@ -1559,4 +1569,3 @@ export function clearAllLocalData(): Promise<void> {
     await database.runAsync('DELETE FROM exercises');
   });
 }
-
