@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react-native';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { getDb, clearLocalUpcomingWorkout, runInTransaction } from './database';
 
@@ -47,10 +48,9 @@ const IN_CHUNK_SIZE = 50;
  * starting a competing run.
  *
  * The sign-in flow races its pull chain against a 30s timeout, but Promise.race only settles the
- * outer promise — the inner pull keeps going. authPhase then flips to 'ready', WorkoutScreen
- * mounts and starts its own pull sequence, and two overlapping withTransactionAsync calls on the
- * same SQLite connection produce "cannot start a transaction within a transaction", aborting one
- * of them and leaving partially-imported history.
+ * outer promise — the inner pull keeps going. Auth reconciliation stays fail-closed and holds its
+ * queue until that work quiesces; this dedupe also prevents background callers from starting a
+ * competing pull for the same user while it remains in flight.
  */
 const inFlightPulls = new Map<string, Promise<void>>();
 
@@ -559,8 +559,12 @@ interface PullTemplateExerciseRow {
 
 // ─── Pull Exercises & Templates from Supabase ───
 
-async function pullExercises(strict: boolean): Promise<void> {
-  const { data: { session } } = await supabase.auth.getSession();
+async function pullExercises(strict: boolean, expectedUserId?: string): Promise<void> {
+  const session = sessionForPull(
+    await supabase.auth.getSession(),
+    strict,
+    expectedUserId,
+  );
   if (!session) return;
 
   const db = await getDb();
@@ -622,8 +626,12 @@ async function pullExercises(strict: boolean): Promise<void> {
   if (__DEV__) console.log('Pull exercises complete');
 }
 
-async function pullTemplates(strict: boolean): Promise<void> {
-  const { data: { session } } = await supabase.auth.getSession();
+async function pullTemplates(strict: boolean, expectedUserId?: string): Promise<void> {
+  const session = sessionForPull(
+    await supabase.auth.getSession(),
+    strict,
+    expectedUserId,
+  );
   if (!session) return;
 
   const db = await getDb();
@@ -711,6 +719,23 @@ async function pullTemplates(strict: boolean): Promise<void> {
 
 interface PullOptions {
   strict?: boolean;
+  expectedUserId?: string;
+}
+
+function sessionForPull(
+  result: { data: { session: Session | null }; error?: unknown | null },
+  strict: boolean,
+  expectedUserId?: string,
+): Session | null {
+  const { data: { session }, error } = result;
+  if (!strict) return session;
+  if (error) throw error;
+  if (!session) throw new Error('Strict pull requires an authenticated session');
+  if (!expectedUserId) throw new Error('Strict pull requires an expected user ID');
+  if (session.user.id !== expectedUserId) {
+    throw new Error('Strict pull session does not match expected user');
+  }
+  return session;
 }
 
 export function pullExercisesAndTemplates(options: PullOptions = {}): Promise<void> {
@@ -719,8 +744,8 @@ export function pullExercisesAndTemplates(options: PullOptions = {}): Promise<vo
   // an error. Keep their in-flight contracts separate even though both are user-scoped.
   return dedupePull(`exercisesAndTemplates:${strict ? 'strict' : 'best-effort'}`, async () => {
     try {
-      await pullExercises(strict);   // exercises first (FK dependency)
-      await pullTemplates(strict);
+      await pullExercises(strict, options.expectedUserId);   // exercises first (FK dependency)
+      await pullTemplates(strict, options.expectedUserId);
     } catch (err) {
       if (strict) throw err;
       handleSyncError('pullExercisesAndTemplates', err);
@@ -729,8 +754,8 @@ export function pullExercisesAndTemplates(options: PullOptions = {}): Promise<vo
 }
 
 /** Auth reconciliation needs a rejected promise whenever a pull fails. */
-export function pullExercisesAndTemplatesStrict(): Promise<void> {
-  return pullExercisesAndTemplates({ strict: true });
+export function pullExercisesAndTemplatesStrict(expectedUserId: string): Promise<void> {
+  return pullExercisesAndTemplates({ strict: true, expectedUserId });
 }
 
 // ─── Pull Workout History from Supabase ───
@@ -781,17 +806,24 @@ interface PullWorkoutSetRow {
 
 export function pullWorkoutHistory(options: PullOptions = {}): Promise<void> {
   const strict = options.strict ?? false;
-  return dedupePull(`workoutHistory:${strict ? 'strict' : 'best-effort'}`, () => pullWorkoutHistoryInner(strict));
+  return dedupePull(
+    `workoutHistory:${strict ? 'strict' : 'best-effort'}`,
+    () => pullWorkoutHistoryInner(strict, options.expectedUserId),
+  );
 }
 
 /** Auth reconciliation needs a rejected promise whenever a pull fails. */
-export function pullWorkoutHistoryStrict(): Promise<void> {
-  return pullWorkoutHistory({ strict: true });
+export function pullWorkoutHistoryStrict(expectedUserId: string): Promise<void> {
+  return pullWorkoutHistory({ strict: true, expectedUserId });
 }
 
-async function pullWorkoutHistoryInner(strict: boolean): Promise<void> {
+async function pullWorkoutHistoryInner(strict: boolean, expectedUserId?: string): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionForPull(
+      await supabase.auth.getSession(),
+      strict,
+      expectedUserId,
+    );
     if (!session) return;
 
     const db = await getDb();
@@ -927,17 +959,24 @@ async function pullWorkoutHistoryInner(strict: boolean): Promise<void> {
 
 export function pullUpcomingWorkout(options: PullOptions = {}): Promise<void> {
   const strict = options.strict ?? false;
-  return dedupePull(`upcomingWorkout:${strict ? 'strict' : 'best-effort'}`, () => pullUpcomingWorkoutInner(strict));
+  return dedupePull(
+    `upcomingWorkout:${strict ? 'strict' : 'best-effort'}`,
+    () => pullUpcomingWorkoutInner(strict, options.expectedUserId),
+  );
 }
 
 /** Auth reconciliation needs a rejected promise whenever a pull fails. */
-export function pullUpcomingWorkoutStrict(): Promise<void> {
-  return pullUpcomingWorkout({ strict: true });
+export function pullUpcomingWorkoutStrict(expectedUserId: string): Promise<void> {
+  return pullUpcomingWorkout({ strict: true, expectedUserId });
 }
 
-async function pullUpcomingWorkoutInner(strict: boolean): Promise<void> {
+async function pullUpcomingWorkoutInner(strict: boolean, expectedUserId?: string): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionForPull(
+      await supabase.auth.getSession(),
+      strict,
+      expectedUserId,
+    );
     if (!session) return;
 
     const db = await getDb();

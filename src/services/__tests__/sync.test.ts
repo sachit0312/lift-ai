@@ -50,6 +50,7 @@ const MOCK_SESSION = {
   user: { id: 'user-123' },
   access_token: 'test-token',
 };
+const EXPECTED_USER_ID = MOCK_SESSION.user.id;
 
 function setSessionAuthenticated() {
   mockGetSession.mockResolvedValue({ data: { session: MOCK_SESSION } });
@@ -115,7 +116,7 @@ describe('strict auth pull variants', () => {
     const error = { message: 'exercises query failed', code: '500' };
     mockFromHandlers.exercises = mockQueryBuilder(null, error);
 
-    await expect(pullExercisesAndTemplatesStrict()).rejects.toBe(error);
+    await expect(pullExercisesAndTemplatesStrict(EXPECTED_USER_ID)).rejects.toBe(error);
   });
 
   it('rejects history auth pulls when Supabase returns an error', async () => {
@@ -123,7 +124,7 @@ describe('strict auth pull variants', () => {
     const error = { message: 'workouts query failed', code: '500' };
     mockFromHandlers.workouts = mockQueryBuilder(null, error);
 
-    await expect(pullWorkoutHistoryStrict()).rejects.toBe(error);
+    await expect(pullWorkoutHistoryStrict(EXPECTED_USER_ID)).rejects.toBe(error);
   });
 
   it('rejects upcoming-workout auth pulls when Supabase returns an error', async () => {
@@ -131,7 +132,32 @@ describe('strict auth pull variants', () => {
     const error = { message: 'upcoming workouts query failed', code: '500' };
     mockFromHandlers.upcoming_workouts = mockQueryBuilder(null, error);
 
-    await expect(pullUpcomingWorkoutStrict()).rejects.toBe(error);
+    await expect(pullUpcomingWorkoutStrict(EXPECTED_USER_ID)).rejects.toBe(error);
+  });
+
+  const strictPulls: ReadonlyArray<[string, (expectedUserId: string) => Promise<void>]> = [
+    ['exercise/template', pullExercisesAndTemplatesStrict],
+    ['workout-history', pullWorkoutHistoryStrict],
+    ['upcoming-workout', pullUpcomingWorkoutStrict],
+  ];
+
+  it.each(strictPulls)('rejects %s pulls when getSession returns an error', async (_name, pull) => {
+    const error = new Error('secure-store lookup failed');
+    mockGetSession.mockResolvedValue({ data: { session: MOCK_SESSION }, error });
+
+    await expect(pull(EXPECTED_USER_ID)).rejects.toBe(error);
+  });
+
+  it.each(strictPulls)('rejects %s pulls when there is no authenticated session', async (_name, pull) => {
+    setSessionNull();
+
+    await expect(pull(EXPECTED_USER_ID)).rejects.toThrow('authenticated session');
+  });
+
+  it.each(strictPulls)('rejects %s pulls when the session belongs to another user', async (_name, pull) => {
+    setSessionAuthenticated();
+
+    await expect(pull('user-other')).rejects.toThrow('does not match expected user');
   });
 });
 

@@ -154,7 +154,7 @@ describe('AuthContext reconciliation', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(mockPullExercisesAndTemplatesStrict).toHaveBeenCalledTimes(1);
+    expect(mockPullExercisesAndTemplatesStrict).toHaveBeenCalledWith('user-A');
     expect(mockPullWorkoutHistoryStrict).not.toHaveBeenCalled();
     expect(getByTestId('authPhase').props.children).toBe('syncing');
 
@@ -163,7 +163,7 @@ describe('AuthContext reconciliation', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(mockPullWorkoutHistoryStrict).toHaveBeenCalledTimes(1);
+    expect(mockPullWorkoutHistoryStrict).toHaveBeenCalledWith('user-A');
     expect(mockPullUpcomingWorkoutStrict).not.toHaveBeenCalled();
     expect(getByTestId('authPhase').props.children).toBe('syncing');
 
@@ -172,7 +172,7 @@ describe('AuthContext reconciliation', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(mockPullUpcomingWorkoutStrict).toHaveBeenCalledTimes(1);
+    expect(mockPullUpcomingWorkoutStrict).toHaveBeenCalledWith('user-A');
     expect(getByTestId('authPhase').props.children).toBe('syncing');
 
     await act(async () => {

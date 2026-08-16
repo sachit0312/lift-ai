@@ -72,11 +72,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!isCurrentReconciliation(generation, userId)) return false;
-      await pullExercisesAndTemplatesStrict();
+      await pullExercisesAndTemplatesStrict(userId);
       if (!isCurrentReconciliation(generation, userId)) return false;
-      await pullWorkoutHistoryStrict();
+      await pullWorkoutHistoryStrict(userId);
       if (!isCurrentReconciliation(generation, userId)) return false;
-      await pullUpcomingWorkoutStrict();
+      await pullUpcomingWorkoutStrict(userId);
       return isCurrentReconciliation(generation, userId);
     };
 
