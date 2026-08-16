@@ -1,11 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "remembering-conversations": {
-      "source": "obra/episodic-memory",
-      "sourceType": "github",
-      "computedHash": "2a14fb2ba383270a6de1ea450d5d81d703a95f52d6521293d22bbe1ba0f93380"
-    },
     "swiftui-expert-skill": {
       "source": "avdlee/swiftui-agent-skill",
       "sourceType": "github",
