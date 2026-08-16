@@ -654,6 +654,112 @@ describe('syncToSupabase', () => {
     const fromCalls = mockFrom.mock.calls.map((c: any[]) => c[0]);
     expect(fromCalls).toEqual(['exercises', 'user_exercise_notes', 'templates', 'template_exercises', 'workouts', 'workout_sets']);
   });
+
+  it('drains a request made after an exercise snapshot so the later local value reaches Supabase', async () => {
+    setSessionAuthenticated();
+
+    // This fails if the in-flight guard simply returns the first promise: B is written after
+    // the first pass has captured A, so only a trailing pass can upload B.
+    let localExercises = [
+      { id: 'ex-1', name: 'A', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    __mockDb.getAllAsync.mockImplementation(async (sql: string) =>
+      sql.includes('FROM exercises') ? localExercises : [],
+    );
+
+    let releaseFirstUpsert!: () => void;
+    const firstUpsertReleased = new Promise<void>((resolve) => { releaseFirstUpsert = resolve; });
+    let signalFirstUpsert!: () => void;
+    const firstUpsertStarted = new Promise<void>((resolve) => { signalFirstUpsert = resolve; });
+    const exerciseBuilder = mockQueryBuilder();
+    let blockFirstUpsert = true;
+    exerciseBuilder.upsert.mockImplementation(async () => {
+      if (blockFirstUpsert) {
+        blockFirstUpsert = false;
+        signalFirstUpsert();
+        await firstUpsertReleased;
+      }
+      return { error: null };
+    });
+    mockFromHandlers.exercises = exerciseBuilder;
+
+    const firstPush = syncToSupabase();
+    await firstUpsertStarted;
+
+    localExercises = [
+      { id: 'ex-1', name: 'B', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    const trailingPush = syncToSupabase();
+    releaseFirstUpsert();
+
+    await Promise.all([firstPush, trailingPush]);
+
+    expect(exerciseBuilder.upsert).toHaveBeenCalledTimes(2);
+    expect(exerciseBuilder.upsert.mock.calls.map(([rows]: any[]) => rows[0].name)).toEqual(['A', 'B']);
+  });
+
+  it('queues a new session drain instead of letting the previous session satisfy it', async () => {
+    const sessionA = { ...MOCK_SESSION, user: { id: 'user-a' } };
+    const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
+    let currentSession = sessionA;
+    mockGetSession.mockImplementation(async () => ({ data: { session: currentSession } }));
+
+    // This fails if a B caller joins A's in-flight promise: B is never uploaded, and any
+    // continuation of the stale A pass would write more than its already-issued exercise upsert.
+    let localExercises = [
+      { id: 'ex-a', name: 'A', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    let localTemplates: Array<{ id: string; name: string }> = [];
+    __mockDb.getAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM exercises')) return localExercises;
+      if (sql === 'SELECT id, name FROM templates') return localTemplates;
+      return [];
+    });
+
+    let releaseFirstUpsert!: () => void;
+    const firstUpsertReleased = new Promise<void>((resolve) => { releaseFirstUpsert = resolve; });
+    let signalFirstUpsert!: () => void;
+    const firstUpsertStarted = new Promise<void>((resolve) => { signalFirstUpsert = resolve; });
+    const exerciseBuilder = mockQueryBuilder();
+    let blockFirstUpsert = true;
+    exerciseBuilder.upsert.mockImplementation(async () => {
+      if (blockFirstUpsert) {
+        blockFirstUpsert = false;
+        signalFirstUpsert();
+        await firstUpsertReleased;
+      }
+      return { error: null };
+    });
+    mockFromHandlers.exercises = exerciseBuilder;
+    const templateBuilder = mockQueryBuilder();
+    mockFromHandlers.templates = templateBuilder;
+
+    const firstPush = syncToSupabase();
+    await firstUpsertStarted;
+
+    currentSession = sessionB;
+    localExercises = [
+      { id: 'ex-b', name: 'B', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    localTemplates = [{ id: 'tpl-b', name: 'B template' }];
+    const secondPush = syncToSupabase();
+    // Allow the session-aware scheduler to observe B before A's blocked upsert continues.
+    await Promise.resolve();
+    releaseFirstUpsert();
+
+    await Promise.all([firstPush, secondPush]);
+
+    expect(exerciseBuilder.upsert).toHaveBeenCalledTimes(2);
+    expect(exerciseBuilder.upsert.mock.calls.map(([rows]: any[]) => rows[0])).toEqual([
+      expect.objectContaining({ id: 'ex-a', user_id: 'user-a' }),
+      expect.objectContaining({ id: 'ex-b', user_id: 'user-b' }),
+    ]);
+    expect(templateBuilder.upsert).toHaveBeenCalledWith(
+      [{ id: 'tpl-b', name: 'B template', user_id: 'user-b' }],
+      { onConflict: 'id' },
+    );
+    expect(templateBuilder.upsert).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ============================================================

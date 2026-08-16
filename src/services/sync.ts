@@ -183,31 +183,104 @@ interface SyncWorkoutSetRow {
   programmed_order: number | null;
 }
 
-/**
- * Coalesces concurrent pushes. This is fire-and-forget from eight call sites — including the
- * debounced note savers, which fire per keystroke burst — so overlapping runs were routine.
- * Each one re-reads and re-uploads the entire corpus, so a second concurrent pass duplicates
- * every network request for no benefit while its local writes contend with the first.
- *
- * Deliberately NOT keyed by session user, unlike dedupePull: a push writes only rows already
- * scoped to the current session, so joining an in-flight run can never leak another account's
- * data the way serving a stale pull result could.
- */
-let inFlightPush: Promise<void> | null = null;
-
-export function syncToSupabase(): Promise<void> {
-  if (inFlightPush) return inFlightPush;
-  const started = pushToSupabase().finally(() => { inFlightPush = null; });
-  inFlightPush = started;
-  return started;
+/** A coalesced push generation. Requests from a different session invalidate this generation. */
+interface PushDrain {
+  sessionUserId: string | null;
+  pushRequested: boolean;
+  stale: boolean;
+  completion: Promise<void>;
+  finish: () => void;
 }
 
-async function pushToSupabase(): Promise<void> {
+let inFlightPush: PushDrain | null = null;
+const queuedPushes: PushDrain[] = [];
+
+function createPushDrain(sessionUserId: string | null): PushDrain {
+  let finish!: () => void;
+  const completion = new Promise<void>((resolve) => { finish = resolve; });
+  return { sessionUserId, pushRequested: true, stale: false, completion, finish };
+}
+
+/**
+ * Coalesces callers made during one pass into one drain, while retaining a dirty bit for a
+ * request that lands after a pass has already snapshotted local rows. A different signed-in
+ * user invalidates the old generation and gets a separately queued drain, so an A pass cannot
+ * accidentally satisfy B's request.
+ */
+export function syncToSupabase(): Promise<void> {
+  return requestPushDrain();
+}
+
+async function requestPushDrain(): Promise<void> {
+  let sessionUserId: string | null;
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+    sessionUserId = session?.user.id ?? null;
+  } catch (err) {
+    handleSyncError('syncToSupabase', err);
+    return;
+  }
+
+  if (inFlightPush?.sessionUserId === sessionUserId && !inFlightPush.stale) {
+    inFlightPush.pushRequested = true;
+    return inFlightPush.completion;
+  }
+
+  const queued = queuedPushes.find((drain) =>
+    drain.sessionUserId === sessionUserId && !drain.stale,
+  );
+  if (queued) {
+    queued.pushRequested = true;
+    return queued.completion;
+  }
+
+  // An account switch makes every prior requested pass stale. The in-progress network request
+  // cannot be cancelled, but pushToSupabase checks this generation before beginning another
+  // table write and the stale drain never starts an additional pass.
+  if (inFlightPush) inFlightPush.stale = true;
+  for (const drain of queuedPushes) drain.stale = true;
+
+  const next = createPushDrain(sessionUserId);
+  if (inFlightPush) {
+    queuedPushes.push(next);
+  } else {
+    inFlightPush = next;
+    void runPushDrain(next);
+  }
+  return next.completion;
+}
+
+async function runPushDrain(drain: PushDrain): Promise<void> {
+  try {
+    while (!drain.stale && drain.pushRequested) {
+      drain.pushRequested = false;
+      await pushToSupabase(
+        drain.sessionUserId,
+        () => inFlightPush === drain && !drain.stale,
+      );
+    }
+  } finally {
+    if (inFlightPush === drain) inFlightPush = null;
+    drain.finish();
+
+    const next = queuedPushes.shift();
+    if (next) {
+      inFlightPush = next;
+      void runPushDrain(next);
+    }
+  }
+}
+
+async function pushToSupabase(
+  expectedSessionUserId: string | null,
+  canContinue: () => boolean,
+): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || session.user.id !== expectedSessionUserId || !canContinue()) return;
 
     const db = await getDb();
+    if (!canContinue()) return;
 
     // Self-healing rescue: any rows written under the default 'local' user
     // (e.g., during a race with AuthContext propagation) get rewritten to the
@@ -245,12 +318,14 @@ async function pushToSupabase(): Promise<void> {
     } catch (err) {
       handleSyncError('rescue local rows', err);
     }
+    if (!canContinue()) return;
 
     // Each sync step runs independently — one step's failure must not block others.
     // Exercises — only push custom exercises (global exercises have user_id = NULL)
     const exercises = await db.getAllAsync<SyncExerciseRow>(
       'SELECT id, user_id, name, type, muscle_groups, training_goal, description FROM exercises WHERE user_id IS NOT NULL'
     );
+    if (!canContinue()) return;
     if (exercises.length > 0) {
       const parsed = exercises.map((e: SyncExerciseRow) => ({
         id: e.id,
@@ -264,12 +339,14 @@ async function pushToSupabase(): Promise<void> {
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
       if (error) handleSyncError('exercises', error);
     }
+    if (!canContinue()) return;
 
     // User exercise notes — push all (use session.user.id, not getCurrentUserId(), to avoid stale 'local' on token refresh)
     const noteRows = await db.getAllAsync<SyncExerciseNotesRow>(
       'SELECT exercise_id, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ?',
       session.user.id,
     );
+    if (!canContinue()) return;
     if (noteRows.length > 0) {
       const mappedNotes = noteRows.map(n => ({
         user_id: session.user.id,
@@ -280,25 +357,31 @@ async function pushToSupabase(): Promise<void> {
       const { error: notesErr } = await supabase.from('user_exercise_notes').upsert(mappedNotes, { onConflict: 'user_id,exercise_id' });
       if (notesErr) handleSyncError('user_exercise_notes', notesErr);
     }
+    if (!canContinue()) return;
 
     // Templates — select specific columns
     const templates = await db.getAllAsync<SyncTemplateRow>('SELECT id, name FROM templates');
+    if (!canContinue()) return;
     if (templates.length > 0) {
       const mapped = templates.map((t: SyncTemplateRow) => ({ ...t, user_id: session.user.id }));
       const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
       if (error) handleSyncError('templates', error);
     }
+    if (!canContinue()) return;
 
     // Template exercises — select specific columns (sort_order excluded — pushed only by explicit reorder ops)
     const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, default_sets, warmup_sets, rest_seconds FROM template_exercises');
+    if (!canContinue()) return;
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
       if (error) handleSyncError('template_exercises', error);
     }
+    if (!canContinue()) return;
 
     // Workouts (only finished) — select specific columns
     let workoutsOk = true;
     const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids FROM workouts WHERE finished_at IS NOT NULL');
+    if (!canContinue()) return;
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({
         ...w,
@@ -314,6 +397,7 @@ async function pushToSupabase(): Promise<void> {
       }));
       workoutsOk = await upsertInChunks('workouts', mappedWorkouts, 'id', 'workouts');
     }
+    if (!canContinue()) return;
 
     // Workout sets — only attempt if workouts upsert succeeded (FK dependency on workout_id)
     if (workoutsOk) {
@@ -323,6 +407,7 @@ async function pushToSupabase(): Promise<void> {
          JOIN workouts w ON ws.workout_id = w.id
          WHERE w.finished_at IS NOT NULL`
       );
+      if (!canContinue()) return;
       if (workoutSets.length > 0) {
         const mapped = workoutSets.map((s: SyncWorkoutSetRow) => ({
           ...s,
