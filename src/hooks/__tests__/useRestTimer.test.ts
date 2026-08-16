@@ -8,7 +8,11 @@ jest.mock('../../services/liveActivity', () => ({
   adjustRestTimerActivity: jest.fn(),
   stopRestTimerActivity: jest.fn(),
   scheduleRestNotification: jest.fn(),
-  resetRestProgressBaseline: jest.fn(),
+  resetRestProgressBaseline: jest.fn(() => 'session-1'),
+}));
+
+jest.mock('../../services/restTimerSnapshot', () => ({
+  readRestTimerSnapshot: jest.fn(),
 }));
 
 const {
@@ -16,6 +20,8 @@ const {
   stopRestTimerActivity,
   scheduleRestNotification,
 } = require('../../services/liveActivity');
+const { resetRestProgressBaseline } = require('../../services/liveActivity');
+const { readRestTimerSnapshot } = require('../../services/restTimerSnapshot');
 
 // Capture the AppState listener so tests can simulate foreground return
 let appStateCallback: ((state: string) => void) | null = null;
@@ -44,6 +50,8 @@ describe('useRestTimer', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
+    resetRestProgressBaseline.mockReturnValue('session-1');
+    readRestTimerSnapshot.mockReturnValue(null);
     appStateCallback = null;
   });
 
@@ -279,6 +287,94 @@ describe('useRestTimer', () => {
     const remaining = Math.max(0, Math.round((result.current.currentEndTime - Date.now()) / 1000));
     expect(remaining).toBe(45);
     expect(result.current.isResting).toBe(true);
+  });
+
+  it('adopts an intent-written deadline and denominator on foreground return', () => {
+    const { result } = setup();
+    act(() => {
+      result.current.startRestTimer(120, 'Rows', 'ex-1');
+    });
+    const originalDeadline = result.current.currentEndTime;
+    jest.clearAllMocks();
+    readRestTimerSnapshot.mockReturnValue({
+      version: 1,
+      sessionId: 'session-1',
+      activityId: 'activity-1',
+      exerciseName: 'Rows',
+      setNumber: 2,
+      totalSets: 4,
+      endTimeMs: originalDeadline + 15_000,
+      maxRestSeconds: 135,
+      isActive: true,
+      updatedAtMs: Date.now(),
+      writer: 'intent',
+    });
+
+    act(() => {
+      appStateCallback?.('active');
+    });
+
+    expect(result.current.currentEndTime).toBe(originalDeadline + 15_000);
+    expect(result.current.restTotal).toBe(135);
+    expect(adjustRestTimerActivity).not.toHaveBeenCalled();
+    expect(scheduleRestNotification).not.toHaveBeenCalled();
+  });
+
+  it('ends an active hook rest when its intent-written snapshot is inactive', () => {
+    const { result, onRestEnd } = setup();
+    act(() => {
+      result.current.startRestTimer(10, 'Rows', 'ex-1');
+    });
+    jest.clearAllMocks();
+    readRestTimerSnapshot.mockReturnValue({
+      version: 1,
+      sessionId: 'session-1',
+      activityId: 'activity-1',
+      exerciseName: 'Rows',
+      setNumber: 2,
+      totalSets: 4,
+      endTimeMs: 0,
+      maxRestSeconds: 10,
+      isActive: false,
+      updatedAtMs: Date.now(),
+      writer: 'intent',
+    });
+
+    act(() => {
+      appStateCallback?.('active');
+    });
+
+    expect(result.current.isResting).toBe(false);
+    expect(onRestEnd).toHaveBeenCalledTimes(1);
+    expect(Vibration.vibrate).not.toHaveBeenCalled();
+  });
+
+  it('ignores a snapshot from another rest session', () => {
+    const { result } = setup();
+    act(() => {
+      result.current.startRestTimer(120, 'Rows', 'ex-1');
+    });
+    const originalDeadline = result.current.currentEndTime;
+    readRestTimerSnapshot.mockReturnValue({
+      version: 1,
+      sessionId: 'old-session',
+      activityId: 'activity-1',
+      exerciseName: 'Rows',
+      setNumber: 1,
+      totalSets: 4,
+      endTimeMs: originalDeadline + 60_000,
+      maxRestSeconds: 180,
+      isActive: true,
+      updatedAtMs: Date.now(),
+      writer: 'intent',
+    });
+
+    act(() => {
+      appStateCallback?.('active');
+    });
+
+    expect(result.current.currentEndTime).toBe(originalDeadline);
+    expect(result.current.restTotal).toBe(120);
   });
 
   it('resyncs on foreground return when timer expired — no vibration', () => {

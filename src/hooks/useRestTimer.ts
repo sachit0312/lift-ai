@@ -7,6 +7,7 @@ import {
   scheduleRestNotification,
   resetRestProgressBaseline,
 } from '../services/liveActivity';
+import { readRestTimerSnapshot } from '../services/restTimerSnapshot';
 
 interface UseRestTimerOptions {
   onRestEnd: () => void;
@@ -56,6 +57,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
   // needs both to render the right exercise against the right progress-bar denominator.
   const restExerciseIdRef = useRef('');
   const restTotalRef = useRef(0);
+  const restSessionIdRef = useRef('');
 
   // Keep callback refs stable so the interval closure always calls the latest version
   const onRestEndRef = useRef(onRestEnd);
@@ -76,6 +78,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     currentEndTimeRef.current = 0;
     restExerciseIdRef.current = '';
     restTotalRef.current = 0;
+    restSessionIdRef.current = '';
     setIsResting(false);
     setCurrentEndTime(0);
     setRestTotal(0);
@@ -100,7 +103,7 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
     // This is a NEW rest, so drop the previous rest's progress-bar denominator. Without this
     // a +15s-extended rest leaves its inflated max in place and the next (shorter) rest renders
     // as partly elapsed on the lock screen.
-    resetRestProgressBaseline();
+    restSessionIdRef.current = resetRestProgressBaseline();
     const total = seconds;
     restTotalRef.current = total;
     restExerciseIdRef.current = exerciseId;
@@ -184,8 +187,23 @@ export function useRestTimer({ onRestEnd, onRestUpdate }: UseRestTimerOptions): 
       } else if (nextState === 'active') {
         // ─── Resync rest timer on foreground return ───
         if (restRef.current !== null) {
-          // The widget is read-only: it ships no AppIntent buttons, so there is no action
-          // queue to drain here. Just recompute against the wall clock.
+          try {
+            const snapshot = readRestTimerSnapshot();
+            if (snapshot?.sessionId === restSessionIdRef.current) {
+              if (!snapshot.isActive || snapshot.endTimeMs <= Date.now()) {
+                endRest(false);
+                return;
+              }
+              currentEndTimeRef.current = snapshot.endTimeMs;
+              restTotalRef.current = snapshot.maxRestSeconds;
+              setCurrentEndTime(snapshot.endTimeMs);
+              setRestTotal(snapshot.maxRestSeconds);
+            }
+          } catch (e: unknown) {
+            Sentry.captureException(e);
+          }
+          // App Intents write one authoritative snapshot; there is deliberately no action
+          // queue to replay. Recompute against the adopted absolute deadline.
           const remaining = Math.max(0, Math.round((currentEndTimeRef.current - Date.now()) / 1000));
           if (remaining <= 0) {
             endRest(false); // no vibrate — notification already fired
