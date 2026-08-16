@@ -6,6 +6,12 @@ import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import * as Sentry from '@sentry/react-native';
 import { getItem, setItem, removeItem } from '../../modules/shared-user-defaults';
 import { colors } from '../theme';
+import {
+  clearRestTimerSnapshot,
+  createRestTimerSessionId,
+  createRestTimerSnapshot,
+  writeRestTimerSnapshot,
+} from './restTimerSnapshot';
 
 // ─── Module-level state (singleton) ───
 
@@ -14,6 +20,7 @@ let currentEndTime: number = 0;
 let currentExerciseName: string = '';
 let currentSetNumber: number = 1;
 let currentTotalSets: number = 1;
+let currentRestSessionId: string = '';
 /** Denominator for the lock-screen rest progress bar. Set once per rest by
  *  updateWorkoutActivityForRest and grown by +15s adjustments (never shrunk, so it matches
  *  the in-app RestTimerBar). Owned entirely in memory — it used to be mirrored to the App
@@ -56,8 +63,11 @@ Notifications.setNotificationHandler({
  * the next exercise left the lock screen drawing 60s against 180s — the bar showed ~33%
  * elapsed at t=0, disagreeing with the in-app bar, which resets correctly.
  */
-export function resetRestProgressBaseline(): void {
+export function resetRestProgressBaseline(): string {
   currentMaxRestSeconds = 0;
+  currentRestSessionId = createRestTimerSessionId();
+  clearCurrentRestTimerSnapshot();
+  return currentRestSessionId;
 }
 
 export function getCurrentMaxRestSeconds(): number {
@@ -82,6 +92,8 @@ export async function requestNotificationPermissions(): Promise<void> {
  */
 export async function startWorkoutActivity(exerciseName: string, subtitle: string): Promise<void> {
   if (Platform.OS !== 'ios') return;
+  currentRestSessionId = '';
+  clearCurrentRestTimerSnapshot();
 
   // Adopt an activity left behind by a previous app process (force-quit / crash) so we update
   // it rather than stacking a second widget beside it. If it is already gone, updateActivity
@@ -224,6 +236,7 @@ export function refreshWorkoutActivityDuringRest(
       progressBar: { date: currentEndTime },
       staleDate: currentEndTime,
     });
+    persistCurrentRestTimerSnapshot();
   } catch (e: unknown) {
     if (__DEV__) console.error('Failed to refresh workout activity during rest', e);
     Sentry.captureException(e);
@@ -268,6 +281,7 @@ export async function updateWorkoutActivityForRest(
       // at the deadline — Live Activities have no timeline and no scheduled re-render.
       staleDate: endTime,
     });
+    persistCurrentRestTimerSnapshot();
     // Notifications are NOT scheduled here — they're managed by useRestTimer.
     // Scheduling here caused duplicates because this function is also called
     // via syncWidgetState on every rest state change.
@@ -302,6 +316,8 @@ export async function stopWorkoutActivity(): Promise<void> {
     currentSetNumber = 1;
     currentTotalSets = 1;
     currentMaxRestSeconds = 0;
+    currentRestSessionId = '';
+    clearCurrentRestTimerSnapshot();
     // Reset dedup/throttle state
     lastContentStateJSON = '';
     lastUpdateTimestamp = 0;
@@ -347,6 +363,7 @@ export async function adjustRestTimerActivity(deltaSeconds: number): Promise<voi
       subtitle: `Set ${currentSetNumber}/${currentTotalSets}|${currentMaxRestSeconds}`,
       progressBar: { date: newEndTime },
     });
+    persistCurrentRestTimerSnapshot();
 
     // Debounce the notification reschedule. Rapid +/-15s taps would otherwise
     // fire one cancel + one schedule per tap; we only need the FINAL position
@@ -383,6 +400,8 @@ export function stopRestTimerActivity(): void {
     pendingNotificationReschedule = null;
   }
   currentMaxRestSeconds = 0;
+  currentRestSessionId = '';
+  clearCurrentRestTimerSnapshot();
   // Above the guard: currentEndTime is what updateWorkoutActivityForSet reads to decide
   // whether a rest is live, so it must be cleared even when the activity is already gone.
   currentEndTime = 0;
@@ -406,6 +425,32 @@ let notificationChain: Promise<void> = Promise.resolve();
 
 function serializedNotificationOp(fn: () => Promise<void>): void {
   notificationChain = notificationChain.then(fn).catch(e => { Sentry.captureException(e); });
+}
+
+function persistCurrentRestTimerSnapshot(): void {
+  if (!currentActivityId || currentEndTime <= 0) return;
+  try {
+    if (!currentRestSessionId) currentRestSessionId = createRestTimerSessionId();
+    writeRestTimerSnapshot(createRestTimerSnapshot({
+      sessionId: currentRestSessionId,
+      activityId: currentActivityId,
+      exerciseName: currentExerciseName,
+      setNumber: currentSetNumber,
+      totalSets: currentTotalSets,
+      endTimeMs: currentEndTime,
+      maxRestSeconds: currentMaxRestSeconds,
+    }));
+  } catch (e: unknown) {
+    Sentry.captureException(e);
+  }
+}
+
+function clearCurrentRestTimerSnapshot(): void {
+  try {
+    clearRestTimerSnapshot();
+  } catch (e: unknown) {
+    Sentry.captureException(e);
+  }
 }
 
 // ─── Internal helpers ───

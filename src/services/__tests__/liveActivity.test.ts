@@ -15,7 +15,9 @@ import {
   scheduleRestNotification,
   scheduleTimerEndNotification,
   cancelTimerEndNotification,
+  resetRestProgressBaseline,
 } from '../liveActivity';
+import { readRestTimerSnapshot } from '../restTimerSnapshot';
 
 const foregroundNotificationHandler = (
   Notifications.setNotificationHandler as jest.Mock
@@ -105,6 +107,26 @@ describe('liveActivity service', () => {
   });
 
   describe('updateWorkoutActivityForRest', () => {
+    it('writes the absolute deadline and progress denominator to shared rest state', async () => {
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+      resetRestProgressBaseline();
+      const deadline = Date.now() + 120 * 1000;
+
+      await updateWorkoutActivityForRest('Bench Press', deadline, 2, 4, 120);
+
+      expect(readRestTimerSnapshot()).toMatchObject({
+        version: 1,
+        activityId: 'mock-activity-id',
+        exerciseName: 'Bench Press',
+        setNumber: 2,
+        totalSets: 4,
+        endTimeMs: deadline,
+        maxRestSeconds: 120,
+        isActive: true,
+        writer: 'javascript',
+      });
+    });
+
     it('updates activity with timer countdown and set info subtitle', async () => {
       await startWorkoutActivity('Bench Press', 'Set 1/4');
       jest.clearAllMocks();
@@ -199,6 +221,27 @@ describe('liveActivity service', () => {
   });
 
   describe('adjustRestTimerActivity', () => {
+    it('updates the shared deadline and only grows the denominator for positive adjustments', async () => {
+      jest.useFakeTimers();
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+      resetRestProgressBaseline();
+      const deadline = Date.now() + 120 * 1000;
+      await updateWorkoutActivityForRest('Bench Press', deadline, 1, 4, 120);
+
+      await adjustRestTimerActivity(15);
+      expect(readRestTimerSnapshot()).toMatchObject({
+        endTimeMs: deadline + 15_000,
+        maxRestSeconds: 135,
+      });
+
+      await adjustRestTimerActivity(-15);
+      expect(readRestTimerSnapshot()).toMatchObject({
+        endTimeMs: deadline,
+        maxRestSeconds: 135,
+      });
+      jest.useRealTimers();
+    });
+
     it('updates Live Activity with new countdown and preserves exercise name', async () => {
       jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
@@ -251,6 +294,19 @@ describe('liveActivity service', () => {
   });
 
   describe('stopRestTimerActivity', () => {
+    it('clears shared rest state', async () => {
+      await startWorkoutActivity('Bench Press', 'Set 1/4');
+      resetRestProgressBaseline();
+      await updateWorkoutActivityForRest(
+        'Bench Press', Date.now() + 120 * 1000, 2, 4, 120,
+      );
+      expect(readRestTimerSnapshot()).not.toBeNull();
+
+      stopRestTimerActivity();
+
+      expect(readRestTimerSnapshot()).toBeNull();
+    });
+
     it('transitions activity back to set entry view with parseable Set subtitle', async () => {
       jest.useFakeTimers();
       await startWorkoutActivity('Bench Press', 'Set 1/4');
