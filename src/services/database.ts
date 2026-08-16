@@ -359,7 +359,12 @@ export function resetDatabase(): Promise<void> {
   if (dbResetPromise) return dbResetPromise;
 
   databaseResetFailure = null;
-  const reset = performDatabaseReset();
+  // The file transition must be ordered with the same queue as SQLite transactions. A caller
+  // can hold a connection from getDb() while another flow starts a reset; closing/deleting
+  // before the queued writes finish leaves those writes targeting a closed (or replacement)
+  // file. Calls that arrive after dbResetPromise is published are rejected by
+  // runInTransaction instead of joining on the stale connection.
+  const reset = enqueueTransactionBarrier(performDatabaseReset);
   dbResetPromise = reset;
   void reset.finally(() => {
     if (dbResetPromise === reset) dbResetPromise = null;
@@ -481,11 +486,27 @@ export type TransactionContext = { readonly [transactionContextBrand]: true };
 
 let activeTransactionContext: TransactionContext | undefined;
 
+/** Queue a non-transactional database transition after every already-admitted transaction. */
+function enqueueTransactionBarrier<T>(fn: () => Promise<T>): Promise<T> {
+  const run = transactionChain.then(fn, fn);
+  transactionChain = run.catch(() => {});
+  return run;
+}
+
 export function runInTransaction<T>(
   database: SQLite.SQLiteDatabase,
   fn: (context: TransactionContext) => Promise<T>,
   context?: TransactionContext,
 ): Promise<T> {
+  // getDb() waits for a reset, but a caller may already have captured the old connection when
+  // the reset begins. Do not let that stale handle queue behind the reset and mutate a closed
+  // or newly-created file. After a successful reset, db identity also rejects retained handles.
+  if (dbResetPromise || databaseResetFailure || (db !== undefined && database !== db)) {
+    const err = new Error('Database connection is unavailable during or after a reset');
+    Sentry.captureException(err);
+    return Promise.reject(err);
+  }
+
   // A context-free call is independent work and must queue behind the active transaction. Only
   // a callback that explicitly forwards its own context is nested and would deadlock waiting
   // for itself. Helpers that open their own transaction (clearLocalUpcomingWorkout,

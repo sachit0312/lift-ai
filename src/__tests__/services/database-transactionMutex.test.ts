@@ -48,10 +48,15 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe('runInTransaction', () => {
   let runInTransaction: typeof import('../../services/database').runInTransaction;
+  let getDb: typeof import('../../services/database').getDb;
+  let resetDatabase: typeof import('../../services/database').resetDatabase;
 
   beforeEach(() => {
     jest.resetModules();
-    runInTransaction = require('../../services/database').runInTransaction;
+    const database = require('../../services/database') as typeof import('../../services/database');
+    runInTransaction = database.runInTransaction;
+    getDb = database.getDb;
+    resetDatabase = database.resetDatabase;
   });
 
   it('serializes overlapping transactions instead of nesting them', async () => {
@@ -152,6 +157,78 @@ describe('runInTransaction', () => {
 
     await expect(outer).rejects.toThrow(/Nested runInTransaction/);
     expect(db.state.depth).toBe(0);
+  });
+
+  it('drains admitted transactions before reset and rejects stale connections after it starts', async () => {
+    const events: string[] = [];
+    const makeResetDb = (name: string) => ({
+      async execAsync() {},
+      async getFirstAsync(query: string) {
+        if (query === 'PRAGMA quick_check(1)') return { quick_check: 'ok' };
+        if (query.startsWith('SELECT COUNT(*)')) return { count: 0 };
+        return null;
+      },
+      async runAsync() { return { changes: 0 }; },
+      async getAllAsync() { return []; },
+      async closeAsync() { events.push(`${name}:close`); },
+      async withTransactionAsync(task: () => Promise<void>) {
+        events.push(`${name}:transaction:start`);
+        await task();
+        events.push(`${name}:transaction:end`);
+      },
+    }) as unknown as SQLite.SQLiteDatabase;
+    const oldDb = makeResetDb('old');
+    const newDb = makeResetDb('new');
+    const sqlite = require('expo-sqlite') as typeof SQLite;
+    jest.spyOn(sqlite, 'openDatabaseAsync')
+      .mockResolvedValueOnce(oldDb)
+      .mockResolvedValueOnce(newDb);
+    jest.spyOn(sqlite, 'deleteDatabaseAsync').mockImplementation(async () => {
+      events.push('delete');
+    });
+
+    expect(await getDb()).toBe(oldDb);
+
+    let releaseA!: () => void;
+    let signalAStarted!: () => void;
+    const aCanFinish = new Promise<void>((resolve) => { releaseA = resolve; });
+    const aStarted = new Promise<void>((resolve) => { signalAStarted = resolve; });
+    const a = runInTransaction(oldDb, async () => {
+      events.push('a:start');
+      signalAStarted();
+      await aCanFinish;
+      events.push('a:end');
+    });
+    await aStarted;
+
+    // B was admitted before the reset, so the barrier must drain it before close/delete.
+    const b = runInTransaction(oldDb, async () => { events.push('b'); });
+    const reset = resetDatabase();
+
+    // C captured the same old handle but arrived after resetDatabase published its barrier.
+    // It must not run after reset on either the closed old file or its replacement.
+    await expect(runInTransaction(oldDb, async () => { events.push('stale'); }))
+      .rejects.toThrow(/unavailable during or after a reset/);
+    expect(events).not.toContain('stale');
+    expect(events).not.toContain('old:close');
+    expect(events).not.toContain('delete');
+
+    releaseA();
+    await Promise.all([a, b, reset]);
+
+    expect(events).toEqual([
+      'old:transaction:start', 'a:start', 'a:end', 'old:transaction:end',
+      'old:transaction:start', 'b', 'old:transaction:end',
+      'old:close', 'delete',
+    ]);
+
+    // Retaining the old object after a successful reset is also rejected; a newly acquired
+    // connection is still usable.
+    await expect(runInTransaction(oldDb, async () => { events.push('stale-after-reset'); }))
+      .rejects.toThrow(/unavailable during or after a reset/);
+    await runInTransaction(newDb, async () => { events.push('new'); });
+    expect(events).not.toContain('stale-after-reset');
+    expect(events).toContain('new');
   });
 
   it('demonstrates the corruption it prevents when transactions are not serialized', async () => {
