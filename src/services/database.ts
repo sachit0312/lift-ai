@@ -240,8 +240,22 @@ function parseExerciseFromTemplateJoin(r: TemplateExerciseJoinRow): Exercise {
 
 let db: SQLite.SQLiteDatabase | undefined;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let dbResetPromise: Promise<void> | null = null;
+let databaseResetFailure: Error | null = null;
 
 export const DB_NAME = 'workout-enhanced.db';
+
+const RESET_TABLES = [
+  'upcoming_workout_sets',
+  'upcoming_workout_exercises',
+  'upcoming_workouts',
+  'workout_sets',
+  'workouts',
+  'template_exercises',
+  'templates',
+  'user_exercise_notes',
+  'exercises',
+] as const;
 
 // ─── Current User ID (set by AuthContext on login/logout) ───
 let currentUserId = 'local';
@@ -275,6 +289,13 @@ async function resolveUserId(): Promise<string> {
 }
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
+  // A reset changes the physical file. No caller may retain or open the old file while that
+  // transition is in progress, and a failed reset leaves the old owner data unavailable.
+  if (dbResetPromise) {
+    await dbResetPromise;
+    return getDb();
+  }
+  if (databaseResetFailure) throw databaseResetFailure;
   if (db) return db;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
@@ -322,30 +343,100 @@ export async function isDatabaseHealthy(): Promise<boolean> {
 
 /** Nuclear reset: close connection, delete the SQLite file, reinitialize fresh schema.
  *  Use when the DB file is corrupted beyond repair (e.g. phone died mid-write). */
-export async function resetDatabase(): Promise<void> {
-  try {
-    if (db) await db.closeAsync();
-  } catch {
-    // May fail if DB is corrupted — that's fine, we're deleting it anyway
+export function resetDatabase(): Promise<void> {
+  if (dbResetPromise) return dbResetPromise;
+
+  databaseResetFailure = null;
+  const reset = performDatabaseReset();
+  dbResetPromise = reset;
+  void reset.finally(() => {
+    if (dbResetPromise === reset) dbResetPromise = null;
+  }).catch(() => {});
+  return reset;
+}
+
+async function performDatabaseReset(): Promise<void> {
+  // An already-started open can otherwise finish after deletion and hand out the stale file.
+  // Wait for it before closing/deleting, but still try to remove a database whose init failed.
+  const pendingInitialization = dbInitPromise;
+  if (pendingInitialization) {
+    try {
+      await pendingInitialization;
+    } catch (error) {
+      Sentry.captureException(error);
+    }
   }
+
+  const oldDatabase = db;
   db = undefined;
   dbInitPromise = null;
   try {
-    await SQLite.deleteDatabaseAsync(DB_NAME);
+    if (oldDatabase) await oldDatabase.closeAsync();
   } catch (error) {
-    // Best-effort: if delete fails, proceed with getDb() anyway — the file may still
-    // be openable, and pulling from Supabase can upsert on top. Aborting here would
-    // leave the user with no data at all, which is worse.
+    // A corrupt connection can fail to close; deletion/fallback still decide whether reset is
+    // safe, so do not reopen this connection or treat close failure as successful recovery.
     Sentry.captureException(error);
   }
-  // Assign dbInitPromise SYNCHRONOUSLY before awaiting, so concurrent getDb()
-  // callers get the same reinit promise instead of spawning a second one.
-  dbInitPromise = (async () => {
-    db = await SQLite.openDatabaseAsync(DB_NAME);
-    await initSchema(db);
-    return db;
-  })();
-  await dbInitPromise;
+
+  let deleteError: unknown;
+  try {
+    await SQLite.deleteDatabaseAsync(DB_NAME);
+  } catch (error) {
+    deleteError = error;
+    Sentry.captureException(error);
+  }
+
+  let resetDatabaseConnection: SQLite.SQLiteDatabase | undefined;
+  try {
+    // Publish the initialization promise before awaiting it so concurrent getDb callers join
+    // this reset instead of starting a second open against the old-or-new file.
+    dbInitPromise = (async () => {
+      const database = await SQLite.openDatabaseAsync(DB_NAME);
+      await initSchema(database);
+      return database;
+    })();
+    resetDatabaseConnection = await dbInitPromise;
+    db = resetDatabaseConnection;
+
+    if (deleteError) {
+      // deleteDatabaseAsync can fail without removing anything. In that case, an empty schema
+      // is not enough: explicitly clear every owner-bearing table before a different account
+      // may pull into it.
+      await clearDatabaseContents(resetDatabaseConnection);
+    }
+    await verifyEmptyInitializedDatabase(resetDatabaseConnection);
+  } catch (error) {
+    db = undefined;
+    dbInitPromise = null;
+    databaseResetFailure = error instanceof Error ? error : new Error(String(error));
+    Sentry.captureException(error);
+    try {
+      await resetDatabaseConnection?.closeAsync();
+    } catch (closeError) {
+      Sentry.captureException(closeError);
+    }
+    throw error;
+  }
+}
+
+async function clearDatabaseContents(database: SQLite.SQLiteDatabase): Promise<void> {
+  for (const table of RESET_TABLES) {
+    await database.runAsync(`DELETE FROM ${table}`);
+  }
+}
+
+async function verifyEmptyInitializedDatabase(database: SQLite.SQLiteDatabase): Promise<void> {
+  const integrity = await database.getFirstAsync<{ quick_check: string }>('PRAGMA quick_check(1)');
+  if (integrity?.quick_check !== 'ok') {
+    throw new Error(`SQLite reset quick_check failed: ${integrity?.quick_check ?? 'no result'}`);
+  }
+
+  for (const table of RESET_TABLES) {
+    const row = await database.getFirstAsync<CountRow>(`SELECT COUNT(*) AS count FROM ${table}`);
+    if ((row?.count ?? -1) !== 0) {
+      throw new Error(`SQLite reset verification found rows in ${table}`);
+    }
+  }
 }
 
 /**
