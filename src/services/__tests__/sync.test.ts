@@ -523,14 +523,15 @@ describe('syncToSupabase', () => {
     expect(Sentry.captureException).toHaveBeenCalledWith(supabaseError);
   });
 
-  it('rejects direct callers after reporting an unexpected push error', async () => {
+  it('resolves direct callers after reporting an unexpected push error', async () => {
     const thrownError = new Error('Unexpected database failure');
     setSessionAuthenticated();
     __mockDb.getAllAsync.mockRejectedValue(thrownError);
 
-    await expect(syncToSupabase()).rejects.toBe(thrownError);
+    await expect(syncToSupabase()).resolves.toBeUndefined();
 
     expect(Sentry.captureException).toHaveBeenCalledWith(thrownError);
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
   });
 
   it('logs sync complete on success', async () => {

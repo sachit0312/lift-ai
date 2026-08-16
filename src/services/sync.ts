@@ -218,8 +218,8 @@ async function drainPushes(): Promise<void> {
     }
   } catch (err) {
     handleSyncError('syncToSupabase', err);
-    throw err;
   } finally {
+    pushRequested = false;
     // This executes synchronously when the final pass settles. A later caller sees null and
     // starts a fresh drain instead of setting a dirty bit on a promise that is about to resolve.
     inFlightPush = null;
