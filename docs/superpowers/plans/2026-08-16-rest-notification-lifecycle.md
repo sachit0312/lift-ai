@@ -166,7 +166,7 @@ git commit -m "fix: collapse rest completion notifications"
 - Consumes: The committed Task 2 implementation and tests.
 - Produces: A reviewed, verified feature branch ready for integration.
 
-- [ ] **Step 1: Run static verification**
+- [x] **Step 1: Run static verification**
 
 ```bash
 npx tsc --noEmit
@@ -175,7 +175,7 @@ git diff --check origin/main...HEAD
 
 Expected: both commands exit 0.
 
-- [ ] **Step 2: Run notification-focused regression verification**
+- [x] **Step 2: Run notification-focused regression verification**
 
 ```bash
 npx jest --runInBand --runTestsByPath \
@@ -190,7 +190,7 @@ npx jest --runInBand --runTestsByPath \
 
 Expected: all five suites pass with zero failed tests.
 
-- [ ] **Step 3: Run the broad Jest suite with worktree-safe ignores**
+- [x] **Step 3: Run the broad Jest suite with worktree-safe ignores**
 
 ```bash
 npx jest --runInBand \
@@ -200,15 +200,15 @@ npx jest --runInBand \
 
 Expected: all discovered test suites pass. If an unrelated baseline failure remains, report it separately with its exact test name and keep the notification-focused verification authoritative for this change.
 
-- [ ] **Step 4: Request independent review**
+- [x] **Step 4: Request independent review**
 
 Give the reviewer the design, this plan, and the `origin/main...HEAD` git range. Require a read-only review covering stable identifier semantics, serialization races, cleanup error handling, foreground/background behavior, and regression coverage.
 
-- [ ] **Step 5: Address review findings**
+- [x] **Step 5: Address review findings**
 
 Fix every Critical or Important finding using a new red-green cycle, then rerun Steps 1 through 3. Record Minor findings that are deliberately deferred.
 
-- [ ] **Step 6: Confirm final branch state**
+- [x] **Step 6: Confirm final branch state**
 
 ```bash
 git status --short --branch

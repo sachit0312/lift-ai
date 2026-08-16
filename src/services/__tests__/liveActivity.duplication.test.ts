@@ -112,6 +112,11 @@ describe('Live Activity duplication bugs', () => {
       expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('liftai-rest-complete');
       // And scheduled a new one
       expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+      expect(
+        (Notifications.cancelScheduledNotificationAsync as jest.Mock).mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        (Notifications.scheduleNotificationAsync as jest.Mock).mock.invocationCallOrder[0],
+      );
     });
 
     it('stopRestTimerActivity cancels notification even without active activity', async () => {

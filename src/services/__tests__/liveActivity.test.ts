@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as LiveActivity from 'expo-live-activity';
 import * as Notifications from 'expo-notifications';
+import * as Sentry from '@sentry/react-native';
 
 // Must import after mocks are set up via jest.config.js moduleNameMapper
 import {
@@ -11,6 +12,7 @@ import {
   updateWorkoutActivityForSet,
   updateWorkoutActivityForRest,
   stopWorkoutActivity,
+  scheduleRestNotification,
   scheduleTimerEndNotification,
   cancelTimerEndNotification,
 } from '../liveActivity';
@@ -23,6 +25,11 @@ const foregroundNotificationHandler = (
 
 // Helper to flush async microtasks (notification scheduling is async)
 const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
+const flushNotificationQueue = async () => {
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => process.nextTick(resolve));
+  }
+};
 
 describe('liveActivity service', () => {
   const originalPlatform = Platform.OS;
@@ -168,6 +175,26 @@ describe('liveActivity service', () => {
       const callArg = (Notifications.scheduleNotificationAsync as jest.Mock).mock.calls[0][0];
       expect(callArg.content.title).toBe('Rest Complete');
       expect(callArg.content.body).toBe('Time for your next set');
+    });
+
+    it.each([
+      ['pending cancellation', Notifications.cancelScheduledNotificationAsync],
+      ['delivered dismissal', Notifications.dismissNotificationAsync],
+    ])('continues scheduling when %s fails', async (_operationName, cleanupOperation) => {
+      const cleanupError = new Error('notification cleanup failed');
+      (cleanupOperation as jest.Mock).mockRejectedValueOnce(cleanupError);
+
+      scheduleRestNotification(90);
+      await flushNotificationQueue();
+
+      expect(Notifications.cancelScheduledNotificationAsync)
+        .toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.dismissNotificationAsync)
+        .toHaveBeenCalledWith('liftai-rest-complete');
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ identifier: 'liftai-rest-complete' }),
+      );
+      expect(Sentry.captureException).toHaveBeenCalledWith(cleanupError);
     });
   });
 
