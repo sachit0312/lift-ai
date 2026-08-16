@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/react-native';
 import { supabase } from '../services/supabase';
 import { resetDatabase, setCurrentUserId, isDatabaseHealthy } from '../services/database';
 import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
+import { withTimeout } from '../utils/withTimeout';
 
 const SYNC_TIMEOUT_MS = 30000;
 
@@ -80,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             setAuthPhase('syncing');
             try {
-              await Promise.race([
+              await withTimeout(
                 (async () => {
                   if (isAccountSwitch) {
                     // Different account: the local data belongs to someone else and cannot be
@@ -112,10 +113,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   await pullUpcomingWorkout();
                   localDataOwnerRef.current = newUserId;
                 })(),
-                new Promise<void>((_, reject) =>
-                  setTimeout(() => reject(new Error('sign-in sync timeout')), SYNC_TIMEOUT_MS),
-                ),
-              ]);
+                SYNC_TIMEOUT_MS,
+                'sign-in sync timeout',
+              );
             } catch (error) {
               Sentry.captureException(error);
               if (__DEV__) console.error('Failed to sync data on sign in:', error);

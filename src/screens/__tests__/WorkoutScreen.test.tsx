@@ -42,6 +42,8 @@ jest.mock('../../services/database', () => ({
   getPlannedExerciseIds: jest.fn().mockResolvedValue(null),
   insertSkippedPlaceholderSets: jest.fn().mockResolvedValue(undefined),
   applyWorkoutChangesToTemplate: jest.fn().mockResolvedValue(undefined),
+  updateWorkoutSessionNotes: jest.fn().mockResolvedValue(undefined),
+  updateWorkoutCoachNotes: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -120,9 +122,81 @@ import {
 } from '../../services/liveActivity';
 import WorkoutScreen from '../WorkoutScreen';
 
+const databaseMocks = jest.requireMock('../../services/database') as Record<string, jest.Mock>;
+const syncMocks = jest.requireMock('../../services/sync') as Record<string, jest.Mock>;
+const liveActivityMocks = jest.requireMock('../../services/liveActivity') as Record<string, jest.Mock>;
+
+function resetDefaultMockImplementations() {
+  for (const mock of Object.values(databaseMocks)) mock.mockReset();
+  for (const mock of Object.values(syncMocks)) mock.mockReset();
+  for (const mock of Object.values(liveActivityMocks)) mock.mockReset();
+
+  databaseMocks.getActiveWorkout.mockResolvedValue(null);
+  databaseMocks.getAllTemplates.mockResolvedValue([]);
+  databaseMocks.getTemplateExercises.mockResolvedValue([]);
+  databaseMocks.startWorkout.mockResolvedValue({
+    id: 'w1',
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    template_id: null,
+  });
+  databaseMocks.finishWorkout.mockResolvedValue(undefined);
+  databaseMocks.addWorkoutSet.mockImplementation(async (params: any) => ({
+    id: `ws-${params.set_number}`,
+    ...params,
+  }));
+  databaseMocks.addWorkoutSetsBatch.mockImplementation(async (sets: any[]) =>
+    sets.map((s: any) => ({ id: `ws-${s.set_number}`, ...s })),
+  );
+  databaseMocks.getWorkoutSets.mockResolvedValue([]);
+  databaseMocks.updateWorkoutSet.mockResolvedValue(undefined);
+  databaseMocks.deleteWorkoutSet.mockResolvedValue(undefined);
+  databaseMocks.deleteWorkout.mockResolvedValue(undefined);
+  databaseMocks.getExerciseHistory.mockResolvedValue([]);
+  databaseMocks.getAllExercises.mockResolvedValue([
+    { id: 'ex1', name: 'Bench Press', type: 'weighted', muscle_groups: ['Chest'], training_goal: 'hypertrophy', description: '' },
+  ]);
+  databaseMocks.getBulkExercises.mockResolvedValue([]);
+  databaseMocks.getUpcomingWorkoutForToday.mockResolvedValue(null);
+  databaseMocks.createExercise.mockResolvedValue({ id: 'new-ex', name: 'Test Exercise', type: 'weighted', muscle_groups: [], training_goal: 'hypertrophy', description: '' });
+  databaseMocks.getUserExerciseNotes.mockResolvedValue(null);
+  databaseMocks.getUserExerciseNotesBatch.mockResolvedValue(new Map());
+  databaseMocks.updateExerciseMachineNotes.mockResolvedValue(undefined);
+  databaseMocks.getLastPerformedByTemplate.mockResolvedValue({});
+  databaseMocks.getBestE1RM.mockResolvedValue(null);
+  databaseMocks.stampExerciseOrder.mockResolvedValue(undefined);
+  databaseMocks.setPlannedExerciseIds.mockResolvedValue(undefined);
+  databaseMocks.getPlannedExerciseIds.mockResolvedValue(null);
+  databaseMocks.insertSkippedPlaceholderSets.mockResolvedValue(undefined);
+  databaseMocks.applyWorkoutChangesToTemplate.mockResolvedValue(undefined);
+  databaseMocks.updateWorkoutSessionNotes.mockResolvedValue(undefined);
+  databaseMocks.updateWorkoutCoachNotes.mockResolvedValue(undefined);
+
+  syncMocks.syncToSupabase.mockResolvedValue(undefined);
+  syncMocks.fireAndForgetSync.mockReturnValue(undefined);
+  syncMocks.pullUpcomingWorkout.mockResolvedValue(undefined);
+  syncMocks.pullExercisesAndTemplates.mockResolvedValue(undefined);
+  syncMocks.pullWorkoutHistory.mockResolvedValue(undefined);
+  syncMocks.deleteUpcomingWorkoutFromSupabase.mockResolvedValue(undefined);
+
+  liveActivityMocks.adjustRestTimerActivity.mockReturnValue(undefined);
+  liveActivityMocks.stopRestTimerActivity.mockReturnValue(undefined);
+  liveActivityMocks.requestNotificationPermissions.mockResolvedValue(undefined);
+  liveActivityMocks.getCurrentMaxRestSeconds.mockReturnValue(0);
+  liveActivityMocks.startWorkoutActivity.mockReturnValue(undefined);
+  liveActivityMocks.updateWorkoutActivityForSet.mockResolvedValue(undefined);
+  liveActivityMocks.updateWorkoutActivityForRest.mockResolvedValue(undefined);
+  liveActivityMocks.stopWorkoutActivity.mockResolvedValue(undefined);
+  liveActivityMocks.scheduleTimerEndNotification.mockResolvedValue(undefined);
+  liveActivityMocks.scheduleRestNotification.mockResolvedValue(undefined);
+  liveActivityMocks.applyPendingWidgetActions.mockReturnValue(0);
+  liveActivityMocks.resetRestProgressBaseline.mockReturnValue(undefined);
+}
+
 describe('WorkoutScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetDefaultMockImplementations();
   });
 
   it('renders idle state with Start Empty Workout button', async () => {
