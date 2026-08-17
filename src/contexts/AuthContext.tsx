@@ -1,11 +1,24 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../services/supabase';
-import { resetDatabase, setCurrentUserId, isDatabaseHealthy } from '../services/database';
-import { pullUpcomingWorkout, pullExercisesAndTemplates, pullWorkoutHistory } from '../services/sync';
+import {
+  inferLocalDataOwner,
+  isDatabaseHealthy,
+  markSyncReadyForUser,
+  resetDatabase,
+  setCurrentUserId,
+} from '../services/database';
+import {
+  pullUpcomingWorkoutStrict,
+  pullExercisesAndTemplatesStrict,
+  pullWorkoutHistoryStrict,
+} from '../services/sync';
+import { withTimeout } from '../utils/withTimeout';
 
 const SYNC_TIMEOUT_MS = 30000;
+const LOCAL_DATA_OWNER_KEY = 'liftai-local-data-owner';
 
 export type AuthPhase = 'initializing' | 'syncing' | 'ready';
 
@@ -13,6 +26,26 @@ interface AuthContextValue {
   session: Session | null;
   user: User | null;
   authPhase: AuthPhase;
+}
+
+async function readDurableLocalDataOwner(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(LOCAL_DATA_OWNER_KEY);
+  } catch (error) {
+    Sentry.captureException(error);
+    return null;
+  }
+}
+
+async function persistDurableLocalDataOwner(userId: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(LOCAL_DATA_OWNER_KEY, userId);
+  } catch (error) {
+    // The current reconciliation has already isolated and pulled this user's data. Retaining
+    // that in-memory owner is safe; a later launch will conservatively reset if this marker
+    // could not be persisted.
+    Sentry.captureException(error);
+  }
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -25,21 +58,157 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // sign-out, so signing back in as the same account is recognised as a resume rather than
   // an account switch. See the SIGNED_IN branch below.
   const localDataOwnerRef = React.useRef<string | null>(null);
+  const authGenerationRef = React.useRef(0);
+  const reconciliationQueueRef = React.useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
+    let isDisposed = false;
+    const initialGeneration = authGenerationRef.current;
+
+    const isCurrentReconciliation = (generation: number, userId: string) => (
+      !isDisposed
+      && authGenerationRef.current === generation
+      && previousUserIdRef.current === userId
+    );
+
+    const reconcileSignedInUser = async (
+      generation: number,
+      userId: string,
+      localOwnerAtEvent: string | null,
+    ): Promise<boolean> => {
+      if (!isCurrentReconciliation(generation, userId)) return false;
+
+      // The subscription callback updates this synchronously. Reassert the captured identity
+      // only after the queue has confirmed this job is current, so a stale job cannot write as
+      // the newer account while it waits behind reset/pull work.
+      setCurrentUserId(userId);
+
+      const isAccountSwitch = localOwnerAtEvent !== null && localOwnerAtEvent !== userId;
+      if (isAccountSwitch) {
+        await resetDatabase();
+      } else if (localOwnerAtEvent === userId) {
+        // Same account resuming keeps healthy local data, but retains sign-out/sign-in as the
+        // documented recovery path for an actually corrupt SQLite file.
+        if (!(await isDatabaseHealthy())) {
+          if (!isCurrentReconciliation(generation, userId)) return false;
+          await resetDatabase();
+        }
+      } else {
+        // With no trustworthy owner (cold start or interrupted prior reconciliation), isolate
+        // first. A reset that cannot prove an empty database rejects and keeps the app closed.
+        await resetDatabase();
+      }
+
+      if (!isCurrentReconciliation(generation, userId)) return false;
+      await pullExercisesAndTemplatesStrict(userId);
+      if (!isCurrentReconciliation(generation, userId)) return false;
+      await pullWorkoutHistoryStrict(userId);
+      if (!isCurrentReconciliation(generation, userId)) return false;
+      await pullUpcomingWorkoutStrict(userId);
+      return isCurrentReconciliation(generation, userId);
+    };
+
+    const scheduleReconciliation = (
+      generation: number,
+      userId: string,
+      localOwnerAtEvent: string | null,
+    ) => {
+      // Supabase invokes onAuthStateChange while holding an internal auth lock. Deferring the
+      // queue join by one microtask guarantees the callback returns before any pull can call
+      // auth APIs (notably getSession), avoiding a lock inversion/deadlock.
+      void Promise.resolve().then(() => {
+        const run = reconciliationQueueRef.current
+          .catch(() => undefined)
+          .then(async () => {
+            if (!isCurrentReconciliation(generation, userId)) return;
+            const reconciliation = reconcileSignedInUser(generation, userId, localOwnerAtEvent);
+            let reportedError: unknown;
+            try {
+              const completed = await withTimeout(
+                reconciliation,
+                SYNC_TIMEOUT_MS,
+                'sign-in sync timeout',
+              );
+              if (completed && isCurrentReconciliation(generation, userId)) {
+                localDataOwnerRef.current = userId;
+                await persistDurableLocalDataOwner(userId);
+                if (!isCurrentReconciliation(generation, userId)) return;
+                markSyncReadyForUser(userId);
+                setAuthPhase('ready');
+              }
+            } catch (error) {
+              reportedError = error;
+              Sentry.captureException(error);
+              if (__DEV__) console.error('Failed to sync data on sign in:', error);
+
+              // withTimeout cannot cancel the underlying promise. Invalidate this generation
+              // so a timed-out pull cannot later mark ready or continue into later pulls.
+              if (isCurrentReconciliation(generation, userId)) {
+                authGenerationRef.current += 1;
+              }
+            } finally {
+              // A timeout only settles the race, not the SQLite/network work it raced. Keep
+              // this queue slot until the original operation settles so the next account's
+              // reset cannot run before stale writes have quiesced.
+              try {
+                await reconciliation;
+              } catch (error) {
+                if (error !== reportedError) Sentry.captureException(error);
+              }
+            }
+          });
+        reconciliationQueueRef.current = run;
+      });
+    };
+
     supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        previousUserIdRef.current = session?.user?.id ?? null;
-        // A restored session means the data on disk already belongs to this user, so a later
-        // sign-out/sign-in cycle in this app session is a resume, not an account switch.
-        localDataOwnerRef.current = session?.user?.id ?? null;
-        setSession(session);
+      .then(async ({ data: { session: restoredSession } }) => {
+        // An auth event won the race. Its synchronous capture is newer than this stale read.
+        if (isDisposed || authGenerationRef.current !== initialGeneration) return;
+
+        previousUserIdRef.current = restoredSession?.user?.id ?? null;
+        setSession(restoredSession);
         // Keep the database module's currentUserId in sync with the rehydrated session.
         // Without this, cold-start writes to user_exercise_notes land under 'local'
         // and are never pushed to Supabase.
-        setCurrentUserId(session?.user?.id ?? 'local');
-        if (session?.user) {
-          Sentry.setUser({ email: session.user.email, id: session.user.id });
+        setCurrentUserId(restoredSession?.user?.id ?? 'local');
+        if (restoredSession?.user) {
+          Sentry.setUser({ email: restoredSession.user.email, id: restoredSession.user.id });
+
+          // Supabase persists a session independently from SQLite. A process can therefore
+          // die after B's session is saved but before A's database is reset. Only a durable
+          // ownership marker written after a completed reconciliation can prove this file is
+          // safe to expose as B's local data.
+          const durableOwner = await readDurableLocalDataOwner();
+          if (isDisposed || authGenerationRef.current !== initialGeneration) return;
+
+          // Existing installs predate the durable marker. Preserve an active or unsynced local
+          // workout only when every owner-bearing row proves it belongs to this restored user.
+          // Anything ambiguous, local, or mismatched remains fail-closed through reset + pulls.
+          if (durableOwner === null) {
+            const inferredOwner = await inferLocalDataOwner();
+            if (isDisposed || authGenerationRef.current !== initialGeneration) return;
+            if (inferredOwner === restoredSession.user.id) {
+              localDataOwnerRef.current = inferredOwner;
+              await persistDurableLocalDataOwner(inferredOwner);
+              if (isDisposed || authGenerationRef.current !== initialGeneration) return;
+              markSyncReadyForUser(inferredOwner);
+              setAuthPhase('ready');
+              return;
+            }
+          }
+
+          localDataOwnerRef.current = durableOwner;
+          if (durableOwner === restoredSession.user.id) {
+            markSyncReadyForUser(durableOwner);
+            setAuthPhase('ready');
+            return;
+          }
+
+          const generation = authGenerationRef.current + 1;
+          authGenerationRef.current = generation;
+          setAuthPhase('syncing');
+          scheduleReconciliation(generation, restoredSession.user.id, durableOwner);
         }
       })
       .catch((error) => {
@@ -47,91 +216,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (__DEV__) console.error('Failed to get session:', error);
       })
       .finally(() => {
-        // Only transition out of 'initializing'. If onAuthStateChange already
-        // moved us to 'syncing' (SIGNED_IN with new user), don't stomp it back
-        // to 'ready' while the sync is still in flight.
-        setAuthPhase(prev => prev === 'initializing' ? 'ready' : prev);
+        // Do not let a late initial getSession completion expose a user while a newer sign-in
+        // reconciliation is still isolating and pulling that user's data.
+        if (!isDisposed && authGenerationRef.current === initialGeneration) {
+          setAuthPhase(prev => prev === 'initializing' ? 'ready' : prev);
+        }
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        const prevUserId = previousUserIdRef.current;
+      (event, newSession) => {
+        const previousUserId = previousUserIdRef.current;
         const newUserId = newSession?.user?.id ?? null;
+
+        // This callback must remain synchronous. Supabase holds an auth lock until it returns;
+        // capture all state needed by reconciliation, then hand the async work to the queue.
         setSession(newSession);
-
-        // Always mirror the session into the database module, regardless of event type.
-        // INITIAL_SESSION / TOKEN_REFRESHED / USER_UPDATED / SIGNED_IN all count.
         setCurrentUserId(newUserId ?? 'local');
+        previousUserIdRef.current = newUserId;
 
-        if (event === 'SIGNED_IN') {
-          if (newSession?.user) {
-            Sentry.setUser({ email: newSession.user.email, id: newSession.user.id });
-          }
-          if (newUserId !== prevUserId) {
-            // Is this the same account resuming, or a genuine account switch?
-            //
-            // previousUserIdRef is nulled on SIGNED_OUT, so it reports "different user" even
-            // when you sign back in as yourself — and the resetDatabase() below deletes the
-            // SQLite file outright. Only FINISHED workouts are ever pushed, so a session
-            // logged with no signal and then interrupted by a token expiry was destroyed on
-            // the next login. localDataOwnerRef survives sign-out and distinguishes the two.
-            const isAccountSwitch = newUserId !== null && localDataOwnerRef.current !== null
-              && newUserId !== localDataOwnerRef.current;
-
-            setAuthPhase('syncing');
-            try {
-              await Promise.race([
-                (async () => {
-                  if (isAccountSwitch) {
-                    // Different account: the local data belongs to someone else and cannot be
-                    // pushed under this session's id, so wiping is the only safe option.
-                    await resetDatabase();
-                  } else if (localDataOwnerRef.current === newUserId) {
-                    // Same account resuming. Keep local data — resetting here destroyed any
-                    // finished workout that had not been pushed yet (logged with no signal,
-                    // then interrupted by a token expiry).
-                    //
-                    // But AGENTS.md documents sign-out/sign-in as THE fix for a corrupted
-                    // SQLite file, and that is almost always a same-account action — so
-                    // skipping the reset unconditionally would remove the only recovery
-                    // route. Probe the file first and still reset when it is actually broken.
-                    if (!(await isDatabaseHealthy())) {
-                      await resetDatabase();
-                    }
-                  } else {
-                    // First sign-in of this app session with no known local owner (cold start
-                    // after install, or a restored-then-expired session). Nothing local is
-                    // known to be safe, so reset as before.
-                    await resetDatabase();
-                  }
-                  // Run pulls sequentially so each can safely wrap its row writes in a single
-                  // SQLite transaction. The added network latency (~few hundred ms) is more
-                  // than offset by collapsing thousands of per-row fsyncs into one.
-                  await pullExercisesAndTemplates();
-                  await pullWorkoutHistory();
-                  await pullUpcomingWorkout();
-                  localDataOwnerRef.current = newUserId;
-                })(),
-                new Promise<void>((_, reject) =>
-                  setTimeout(() => reject(new Error('sign-in sync timeout')), SYNC_TIMEOUT_MS),
-                ),
-              ]);
-            } catch (error) {
-              Sentry.captureException(error);
-              if (__DEV__) console.error('Failed to sync data on sign in:', error);
-            } finally {
-              setAuthPhase('ready');
-            }
-          }
-        } else if (event === 'SIGNED_OUT') {
+        if (event === 'SIGNED_OUT') {
+          authGenerationRef.current += 1;
           Sentry.setUser(null);
+          // No authenticated corpus is rendered after sign-out, so the login screen is safe to
+          // show even if a stale reconciliation is still unwinding in the background.
+          setAuthPhase('ready');
+          return;
         }
 
-        previousUserIdRef.current = newUserId;
+        if (event !== 'SIGNED_IN' || !newUserId || newUserId === previousUserId) return;
+
+        if (newSession?.user) {
+          Sentry.setUser({ email: newSession.user.email, id: newSession.user.id });
+        }
+
+        const generation = authGenerationRef.current + 1;
+        authGenerationRef.current = generation;
+        const localOwnerAtEvent = localDataOwnerRef.current;
+        setAuthPhase('syncing');
+        scheduleReconciliation(generation, newUserId, localOwnerAtEvent);
       },
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isDisposed = true;
+      authGenerationRef.current += 1;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const value = useMemo(

@@ -1,4 +1,5 @@
 import { renderHook, act } from '@testing-library/react-native';
+import { LayoutAnimation } from 'react-native';
 import { useSetCompletion } from '../useSetCompletion';
 import type { ExerciseBlock, LocalSet } from '../../types/workout';
 import type { Exercise, UpcomingWorkoutExercise, UpcomingWorkoutSet } from '../../types/database';
@@ -409,6 +410,39 @@ describe('useSetCompletion – completion & validation', () => {
     });
     expect(result.current.validationErrors).not.toHaveProperty('0-0');
     jest.useRealTimers();
+  });
+
+  it('clears validation and reorder timers when unmounted', () => {
+    // Removing the hook cleanup should leave both scheduled callbacks behind.
+    jest.useFakeTimers();
+    jest.spyOn(LayoutAnimation, 'configureNext').mockImplementation(() => {});
+    const blocks = [
+      makeBlock('A', 1, 0, { sets: [makeSet({ id: 'invalid', weight: '', reps: '' })] }),
+      makeBlock('B'),
+    ];
+    const { result, unmount } = renderHook(() => useSetCompletion({
+      blocksRef: { current: blocks },
+      setExerciseBlocks: jest.fn(),
+      upcomingTargetsRef: { current: null },
+      prSetIdsRef: { current: new Set<string>() },
+      originalBestE1RMRef: { current: new Map<string, number | undefined>() },
+      currentBestE1RMRef: { current: new Map<string, number | undefined>() },
+      lastActiveBlockRef: { current: 0 },
+      workoutRef: { current: null },
+      startRestTimer: jest.fn(() => Date.now()),
+      syncWidgetState: jest.fn(),
+      onConfetti: jest.fn(),
+    }));
+
+    act(() => {
+      result.current.handleToggleComplete(0, 0);
+      result.current.handleToggleComplete(1, 0);
+    });
+    expect(jest.getTimerCount()).toBe(2);
+
+    unmount();
+
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('un-completes a previously completed set', () => {

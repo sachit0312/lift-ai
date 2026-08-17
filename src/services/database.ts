@@ -240,13 +240,59 @@ function parseExerciseFromTemplateJoin(r: TemplateExerciseJoinRow): Exercise {
 
 let db: SQLite.SQLiteDatabase | undefined;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let dbResetPromise: Promise<void> | null = null;
+let databaseResetFailure: Error | null = null;
 
 export const DB_NAME = 'workout-enhanced.db';
 
+const RESET_TABLES = [
+  'upcoming_workout_sets',
+  'upcoming_workout_exercises',
+  'upcoming_workouts',
+  'workout_sets',
+  'workouts',
+  'template_exercises',
+  'templates',
+  'user_exercise_notes',
+  'exercises',
+] as const;
+
 // ─── Current User ID (set by AuthContext on login/logout) ───
 let currentUserId = 'local';
-export function setCurrentUserId(id: string) { currentUserId = id; }
+let currentUserGeneration = 0;
+let syncReadyGeneration: number | null = null;
+
+/**
+ * AuthContext calls this synchronously from every auth-state event. The generation lets an
+ * in-flight service operation detect an account change without waiting for another async
+ * getSession() lookup, which may still be blocked behind the auth lock or Secure Store.
+ */
+export function setCurrentUserId(id: string) {
+  if (currentUserId === id) return;
+  currentUserId = id;
+  currentUserGeneration += 1;
+  syncReadyGeneration = null;
+}
 export function getCurrentUserId(): string { return currentUserId; }
+export function getCurrentUserGeneration(): number { return currentUserGeneration; }
+
+/**
+ * Auth reconciliation calls this only once the current account either owns the on-disk data or
+ * has completed a reset and strict pull. A push requested before that boundary is unsafe: it
+ * could upload rows that still belong to the prior account.
+ */
+export function markSyncReadyForUser(userId: string): void {
+  if (userId !== 'local' && currentUserId === userId) {
+    syncReadyGeneration = currentUserGeneration;
+  }
+}
+
+export function isSyncReadyForGeneration(generation: number): boolean {
+  // Generation zero is the pre-auth process state. It keeps existing best-effort callers
+  // harmless before AuthContext has observed any account transition; once an identity changes,
+  // only reconciliation can explicitly reopen pushes.
+  return generation === 0 || syncReadyGeneration === generation;
+}
 
 /**
  * Returns the effective user id for DB reads/writes.
@@ -275,6 +321,13 @@ async function resolveUserId(): Promise<string> {
 }
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
+  // A reset changes the physical file. No caller may retain or open the old file while that
+  // transition is in progress, and a failed reset leaves the old owner data unavailable.
+  if (dbResetPromise) {
+    await dbResetPromise;
+    return getDb();
+  }
+  if (databaseResetFailure) throw databaseResetFailure;
   if (db) return db;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
@@ -320,32 +373,135 @@ export async function isDatabaseHealthy(): Promise<boolean> {
   }
 }
 
+/**
+ * Upgrade-only ownership proof for installs created before the SecureStore owner marker existed.
+ * Unscoped rows are deliberately ignored: only a single non-local value across every table that
+ * carries a user_id can prove that preserving the file cannot expose another account's data.
+ */
+export async function inferLocalDataOwner(): Promise<string | null> {
+  try {
+    const database = await getDb();
+    const owners = await database.getAllAsync<{ user_id: string }>(`
+      SELECT DISTINCT user_id FROM (
+        SELECT user_id FROM workouts WHERE user_id IS NOT NULL
+        UNION
+        SELECT user_id FROM templates WHERE user_id IS NOT NULL
+        UNION
+        SELECT user_id FROM exercises WHERE user_id IS NOT NULL
+        UNION
+        SELECT user_id FROM user_exercise_notes WHERE user_id IS NOT NULL
+      )
+    `);
+    const authenticatedOwners = owners.filter(({ user_id }) => user_id && user_id !== 'local');
+    if (authenticatedOwners.length !== 1) return null;
+    return authenticatedOwners[0].user_id;
+  } catch (error) {
+    Sentry.captureException(error);
+    return null;
+  }
+}
+
 /** Nuclear reset: close connection, delete the SQLite file, reinitialize fresh schema.
  *  Use when the DB file is corrupted beyond repair (e.g. phone died mid-write). */
-export async function resetDatabase(): Promise<void> {
-  try {
-    if (db) await db.closeAsync();
-  } catch {
-    // May fail if DB is corrupted — that's fine, we're deleting it anyway
+export function resetDatabase(): Promise<void> {
+  if (dbResetPromise) return dbResetPromise;
+
+  databaseResetFailure = null;
+  // The file transition must be ordered with the same queue as SQLite transactions. A caller
+  // can hold a connection from getDb() while another flow starts a reset; closing/deleting
+  // before the queued writes finish leaves those writes targeting a closed (or replacement)
+  // file. Calls that arrive after dbResetPromise is published are rejected by
+  // runInTransaction instead of joining on the stale connection.
+  const reset = enqueueTransactionBarrier(performDatabaseReset);
+  dbResetPromise = reset;
+  void reset.finally(() => {
+    if (dbResetPromise === reset) dbResetPromise = null;
+  }).catch(() => {});
+  return reset;
+}
+
+async function performDatabaseReset(): Promise<void> {
+  // An already-started open can otherwise finish after deletion and hand out the stale file.
+  // Wait for it before closing/deleting, but still try to remove a database whose init failed.
+  const pendingInitialization = dbInitPromise;
+  if (pendingInitialization) {
+    try {
+      await pendingInitialization;
+    } catch (error) {
+      Sentry.captureException(error);
+    }
   }
+
+  const oldDatabase = db;
   db = undefined;
   dbInitPromise = null;
   try {
-    await SQLite.deleteDatabaseAsync(DB_NAME);
+    if (oldDatabase) await oldDatabase.closeAsync();
   } catch (error) {
-    // Best-effort: if delete fails, proceed with getDb() anyway — the file may still
-    // be openable, and pulling from Supabase can upsert on top. Aborting here would
-    // leave the user with no data at all, which is worse.
+    // A corrupt connection can fail to close; deletion/fallback still decide whether reset is
+    // safe, so do not reopen this connection or treat close failure as successful recovery.
     Sentry.captureException(error);
   }
-  // Assign dbInitPromise SYNCHRONOUSLY before awaiting, so concurrent getDb()
-  // callers get the same reinit promise instead of spawning a second one.
-  dbInitPromise = (async () => {
-    db = await SQLite.openDatabaseAsync(DB_NAME);
-    await initSchema(db);
-    return db;
-  })();
-  await dbInitPromise;
+
+  let deleteError: unknown;
+  try {
+    await SQLite.deleteDatabaseAsync(DB_NAME);
+  } catch (error) {
+    deleteError = error;
+    Sentry.captureException(error);
+  }
+
+  let resetDatabaseConnection: SQLite.SQLiteDatabase | undefined;
+  try {
+    // Publish the initialization promise before awaiting it so concurrent getDb callers join
+    // this reset instead of starting a second open against the old-or-new file.
+    dbInitPromise = (async () => {
+      const database = await SQLite.openDatabaseAsync(DB_NAME);
+      await initSchema(database);
+      return database;
+    })();
+    resetDatabaseConnection = await dbInitPromise;
+    db = resetDatabaseConnection;
+
+    if (deleteError) {
+      // deleteDatabaseAsync can fail without removing anything. In that case, an empty schema
+      // is not enough: explicitly clear every owner-bearing table before a different account
+      // may pull into it.
+      await clearDatabaseContents(resetDatabaseConnection);
+    }
+    await verifyEmptyInitializedDatabase(resetDatabaseConnection);
+  } catch (error) {
+    db = undefined;
+    dbInitPromise = null;
+    databaseResetFailure = error instanceof Error ? error : new Error(String(error));
+    Sentry.captureException(error);
+    try {
+      await resetDatabaseConnection?.closeAsync();
+    } catch (closeError) {
+      Sentry.captureException(closeError);
+    }
+    throw error;
+  }
+}
+
+async function clearDatabaseContents(database: SQLite.SQLiteDatabase): Promise<void> {
+  for (const table of RESET_TABLES) {
+    await database.runAsync(`DELETE FROM ${table}`);
+  }
+}
+
+async function verifyEmptyInitializedDatabase(database: SQLite.SQLiteDatabase): Promise<void> {
+  const integrity = await database.getFirstAsync<{ quick_check: string }>('PRAGMA quick_check(1)');
+  if (integrity?.quick_check !== 'ok') {
+    throw new Error(`SQLite reset quick_check failed: ${integrity?.quick_check ?? 'no result'}`);
+  }
+
+  for (const table of RESET_TABLES) {
+    const row = await database.getFirstAsync<CountRow>(`SELECT COUNT(*) AS count FROM ${table}`);
+    if ((row?.count ?? -1) !== 0) {
+      throw new Error(`SQLite reset verification found rows in ${table}`);
+    }
+  }
 }
 
 /**
@@ -368,18 +524,43 @@ export async function resetDatabase(): Promise<void> {
  * reintroduces the bug, since a raw call does not join this queue.
  */
 let transactionChain: Promise<unknown> = Promise.resolve();
-let inTransaction = false;
+declare const transactionContextBrand: unique symbol;
+
+/**
+ * Opaque capability for detecting an attempt to start a transaction from inside its own
+ * callback. Callers receive it from runInTransaction; they cannot construct one themselves.
+ */
+export type TransactionContext = { readonly [transactionContextBrand]: true };
+
+let activeTransactionContext: TransactionContext | undefined;
+
+/** Queue a non-transactional database transition after every already-admitted transaction. */
+function enqueueTransactionBarrier<T>(fn: () => Promise<T>): Promise<T> {
+  const run = transactionChain.then(fn, fn);
+  transactionChain = run.catch(() => {});
+  return run;
+}
 
 export function runInTransaction<T>(
   database: SQLite.SQLiteDatabase,
-  fn: () => Promise<T>,
+  fn: (context: TransactionContext) => Promise<T>,
+  context?: TransactionContext,
 ): Promise<T> {
-  // Serializing turns a nested call from a loud SQLite error into a silent deadlock — the
-  // inner call would queue behind the outer transaction that is waiting on it. Fail fast
-  // instead. Helpers that open their own transaction (clearLocalUpcomingWorkout,
-  // deleteWorkout, deleteTemplate, ...) must never be called from inside one; inline their
+  // getDb() waits for a reset, but a caller may already have captured the old connection when
+  // the reset begins. Do not let that stale handle queue behind the reset and mutate a closed
+  // or newly-created file. After a successful reset, db identity also rejects retained handles.
+  if (dbResetPromise || databaseResetFailure || (db !== undefined && database !== db)) {
+    const err = new Error('Database connection is unavailable during or after a reset');
+    Sentry.captureException(err);
+    return Promise.reject(err);
+  }
+
+  // A context-free call is independent work and must queue behind the active transaction. Only
+  // a callback that explicitly forwards its own context is nested and would deadlock waiting
+  // for itself. Helpers that open their own transaction (clearLocalUpcomingWorkout,
+  // deleteWorkout, deleteTemplate, ...) must never receive this context; inline their
   // statements instead, as pullUpcomingWorkout does.
-  if (inTransaction) {
+  if (context !== undefined && context === activeTransactionContext) {
     const err = new Error(
       'Nested runInTransaction: this would deadlock. Inline the inner writes instead of ' +
       'calling a helper that opens its own transaction.',
@@ -392,11 +573,12 @@ export function runInTransaction<T>(
   // the value out of band.
   const exec = async (): Promise<T> => {
     let result!: T;
-    inTransaction = true;
+    const transactionContext = {} as TransactionContext;
+    activeTransactionContext = transactionContext;
     try {
-      await database.withTransactionAsync(async () => { result = await fn(); });
+      await database.withTransactionAsync(async () => { result = await fn(transactionContext); });
     } finally {
-      inTransaction = false;
+      activeTransactionContext = undefined;
     }
     return result;
   };
@@ -871,11 +1053,12 @@ export function startWorkout(templateId: string | null, upcomingWorkoutId?: stri
   return withDb('startWorkout', async (database) => {
     const id = uuid();
     const now = new Date().toISOString();
+    const userId = await resolveUserId();
     await database.runAsync(
-      'INSERT INTO workouts (id, template_id, upcoming_workout_id, started_at) VALUES (?, ?, ?, ?)',
-      id, templateId, upcomingWorkoutId ?? null, now,
+      'INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at) VALUES (?, ?, ?, ?, ?)',
+      id, userId, templateId, upcomingWorkoutId ?? null, now,
     );
-    return { id, user_id: 'local', template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null };
+    return { id, user_id: userId, template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null };
   });
 }
 

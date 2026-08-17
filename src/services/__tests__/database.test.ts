@@ -37,7 +37,9 @@ import {
   setPlannedExerciseIds,
   getPlannedExerciseIds,
   insertSkippedPlaceholderSets,
+  setCurrentUserId,
 } from '../database';
+import { supabase } from '../supabase';
 import type { TemplateUpdatePlan } from '../../utils/setDiff';
 import type { SetTag } from '../../types/database';
 
@@ -92,6 +94,25 @@ describe('startWorkout', () => {
     expect(result.template_id).toBeNull();
     expect(result.finished_at).toBeNull();
     expect(result.id).toBeDefined();
+  });
+
+  it('stores and returns the resolved authenticated owner for a new active workout', async () => {
+    (supabase.auth.getSession as jest.Mock).mockResolvedValueOnce({
+      data: { session: { user: { id: 'user-A' } } },
+    });
+
+    try {
+      const result = await startWorkout(null);
+
+      const insert = __mockDb.runAsync.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO workouts'),
+      );
+      expect(result.user_id).toBe('user-A');
+      expect(insert?.[0]).toContain('user_id');
+      expect(insert).toContain('user-A');
+    } finally {
+      setCurrentUserId('local');
+    }
   });
 });
 

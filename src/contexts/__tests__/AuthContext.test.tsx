@@ -23,13 +23,24 @@ jest.mock('../../services/supabase', () => ({
 jest.mock('../../services/database', () => ({
   resetDatabase: jest.fn().mockResolvedValue(undefined),
   setCurrentUserId: jest.fn(),
+  isDatabaseHealthy: jest.fn().mockResolvedValue(true),
+  inferLocalDataOwner: jest.fn().mockResolvedValue(null),
+  markSyncReadyForUser: jest.fn(),
 }));
 
-jest.mock('../../services/sync', () => ({
-  pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
-  pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
-  pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),
-}));
+jest.mock('../../services/sync', () => {
+  const pullUpcomingWorkout = jest.fn().mockResolvedValue(undefined);
+  const pullExercisesAndTemplates = jest.fn().mockResolvedValue(undefined);
+  const pullWorkoutHistory = jest.fn().mockResolvedValue(undefined);
+  return {
+    pullUpcomingWorkout,
+    pullUpcomingWorkoutStrict: pullUpcomingWorkout,
+    pullExercisesAndTemplates,
+    pullExercisesAndTemplatesStrict: pullExercisesAndTemplates,
+    pullWorkoutHistory,
+    pullWorkoutHistoryStrict: pullWorkoutHistory,
+  };
+});
 
 // Sentry is mocked globally via moduleNameMapper, but we import it to assert on calls
 import * as Sentry from '@sentry/react-native';
@@ -575,9 +586,9 @@ describe('AuthContext', () => {
   });
 
   // ---------------------------------------------------------------
-  // 20. syncing becomes false even when sync fails
+  // 20. reset failure keeps authenticated data fail-closed
   // ---------------------------------------------------------------
-  it('syncing becomes false even when sync fails', async () => {
+  it('keeps syncing when reset fails', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
     (resetDatabase as jest.Mock).mockRejectedValueOnce(new Error('sync failed'));
 
@@ -596,7 +607,9 @@ describe('AuthContext', () => {
       await authStateCallback!('SIGNED_IN', newSession);
     });
 
-    expect(getByTestId('syncing').props.children).toBe('false');
+    // Rendering the authenticated navigator before a reset succeeds could expose the prior
+    // account's rows. The user can sign out/retry, but this attempt must stay closed.
+    expect(getByTestId('syncing').props.children).toBe('true');
     (console.error as jest.Mock).mockRestore();
   });
 
@@ -786,15 +799,15 @@ describe('AuthContext', () => {
 
     expect(getByTestId('authPhase').props.children).toBe('syncing');
 
-    // Advance past the 30s timeout — this rejects the timeout promise,
-    // race loses, catch block runs, finally sets authPhase back to 'ready'.
+    // Advance past the 30s timeout. The underlying pull may still be pending, so the timeout
+    // invalidates its generation and keeps the authenticated navigator fail-closed.
     await act(async () => {
       jest.advanceTimersByTime(31000);
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(getByTestId('authPhase').props.children).toBe('ready');
+    expect(getByTestId('authPhase').props.children).toBe('syncing');
 
     jest.useRealTimers();
   });

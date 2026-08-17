@@ -1,6 +1,13 @@
 import * as Sentry from '@sentry/react-native';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { getDb, clearLocalUpcomingWorkout, runInTransaction } from './database';
+import {
+  getDb,
+  clearLocalUpcomingWorkout,
+  getCurrentUserGeneration,
+  isSyncReadyForGeneration,
+  runInTransaction,
+} from './database';
 
 function handleSyncError(label: string, error: unknown): void {
   if (__DEV__) console.error(`Sync ${label} error:`, error);
@@ -47,10 +54,9 @@ const IN_CHUNK_SIZE = 50;
  * starting a competing run.
  *
  * The sign-in flow races its pull chain against a 30s timeout, but Promise.race only settles the
- * outer promise — the inner pull keeps going. authPhase then flips to 'ready', WorkoutScreen
- * mounts and starts its own pull sequence, and two overlapping withTransactionAsync calls on the
- * same SQLite connection produce "cannot start a transaction within a transaction", aborting one
- * of them and leaving partially-imported history.
+ * outer promise — the inner pull keeps going. Auth reconciliation stays fail-closed and holds its
+ * queue until that work quiesces; this dedupe also prevents background callers from starting a
+ * competing pull for the same user while it remains in flight.
  */
 const inFlightPulls = new Map<string, Promise<void>>();
 
@@ -61,10 +67,9 @@ async function dedupePull(key: string, run: () => Promise<void>): Promise<void> 
   // queries under the previous user_id, legitimately returns zero rows, and resolves
   // "successfully" having written nothing for the new user — with no error anywhere.
   //
-  // The lookup is guarded: these pull functions are documented never to throw (callers race
-  // them against timeouts and only catch to report), so a failing getSession here must fall
-  // through to the wrapped run(), which does its own session fetch and error reporting —
-  // not escape as a rejection from the dedupe wrapper.
+  // The lookup is guarded: best-effort public pulls report failures and resolve, while strict
+  // auth pulls reject. A failing getSession here must fall through to the wrapped run(), which
+  // preserves whichever error contract its caller selected.
   let sessionUserId = 'anon';
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -99,9 +104,11 @@ async function upsertInChunks<T>(
   rows: T[],
   onConflict: string,
   label: string,
+  canContinue?: () => boolean,
 ): Promise<boolean> {
   let ok = true;
   for (let i = 0; i < rows.length; i += UPSERT_CHUNK_SIZE) {
+    if (canContinue && !canContinue()) return false;
     const { error } = await supabase
       .from(table)
       .upsert(rows.slice(i, i + UPSERT_CHUNK_SIZE), { onConflict });
@@ -184,31 +191,60 @@ interface SyncWorkoutSetRow {
   programmed_order: number | null;
 }
 
-/**
- * Coalesces concurrent pushes. This is fire-and-forget from eight call sites — including the
- * debounced note savers, which fire per keystroke burst — so overlapping runs were routine.
- * Each one re-reads and re-uploads the entire corpus, so a second concurrent pass duplicates
- * every network request for no benefit while its local writes contend with the first.
- *
- * Deliberately NOT keyed by session user, unlike dedupePull: a push writes only rows already
- * scoped to the current session, so joining an in-flight run can never leak another account's
- * data the way serving a stale pull result could.
- */
 let inFlightPush: Promise<void> | null = null;
+let pushRequested = false;
+let pushRequestedGeneration: number | null = null;
 
-export function syncToSupabase(): Promise<void> {
-  if (inFlightPush) return inFlightPush;
-  const started = pushToSupabase().finally(() => { inFlightPush = null; });
-  inFlightPush = started;
-  return started;
+function authGeneration(): number {
+  // Some narrowly mocked pull-only test modules do not provide the new optional signal.
+  return getCurrentUserGeneration?.() ?? 0;
 }
 
-async function pushToSupabase(): Promise<void> {
+/**
+ * Coalesces all callers onto one dirty drain. A call made after a pass has snapshotted local rows
+ * leaves pushRequested set, so the drain takes one more snapshot before resolving every caller.
+ */
+export function syncToSupabase(): Promise<void> {
+  pushRequestedGeneration = authGeneration();
+  pushRequested = true;
+  if (!inFlightPush) {
+    inFlightPush = drainPushes();
+  }
+  return inFlightPush;
+}
+
+async function drainPushes(): Promise<void> {
+  try {
+    while (pushRequested) {
+      const expectedGeneration = pushRequestedGeneration;
+      pushRequested = false;
+      pushRequestedGeneration = null;
+      if (expectedGeneration === null || !isSyncReadyForGeneration(expectedGeneration)) {
+        continue;
+      }
+      try {
+        await pushToSupabase(expectedGeneration);
+      } catch (err) {
+        // Sync is best-effort. Keep a request that arrived during this failed pass dirty so it
+        // receives its own trailing snapshot, rather than clearing it in the drain cleanup.
+        handleSyncError('syncToSupabase', err);
+      }
+    }
+  } finally {
+    // This executes synchronously when the final pass settles. A later caller sees null and
+    // starts a fresh drain instead of setting a dirty bit on a promise that is about to resolve.
+    inFlightPush = null;
+  }
+}
+
+async function pushToSupabase(expectedGeneration: number): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+    const canContinue = () => authGeneration() === expectedGeneration;
+    if (!session || !canContinue()) return;
 
     const db = await getDb();
+    if (!canContinue()) return;
 
     // Self-healing rescue: any rows written under the default 'local' user
     // (e.g., during a race with AuthContext propagation) get rewritten to the
@@ -246,12 +282,14 @@ async function pushToSupabase(): Promise<void> {
     } catch (err) {
       handleSyncError('rescue local rows', err);
     }
+    if (!canContinue()) return;
 
     // Each sync step runs independently — one step's failure must not block others.
     // Exercises — only push custom exercises (global exercises have user_id = NULL)
     const exercises = await db.getAllAsync<SyncExerciseRow>(
       'SELECT id, user_id, name, type, muscle_groups, training_goal, description FROM exercises WHERE user_id IS NOT NULL'
     );
+    if (!canContinue()) return;
     if (exercises.length > 0) {
       const parsed = exercises.map((e: SyncExerciseRow) => ({
         id: e.id,
@@ -265,12 +303,14 @@ async function pushToSupabase(): Promise<void> {
       const { error } = await supabase.from('exercises').upsert(parsed, { onConflict: 'id' });
       if (error) handleSyncError('exercises', error);
     }
+    if (!canContinue()) return;
 
     // User exercise notes — push all (use session.user.id, not getCurrentUserId(), to avoid stale 'local' on token refresh)
     const noteRows = await db.getAllAsync<SyncExerciseNotesRow>(
       'SELECT exercise_id, form_notes, machine_notes FROM user_exercise_notes WHERE user_id = ?',
       session.user.id,
     );
+    if (!canContinue()) return;
     if (noteRows.length > 0) {
       const mappedNotes = noteRows.map(n => ({
         user_id: session.user.id,
@@ -281,25 +321,31 @@ async function pushToSupabase(): Promise<void> {
       const { error: notesErr } = await supabase.from('user_exercise_notes').upsert(mappedNotes, { onConflict: 'user_id,exercise_id' });
       if (notesErr) handleSyncError('user_exercise_notes', notesErr);
     }
+    if (!canContinue()) return;
 
     // Templates — select specific columns
     const templates = await db.getAllAsync<SyncTemplateRow>('SELECT id, name FROM templates');
+    if (!canContinue()) return;
     if (templates.length > 0) {
       const mapped = templates.map((t: SyncTemplateRow) => ({ ...t, user_id: session.user.id }));
       const { error } = await supabase.from('templates').upsert(mapped, { onConflict: 'id' });
       if (error) handleSyncError('templates', error);
     }
+    if (!canContinue()) return;
 
     // Template exercises — select specific columns (sort_order excluded — pushed only by explicit reorder ops)
     const templateExercises = await db.getAllAsync<SyncTemplateExerciseRow>('SELECT id, template_id, exercise_id, default_sets, warmup_sets, rest_seconds FROM template_exercises');
+    if (!canContinue()) return;
     if (templateExercises.length > 0) {
       const { error } = await supabase.from('template_exercises').upsert(templateExercises, { onConflict: 'id' });
       if (error) handleSyncError('template_exercises', error);
     }
+    if (!canContinue()) return;
 
     // Workouts (only finished) — select specific columns
     let workoutsOk = true;
     const workouts = await db.getAllAsync<SyncWorkoutRow>('SELECT id, template_id, upcoming_workout_id, started_at, finished_at, coach_notes, exercise_coach_notes, session_notes, planned_exercise_ids FROM workouts WHERE finished_at IS NOT NULL');
+    if (!canContinue()) return;
     if (workouts.length > 0) {
       const mappedWorkouts = workouts.map((w: SyncWorkoutRow) => ({
         ...w,
@@ -313,8 +359,9 @@ async function pushToSupabase(): Promise<void> {
         exercise_coach_notes: textToJsonb(w.exercise_coach_notes),
         planned_exercise_ids: textToJsonb(w.planned_exercise_ids),
       }));
-      workoutsOk = await upsertInChunks('workouts', mappedWorkouts, 'id', 'workouts');
+      workoutsOk = await upsertInChunks('workouts', mappedWorkouts, 'id', 'workouts', canContinue);
     }
+    if (!canContinue()) return;
 
     // Workout sets — only attempt if workouts upsert succeeded (FK dependency on workout_id)
     if (workoutsOk) {
@@ -324,18 +371,19 @@ async function pushToSupabase(): Promise<void> {
          JOIN workouts w ON ws.workout_id = w.id
          WHERE w.finished_at IS NOT NULL`
       );
+      if (!canContinue()) return;
       if (workoutSets.length > 0) {
         const mapped = workoutSets.map((s: SyncWorkoutSetRow) => ({
           ...s,
           is_completed: !!s.is_completed,
         }));
-        await upsertInChunks('workout_sets', mapped, 'id', 'workout_sets');
+        await upsertInChunks('workout_sets', mapped, 'id', 'workout_sets', canContinue);
       }
     }
 
     if (__DEV__) console.log('Sync to Supabase complete');
   } catch (err) {
-    handleSyncError('syncToSupabase', err);
+    throw err;
   }
 }
 
@@ -560,8 +608,12 @@ interface PullTemplateExerciseRow {
 
 // ─── Pull Exercises & Templates from Supabase ───
 
-async function pullExercises(): Promise<void> {
-  const { data: { session } } = await supabase.auth.getSession();
+async function pullExercises(strict: boolean, expectedUserId?: string): Promise<void> {
+  const session = sessionForPull(
+    await supabase.auth.getSession(),
+    strict,
+    expectedUserId,
+  );
   if (!session) return;
 
   const db = await getDb();
@@ -570,7 +622,11 @@ async function pullExercises(): Promise<void> {
     .from('exercises')
     .select('id, user_id, name, type, muscle_groups, training_goal, description, created_at');
 
-  if (error) { handleSyncError('pull exercises', error); return; }
+  if (error) {
+    if (strict) throw error;
+    handleSyncError('pull exercises', error);
+    return;
+  }
   if (!exercises || exercises.length === 0) return;
 
   // One commit for the whole batch instead of a per-row fsync, matching pullWorkoutHistory.
@@ -599,8 +655,10 @@ async function pullExercises(): Promise<void> {
     .select('exercise_id, form_notes, machine_notes')
     .eq('user_id', session.user.id);
 
-  if (notesErr) { handleSyncError('pull exercise notes', notesErr); }
-  else if (notes && notes.length > 0) {
+  if (notesErr) {
+    if (strict) throw notesErr;
+    handleSyncError('pull exercise notes', notesErr);
+  } else if (notes && notes.length > 0) {
     await runInTransaction(db, async () => {
       for (const n of notes) {
         await db.runAsync(
@@ -617,8 +675,12 @@ async function pullExercises(): Promise<void> {
   if (__DEV__) console.log('Pull exercises complete');
 }
 
-async function pullTemplates(): Promise<void> {
-  const { data: { session } } = await supabase.auth.getSession();
+async function pullTemplates(strict: boolean, expectedUserId?: string): Promise<void> {
+  const session = sessionForPull(
+    await supabase.auth.getSession(),
+    strict,
+    expectedUserId,
+  );
   if (!session) return;
 
   const db = await getDb();
@@ -628,7 +690,11 @@ async function pullTemplates(): Promise<void> {
     .select('*')
     .eq('user_id', session.user.id);
 
-  if (tErr) { handleSyncError('pull templates', tErr); return; }
+  if (tErr) {
+    if (strict) throw tErr;
+    handleSyncError('pull templates', tErr);
+    return;
+  }
   if (!templates || templates.length === 0) return;
 
   const templateList = templates as PullTemplateRow[];
@@ -654,6 +720,7 @@ async function pullTemplates(): Promise<void> {
     .order('sort_order');
 
   if (teErr) {
+    if (strict) throw teErr;
     handleSyncError('pull template_exercises', teErr);
   } else {
     // Group by template_id
@@ -699,15 +766,45 @@ async function pullTemplates(): Promise<void> {
   if (__DEV__) console.log('Pull templates complete');
 }
 
-export function pullExercisesAndTemplates(): Promise<void> {
-  return dedupePull('exercisesAndTemplates', async () => {
+interface PullOptions {
+  strict?: boolean;
+  expectedUserId?: string;
+}
+
+function sessionForPull(
+  result: { data: { session: Session | null }; error?: unknown | null },
+  strict: boolean,
+  expectedUserId?: string,
+): Session | null {
+  const { data: { session }, error } = result;
+  if (!strict) return session;
+  if (error) throw error;
+  if (!session) throw new Error('Strict pull requires an authenticated session');
+  if (!expectedUserId) throw new Error('Strict pull requires an expected user ID');
+  if (session.user.id !== expectedUserId) {
+    throw new Error('Strict pull session does not match expected user');
+  }
+  return session;
+}
+
+export function pullExercisesAndTemplates(options: PullOptions = {}): Promise<void> {
+  const strict = options.strict ?? false;
+  // A strict reconciliation must never inherit a best-effort pull that reported and swallowed
+  // an error. Keep their in-flight contracts separate even though both are user-scoped.
+  return dedupePull(`exercisesAndTemplates:${strict ? 'strict' : 'best-effort'}`, async () => {
     try {
-      await pullExercises();   // exercises first (FK dependency)
-      await pullTemplates();
+      await pullExercises(strict, options.expectedUserId);   // exercises first (FK dependency)
+      await pullTemplates(strict, options.expectedUserId);
     } catch (err) {
+      if (strict) throw err;
       handleSyncError('pullExercisesAndTemplates', err);
     }
   });
+}
+
+/** Auth reconciliation needs a rejected promise whenever a pull fails. */
+export function pullExercisesAndTemplatesStrict(expectedUserId: string): Promise<void> {
+  return pullExercisesAndTemplates({ strict: true, expectedUserId });
 }
 
 // ─── Pull Workout History from Supabase ───
@@ -756,13 +853,26 @@ interface PullWorkoutSetRow {
   programmed_order: number | null;
 }
 
-export function pullWorkoutHistory(): Promise<void> {
-  return dedupePull('workoutHistory', pullWorkoutHistoryInner);
+export function pullWorkoutHistory(options: PullOptions = {}): Promise<void> {
+  const strict = options.strict ?? false;
+  return dedupePull(
+    `workoutHistory:${strict ? 'strict' : 'best-effort'}`,
+    () => pullWorkoutHistoryInner(strict, options.expectedUserId),
+  );
 }
 
-async function pullWorkoutHistoryInner(): Promise<void> {
+/** Auth reconciliation needs a rejected promise whenever a pull fails. */
+export function pullWorkoutHistoryStrict(expectedUserId: string): Promise<void> {
+  return pullWorkoutHistory({ strict: true, expectedUserId });
+}
+
+async function pullWorkoutHistoryInner(strict: boolean, expectedUserId?: string): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionForPull(
+      await supabase.auth.getSession(),
+      strict,
+      expectedUserId,
+    );
     if (!session) return;
 
     const db = await getDb();
@@ -788,17 +898,20 @@ async function pullWorkoutHistoryInner(): Promise<void> {
         .order('id', { ascending: false })
         .range(from, from + PULL_PAGE_SIZE - 1);
 
-      if (wErr) { handleSyncError('pull workouts', wErr); return; }
+      if (wErr) {
+        if (strict) throw wErr;
+        handleSyncError('pull workouts', wErr);
+        return;
+      }
       if (!data || data.length === 0) break;
       workouts.push(...(data as PullWorkoutRow[]));
       if (data.length < PULL_PAGE_SIZE) break;
 
       if (page === MAX_PULL_PAGES - 1) {
         // Loud rather than silently truncating, which is the failure mode this replaced.
-        handleSyncError(
-          'pull workouts',
-          new Error(`Workout history exceeds ${MAX_PULL_PAGES * PULL_PAGE_SIZE} rows; older sessions were not pulled`),
-        );
+        const error = new Error(`Workout history exceeds ${MAX_PULL_PAGES * PULL_PAGE_SIZE} rows; older sessions were not pulled`);
+        if (strict) throw error;
+        handleSyncError('pull workouts', error);
       }
     }
 
@@ -815,7 +928,11 @@ async function pullWorkoutHistoryInner(): Promise<void> {
         .select('*')
         .in('workout_id', chunk);
 
-      if (chunkErr) { handleSyncError('pull workout_sets', chunkErr); return; }
+      if (chunkErr) {
+        if (strict) throw chunkErr;
+        handleSyncError('pull workout_sets', chunkErr);
+        return;
+      }
       if (chunkSets) allSets.push(...(chunkSets as PullWorkoutSetRow[]));
     }
 
@@ -827,10 +944,9 @@ async function pullWorkoutHistoryInner(): Promise<void> {
     const localExerciseIds = new Set(localExerciseRows.map(r => r.id));
     const importableSets = allSets.filter(s => localExerciseIds.has(s.exercise_id));
     if (importableSets.length !== allSets.length) {
-      handleSyncError(
-        'pull workout_sets',
-        new Error(`Skipped ${allSets.length - importableSets.length} set(s) referencing exercises missing locally`),
-      );
+      const error = new Error(`Skipped ${allSets.length - importableSets.length} set(s) referencing exercises missing locally`);
+      if (strict) throw error;
+      handleSyncError('pull workout_sets', error);
     }
 
     // ── Write phase ──
@@ -885,17 +1001,31 @@ async function pullWorkoutHistoryInner(): Promise<void> {
 
     if (__DEV__) console.log('Pull workout history complete');
   } catch (err) {
+    if (strict) throw err;
     handleSyncError('pullWorkoutHistory', err);
   }
 }
 
-export function pullUpcomingWorkout(): Promise<void> {
-  return dedupePull('upcomingWorkout', pullUpcomingWorkoutInner);
+export function pullUpcomingWorkout(options: PullOptions = {}): Promise<void> {
+  const strict = options.strict ?? false;
+  return dedupePull(
+    `upcomingWorkout:${strict ? 'strict' : 'best-effort'}`,
+    () => pullUpcomingWorkoutInner(strict, options.expectedUserId),
+  );
 }
 
-async function pullUpcomingWorkoutInner(): Promise<void> {
+/** Auth reconciliation needs a rejected promise whenever a pull fails. */
+export function pullUpcomingWorkoutStrict(expectedUserId: string): Promise<void> {
+  return pullUpcomingWorkout({ strict: true, expectedUserId });
+}
+
+async function pullUpcomingWorkoutInner(strict: boolean, expectedUserId?: string): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionForPull(
+      await supabase.auth.getSession(),
+      strict,
+      expectedUserId,
+    );
     if (!session) return;
 
     const db = await getDb();
@@ -908,7 +1038,11 @@ async function pullUpcomingWorkoutInner(): Promise<void> {
       .order('created_at', { ascending: false })
       .limit(1);
 
-    if (wErr) { handleSyncError('pull upcoming_workouts', wErr); return; }
+    if (wErr) {
+      if (strict) throw wErr;
+      handleSyncError('pull upcoming_workouts', wErr);
+      return;
+    }
 
     // Fetch EVERYTHING before touching local state. Clearing first and then fetching meant
     // any failure mid-way left an upcoming_workouts row with zero exercises (or exercises
@@ -927,7 +1061,11 @@ async function pullUpcomingWorkoutInner(): Promise<void> {
       .eq('upcoming_workout_id', workout.id)
       .order('sort_order');
 
-    if (eErr) { handleSyncError('pull upcoming_workout_exercises', eErr); return; }
+    if (eErr) {
+      if (strict) throw eErr;
+      handleSyncError('pull upcoming_workout_exercises', eErr);
+      return;
+    }
 
     const exerciseList = exercises ?? [];
 
@@ -940,7 +1078,11 @@ async function pullUpcomingWorkoutInner(): Promise<void> {
         .in('upcoming_exercise_id', exerciseIds)
         .order('set_number');
 
-      if (sErr) { handleSyncError('pull upcoming_workout_sets', sErr); return; }
+      if (sErr) {
+        if (strict) throw sErr;
+        handleSyncError('pull upcoming_workout_sets', sErr);
+        return;
+      }
       setList = (allSets ?? []) as PullUpcomingSetRow[];
     }
 
@@ -974,6 +1116,7 @@ async function pullUpcomingWorkoutInner(): Promise<void> {
 
     if (__DEV__) console.log('Pull upcoming workout complete');
   } catch (err) {
+    if (strict) throw err;
     handleSyncError('pullUpcomingWorkout', err);
   }
 }

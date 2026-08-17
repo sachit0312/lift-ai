@@ -123,7 +123,6 @@ export default function WorkoutScreen() {
   // Set completion hook (handleToggleComplete, validation, reorder toast)
   const {
     validationErrors, reorderToast,
-    reorderToastTimer,
     handleToggleComplete,
   } = useSetCompletion({
     blocksRef,
@@ -152,10 +151,9 @@ export default function WorkoutScreen() {
     ));
   }, [setExerciseBlocks]);
 
-  // Cleanup on unmount: flush pending writes, clear timers
+  // Cleanup on unmount: flush pending writes
   useEffect(() => {
     return () => {
-      if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
       flushPendingSetWrites();
       flushPendingNotes();
     };

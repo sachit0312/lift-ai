@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { LayoutAnimation, Vibration } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 import type { ExerciseBlock } from '../types/workout';
@@ -72,7 +72,6 @@ export interface UseSetCompletionOptions {
 export interface UseSetCompletionReturn {
   validationErrors: Record<string, boolean>;
   reorderToast: string | null;
-  reorderToastTimer: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
   handleToggleComplete: (blockIdx: number, setIdx: number) => void;
 }
 
@@ -96,6 +95,7 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
   const [reorderToast, setReorderToast] = useState<string | null>(null);
   const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const validationTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // FIX-3: Guard against double-tap.
   // Maps set ID → the is_completed value we're in the middle of toggling TO.
   // Two rapid taps both read is_completed=false from blocksRef (which lags by one
@@ -103,6 +103,12 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
   // startRestTimer. We bail if a second tap would toggle toward the same target
   // value as an already-pending toggle.
   const pendingCompletionRef = useRef<Map<string, boolean>>(new Map());
+
+  useEffect(() => () => {
+    validationTimers.current.forEach(timer => clearTimeout(timer));
+    validationTimers.current.clear();
+    if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+  }, []);
 
   const handleToggleComplete = useCallback((blockIdx: number, setIdx: number) => {
     const block = blocksRef.current[blockIdx];
@@ -166,12 +172,16 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       const errorKey = `${blockIdx}-${setIdx}`;
       setValidationErrors(prev => ({ ...prev, [errorKey]: true }));
       // Clear error after 2 seconds
-      setTimeout(() => {
+      const existingTimer = validationTimers.current.get(errorKey);
+      if (existingTimer) clearTimeout(existingTimer);
+      const validationTimer = setTimeout(() => {
         setValidationErrors(prev => {
           const { [errorKey]: _, ...rest } = prev;
           return rest;
         });
+        validationTimers.current.delete(errorKey);
       }, 2000);
+      validationTimers.current.set(errorKey, validationTimer);
       // Release the double-tap guard so the user can re-try after fixing inputs
       pendingCompletionRef.current.delete(set.id);
       return;
@@ -336,7 +346,10 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
       if (shouldReorder) {
         if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
         setReorderToast(block.exercise.name);
-        reorderToastTimer.current = setTimeout(() => setReorderToast(null), 2000);
+        reorderToastTimer.current = setTimeout(() => {
+          setReorderToast(null);
+          reorderToastTimer.current = null;
+        }, 2000);
       }
 
       // PR ref tracking + haptics
@@ -381,7 +394,6 @@ export function useSetCompletion(options: UseSetCompletionOptions): UseSetComple
   return {
     validationErrors,
     reorderToast,
-    reorderToastTimer,
     handleToggleComplete,
   };
 }

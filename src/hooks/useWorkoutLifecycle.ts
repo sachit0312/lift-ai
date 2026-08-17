@@ -16,6 +16,7 @@ import type {
   UpcomingWorkoutSet,
 } from '../types/database';
 import { REST_SECONDS, DEFAULT_REST_SECONDS } from '../constants/exercise';
+import { withTimeout } from '../utils/withTimeout';
 import { computeSetDiffs, buildTemplateUpdatePlan } from '../utils/setDiff';
 import type { TemplateUpdatePlan } from '../utils/setDiff';
 import {
@@ -368,10 +369,7 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
     // tap waits until ALL pulls are quiet.
     historyPulledRef.current = (async () => {
       try {
-        await Promise.race([
-          pullExercisesAndTemplates(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-        ]);
+        await withTimeout(pullExercisesAndTemplates(), BACKGROUND_PULL_TIMEOUT_MS, 'timeout');
         const t = await getAllTemplates();
         setTemplates(t);
       } catch (e: unknown) {
@@ -380,20 +378,14 @@ export function useWorkoutLifecycle(options: UseWorkoutLifecycleOptions): UseWor
       }
 
       try {
-        await Promise.race([
-          pullWorkoutHistory(),
-          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-        ]);
+        await withTimeout(pullWorkoutHistory(), BACKGROUND_PULL_TIMEOUT_MS, 'timeout');
       } catch (e) {
         if (__DEV__) console.error('pullWorkoutHistory failed or timed out', e);
         Sentry.captureException(e);
       }
 
       try {
-        await Promise.race([
-          pullUpcomingWorkout(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKGROUND_PULL_TIMEOUT_MS)),
-        ]);
+        await withTimeout(pullUpcomingWorkout(), BACKGROUND_PULL_TIMEOUT_MS, 'timeout');
       } catch (e: unknown) {
         if (__DEV__) console.error('pullUpcomingWorkout failed or timed out', e);
         Sentry.captureException(e);

@@ -28,13 +28,24 @@ jest.mock('../../services/supabase', () => ({
 jest.mock('../../services/database', () => ({
   resetDatabase: jest.fn().mockResolvedValue(undefined),
   setCurrentUserId: jest.fn(),
+  isDatabaseHealthy: jest.fn().mockResolvedValue(true),
+  inferLocalDataOwner: jest.fn().mockResolvedValue(null),
+  markSyncReadyForUser: jest.fn(),
 }));
 
-jest.mock('../../services/sync', () => ({
-  pullExercisesAndTemplates: jest.fn().mockResolvedValue(undefined),
-  pullWorkoutHistory: jest.fn().mockResolvedValue(undefined),
-  pullUpcomingWorkout: jest.fn().mockResolvedValue(undefined),
-}));
+jest.mock('../../services/sync', () => {
+  const pullExercisesAndTemplates = jest.fn().mockResolvedValue(undefined);
+  const pullWorkoutHistory = jest.fn().mockResolvedValue(undefined);
+  const pullUpcomingWorkout = jest.fn().mockResolvedValue(undefined);
+  return {
+    pullExercisesAndTemplates,
+    pullExercisesAndTemplatesStrict: pullExercisesAndTemplates,
+    pullWorkoutHistory,
+    pullWorkoutHistoryStrict: pullWorkoutHistory,
+    pullUpcomingWorkout,
+    pullUpcomingWorkoutStrict: pullUpcomingWorkout,
+  };
+});
 
 jest.mock('@sentry/react-native', () => ({ captureException: jest.fn(), setUser: jest.fn() }));
 

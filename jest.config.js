@@ -15,8 +15,9 @@ module.exports = {
   // latter makes jest-haste-map report duplicate manual mocks on every run.
   testPathIgnorePatterns: [
     '/node_modules/',
-    'src/__tests__/helpers/',
-    '.worktrees/',
+    '<rootDir>/src/__tests__/helpers/',
+    '<rootDir>/.worktrees/',
+    '<rootDir>/.claude/worktrees/',
   ],
   modulePathIgnorePatterns: [
     '<rootDir>/.worktrees/',

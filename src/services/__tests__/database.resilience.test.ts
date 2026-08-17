@@ -27,11 +27,17 @@ import {
   deleteWorkout,
   deleteTemplate,
   clearLocalUpcomingWorkout,
+  inferLocalDataOwner,
 } from '../database';
 
 beforeEach(() => {
   __mockDb.getAllAsync.mockClear();
   __mockDb.getFirstAsync.mockClear();
+  __mockDb.getFirstAsync.mockImplementation((query: string) => {
+    if (query === 'PRAGMA quick_check(1)') return Promise.resolve({ quick_check: 'ok' });
+    if (query.startsWith('SELECT COUNT(*) AS count FROM')) return Promise.resolve({ count: 0 });
+    return Promise.resolve(null);
+  });
   __mockDb.runAsync.mockClear();
   __mockDb.execAsync.mockClear();
   __mockDb.closeAsync.mockClear();
@@ -72,6 +78,43 @@ describe('DB query failures', () => {
 
     await expect(getWorkoutHistory()).rejects.toThrow('DB history failure');
     expect(Sentry.captureException).toHaveBeenCalledWith(error);
+  });
+});
+
+describe('inferLocalDataOwner', () => {
+  it('proves the sole authenticated owner across all owner-bearing tables', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([{ user_id: 'user-A' }]);
+
+    await expect(inferLocalDataOwner()).resolves.toBe('user-A');
+    expect(__mockDb.getAllAsync).toHaveBeenCalledWith(expect.stringContaining('FROM workouts'));
+  });
+
+  it.each([
+    ['only a local placeholder', [{ user_id: 'local' }]],
+    ['multiple authenticated owners', [{ user_id: 'user-A' }, { user_id: 'user-B' }]],
+  ])('refuses to infer ownership from %s', async (_case, rows) => {
+    __mockDb.getAllAsync.mockResolvedValueOnce(rows);
+
+    await expect(inferLocalDataOwner()).resolves.toBeNull();
+  });
+
+  it('tolerates legacy local rows when exactly one authenticated owner is proven', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { user_id: 'user-A' },
+      { user_id: 'local' },
+    ]);
+
+    await expect(inferLocalDataOwner()).resolves.toBe('user-A');
+  });
+
+  it('treats an owner in any owner-bearing table as an ambiguity', async () => {
+    __mockDb.getAllAsync.mockImplementationOnce(async (sql: string) => (
+      ['workouts', 'templates', 'exercises', 'user_exercise_notes'].every(table => sql.includes(`FROM ${table}`))
+        ? [{ user_id: 'user-A' }, { user_id: 'user-B' }]
+        : [{ user_id: 'user-A' }]
+    ));
+
+    await expect(inferLocalDataOwner()).resolves.toBeNull();
   });
 });
 
@@ -339,13 +382,42 @@ describe('resetDatabase', () => {
     await expect(resetDatabase()).resolves.toBeUndefined();
   });
 
-  it('reports to Sentry and still resolves when deleteDatabaseAsync fails', async () => {
+  it('does not resolve after delete failure unless a fallback wipe is verified empty', async () => {
     const SQLite = require('expo-sqlite');
     jest.spyOn(SQLite, 'deleteDatabaseAsync').mockRejectedValueOnce(new Error('no space left'));
-    (Sentry.captureException as jest.Mock).mockClear();
+    __mockDb.getFirstAsync.mockImplementation((query: string) => {
+      if (query === 'PRAGMA quick_check(1)') return Promise.resolve({ quick_check: 'ok' });
+      if (query.startsWith('SELECT COUNT(*)')) return Promise.resolve({ count: 0 });
+      return Promise.resolve(null);
+    });
 
-    // Should not throw — best-effort recovery proceeds with getDb()
-    await expect(resetDatabase()).resolves.toBeUndefined();
-    expect(Sentry.captureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'no space left' }));
+    let resetError: unknown;
+    try {
+      await resetDatabase();
+    } catch (error) {
+      resetError = error;
+    }
+
+    // Rejection is safe: AuthContext keeps the app closed. If recovery succeeds instead, it
+    // must prove every prior-owner table was wiped rather than silently reopening the file.
+    if (resetError) return;
+
+    const clearedTables = __mockDb.runAsync.mock.calls
+      .filter((call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('DELETE FROM'))
+      .map((call: unknown[]) => (call[0] as string).match(/DELETE FROM (\w+)/)?.[1]);
+
+    expect(clearedTables).toEqual([
+      'upcoming_workout_sets',
+      'upcoming_workout_exercises',
+      'upcoming_workouts',
+      'workout_sets',
+      'workouts',
+      'template_exercises',
+      'templates',
+      'user_exercise_notes',
+      'exercises',
+    ]);
+    expect(__mockDb.getFirstAsync).toHaveBeenCalledWith('PRAGMA quick_check(1)');
+    expect(__mockDb.getFirstAsync).toHaveBeenCalledWith('SELECT COUNT(*) AS count FROM exercises');
   });
 });

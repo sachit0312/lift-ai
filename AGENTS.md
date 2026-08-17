@@ -32,9 +32,9 @@ Expo React Native workout tracker with SQLite local storage, Supabase cloud sync
 ### Navigation and authentication
 
 - `src/navigation/RootNavigator.tsx` renders the auth or app navigator based on the Supabase session. `TabNavigator` contains a nested Templates stack.
-- `src/contexts/AuthContext.tsx` calls `setCurrentUserId()` on every auth event and initial session rehydration. The database module's user ID must always mirror the live session.
-- On `SIGNED_IN`, `localDataOwnerRef` distinguishes account switches, same-account resumes, and unknown cold-start ownership. Account switches reset SQLite. Same-account resumes preserve local data unless `isDatabaseHealthy()` fails. Unknown ownership resets SQLite before sequential pulls.
-- On `SIGNED_OUT`, the database user becomes `local`. `authPhase` gates the root navigator until sync is ready; `SYNC_TIMEOUT_MS` prevents an indefinite spinner.
+- `src/contexts/AuthContext.tsx` keeps the Supabase callback synchronous, calls `setCurrentUserId()` on every auth event and initial rehydration, then runs serialized generation-checked reconciliation outside the auth lock.
+- The durable `liftai-local-data-owner` Secure Store marker proves restored-session ownership. Pre-marker upgrades may bootstrap only from one unique matching authenticated owner across owner-bearing SQLite rows; unknown, ambiguous, or mismatched ownership resets SQLite before strict sequential pulls. Same-account resumes preserve healthy local data.
+- On `SIGNED_OUT`, the database user becomes `local`. `authPhase` gates the root navigator until reconciliation succeeds; timeout or pull failure remains fail-closed, and only a reconciled generation may enable pushes or render app data.
 - Email/password and Google OAuth use Supabase. Sessions persist in Expo Secure Store. The app scheme is `liftai`.
 
 ### SQLite and data ownership
@@ -42,7 +42,7 @@ Expo React Native workout tracker with SQLite local storage, Supabase cloud sync
 - `src/services/database.ts` uses expo-sqlite async APIs with WAL and foreign keys enabled per connection. `DB_NAME` is `workout-enhanced.db`.
 - All transactions must use `runInTransaction(db, fn)`, which serializes them through a process-wide promise chain. Never call `db.withTransactionAsync` directly.
 - Nested transactions are rejected. If a caller is already inside a transaction, inline statements from helpers such as `clearLocalUpcomingWorkout`, `deleteWorkout`, or `deleteTemplate` instead of invoking the transactional helper.
-- `resetDatabase()` closes and deletes the database, then reinitializes through `dbInitPromise` to prevent concurrent `getDb()` races. `clearAllLocalData()` intentionally remains non-transactional because concurrent sync flows call it.
+- `resetDatabase()` joins the transaction chain before close/delete/reopen, rejects retained stale connections, and serializes initialization through `dbInitPromise`. A failed file deletion must complete a verified empty fallback wipe or reject. `clearAllLocalData()` intentionally remains non-transactional because concurrent sync flows call it.
 - `currentUserId` is set by `AuthContext`. User-scoped note/exercise operations also call `resolveUserId()`, which falls back to `supabase.auth.getSession()` and repairs the module global. Use `local` only when no session exists.
 - `exercises.user_id = NULL` means a shared global exercise; non-null means a custom exercise. Global exercise definitions cannot be edited by users.
 - `user_exercise_notes` stores `form_notes` and `machine_notes` by `(user_id, exercise_id)`. Form notes are available to the MCP coach. Machine notes are private and must never be exposed through MCP.
@@ -51,9 +51,9 @@ Expo React Native workout tracker with SQLite local storage, Supabase cloud sync
 ### Supabase sync
 
 - `src/services/sync.ts` pushes custom exercises, exercise notes, templates, finished workouts, workout sets, and supported planning metadata. Global exercises are not pushed.
-- `syncToSupabase()` coalesces concurrent calls with one in-flight promise. It is invoked fire-and-forget from several UI paths and uploads the current user-scoped corpus.
+- `syncToSupabase()` coalesces callers with one in-flight promise and a generation-labelled dirty trailing pass. Pushes are disabled synchronously on account transition and enabled only after ownership is proven or reset plus strict pulls complete; unexpected errors are captured internally and the public promise remains nonthrowing.
 - The push rescue step reassigns rows accidentally written as `local` to the authenticated user before session-filtered selects. It handles note primary-key collisions first and reports rescue failures without aborting the remaining push.
-- Pulls fetch network data before entering SQLite transactions. Exported pulls are deduplicated by operation and session user, and the auth/workout lifecycle runs pulls sequentially.
+- Pulls fetch network data before entering SQLite transactions. Exported pulls are deduplicated by operation, strictness, and session user; auth reconciliation uses strict variants that reject missing, errored, or mismatched sessions and runs them sequentially.
 - `pullExercisesAndTemplates()` handles global/custom exercises, user notes, templates, exercise ordering, warmups, rest values, and remote deletions. `pullWorkoutHistory()` converts Supabase booleans for SQLite. `pullUpcomingWorkout()` replaces the local upcoming plan.
 - Schema changes referenced by sync or MCP must be migrated in both Supabase projects before code deployment: dev `gcpnqpqqwcwvyzoivolp`, prod `lgnkxjiqzsqiwrqrsxww`. Migration files live in `supabase/migrations/`.
 
