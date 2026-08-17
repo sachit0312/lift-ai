@@ -35,6 +35,7 @@ jest.mock('../../services/database', () => ({
     withTransactionAsync: jest.fn().mockImplementation(async (cb: () => Promise<void>) => cb()),
   }),
   getCurrentUserId: jest.fn().mockReturnValue('user-1'),
+  isSyncReadyForGeneration: jest.fn().mockReturnValue(true),
   clearLocalUpcomingWorkout: jest.fn(),
 }));
 
