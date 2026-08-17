@@ -50,6 +50,8 @@ jest.mock('../../services/database', () => ({
   resetDatabase: jest.fn().mockResolvedValue(undefined),
   setCurrentUserId: jest.fn(),
   isDatabaseHealthy: jest.fn().mockResolvedValue(true),
+  inferLocalDataOwner: jest.fn().mockResolvedValue(null),
+  markSyncReadyForUser: jest.fn(),
 }));
 
 jest.mock('../../services/sync', () => {

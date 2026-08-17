@@ -3,7 +3,13 @@ import { Session, User } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/react-native';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../services/supabase';
-import { resetDatabase, setCurrentUserId, isDatabaseHealthy } from '../services/database';
+import {
+  inferLocalDataOwner,
+  isDatabaseHealthy,
+  markSyncReadyForUser,
+  resetDatabase,
+  setCurrentUserId,
+} from '../services/database';
 import {
   pullUpcomingWorkoutStrict,
   pullExercisesAndTemplatesStrict,
@@ -127,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 localDataOwnerRef.current = userId;
                 await persistDurableLocalDataOwner(userId);
                 if (!isCurrentReconciliation(generation, userId)) return;
+                markSyncReadyForUser(userId);
                 setAuthPhase('ready');
               }
             } catch (error) {
@@ -175,8 +182,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const durableOwner = await readDurableLocalDataOwner();
           if (isDisposed || authGenerationRef.current !== initialGeneration) return;
 
+          // Existing installs predate the durable marker. Preserve an active or unsynced local
+          // workout only when every owner-bearing row proves it belongs to this restored user.
+          // Anything ambiguous, local, or mismatched remains fail-closed through reset + pulls.
+          if (durableOwner === null) {
+            const inferredOwner = await inferLocalDataOwner();
+            if (isDisposed || authGenerationRef.current !== initialGeneration) return;
+            if (inferredOwner === restoredSession.user.id) {
+              localDataOwnerRef.current = inferredOwner;
+              await persistDurableLocalDataOwner(inferredOwner);
+              if (isDisposed || authGenerationRef.current !== initialGeneration) return;
+              markSyncReadyForUser(inferredOwner);
+              setAuthPhase('ready');
+              return;
+            }
+          }
+
           localDataOwnerRef.current = durableOwner;
           if (durableOwner === restoredSession.user.id) {
+            markSyncReadyForUser(durableOwner);
             setAuthPhase('ready');
             return;
           }

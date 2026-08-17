@@ -39,7 +39,7 @@ import {
   pullWorkoutHistoryStrict,
 } from '../sync';
 import { supabase } from '../supabase';
-import { setCurrentUserId } from '../database';
+import { markSyncReadyForUser, setCurrentUserId } from '../database';
 
 // Cast for type safety
 const mockGetSession = supabase.auth.getSession as jest.Mock;
@@ -707,6 +707,7 @@ describe('syncToSupabase', () => {
     let currentSession = sessionA;
     mockGetSession.mockImplementation(async () => ({ data: { session: currentSession } }));
     setCurrentUserId('user-a');
+    markSyncReadyForUser('user-a');
 
     // This fails when each pass snapshots auth independently: the second request is queued while
     // A is active, then starts an immediate B pass before AuthContext has isolated SQLite.
@@ -758,6 +759,7 @@ describe('syncToSupabase', () => {
     let currentSession = sessionA;
     mockGetSession.mockImplementation(() => Promise.resolve({ data: { session: currentSession } }));
     setCurrentUserId('user-a');
+    markSyncReadyForUser('user-a');
 
     let localWorkouts = Array.from({ length: 501 }, (_, index) => ({
       id: `workout-a-${index}`,
@@ -803,6 +805,56 @@ describe('syncToSupabase', () => {
     await Promise.all([firstPush, secondPush]);
     expect(workoutBuilder.upsert).toHaveBeenCalledTimes(1);
     expect(workoutBuilder.upsert.mock.calls[0][0]).toHaveLength(500);
+  });
+
+  it('hands a blocked old pass to a newer ready account request', async () => {
+    const sessionA = { ...MOCK_SESSION, user: { id: 'user-a' } };
+    const sessionB = { ...MOCK_SESSION, user: { id: 'user-b' } };
+    let currentSession = sessionA;
+    mockGetSession.mockImplementation(async () => ({ data: { session: currentSession } }));
+    setCurrentUserId('user-a');
+    markSyncReadyForUser('user-a');
+
+    let localExercises = [
+      { id: 'ex-a', name: 'A', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    __mockDb.getAllAsync.mockImplementation(async (sql: string) =>
+      sql.includes('FROM exercises') ? localExercises : [],
+    );
+
+    let releaseFirstUpsert!: () => void;
+    const firstUpsertReleased = new Promise<void>((resolve) => { releaseFirstUpsert = resolve; });
+    let signalFirstUpsert!: () => void;
+    const firstUpsertStarted = new Promise<void>((resolve) => { signalFirstUpsert = resolve; });
+    const exerciseBuilder = mockQueryBuilder();
+    let blockFirstUpsert = true;
+    exerciseBuilder.upsert.mockImplementation(async () => {
+      if (blockFirstUpsert) {
+        blockFirstUpsert = false;
+        signalFirstUpsert();
+        await firstUpsertReleased;
+      }
+      return { error: null };
+    });
+    mockFromHandlers.exercises = exerciseBuilder;
+
+    const firstPush = syncToSupabase();
+    await firstUpsertStarted;
+
+    currentSession = sessionB;
+    setCurrentUserId('user-b');
+    // AuthContext marks this only after B has reset/pulled or safely adopted a durable owner.
+    markSyncReadyForUser('user-b');
+    localExercises = [
+      { id: 'ex-b', name: 'B', type: 'weighted', muscle_groups: '[]', training_goal: 'hypertrophy', description: '' },
+    ];
+    const secondPush = syncToSupabase();
+    expect(secondPush).toBe(firstPush);
+    releaseFirstUpsert();
+
+    await Promise.all([firstPush, secondPush]);
+
+    expect(exerciseBuilder.upsert.mock.calls.map(([rows]: any[]) => rows[0].id)).toEqual(['ex-a', 'ex-b']);
   });
 
   it('runs a trailing pass when a request arrives while the preceding pass throws', async () => {

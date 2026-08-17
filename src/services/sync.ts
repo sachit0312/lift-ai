@@ -5,6 +5,7 @@ import {
   getDb,
   clearLocalUpcomingWorkout,
   getCurrentUserGeneration,
+  isSyncReadyForGeneration,
   runInTransaction,
 } from './database';
 
@@ -192,6 +193,7 @@ interface SyncWorkoutSetRow {
 
 let inFlightPush: Promise<void> | null = null;
 let pushRequested = false;
+let pushRequestedGeneration: number | null = null;
 
 function authGeneration(): number {
   // Some narrowly mocked pull-only test modules do not provide the new optional signal.
@@ -203,6 +205,7 @@ function authGeneration(): number {
  * leaves pushRequested set, so the drain takes one more snapshot before resolving every caller.
  */
 export function syncToSupabase(): Promise<void> {
+  pushRequestedGeneration = authGeneration();
   pushRequested = true;
   if (!inFlightPush) {
     inFlightPush = drainPushes();
@@ -211,13 +214,14 @@ export function syncToSupabase(): Promise<void> {
 }
 
 async function drainPushes(): Promise<void> {
-  // A caller can mark this drain dirty before AuthContext has reset SQLite for an account
-  // switch. The entire drain therefore belongs to the generation that started it: it must
-  // never turn that pre-reset request into a push of the next account's in-progress local rows.
-  const expectedGeneration = authGeneration();
   try {
-    while (pushRequested && authGeneration() === expectedGeneration) {
+    while (pushRequested) {
+      const expectedGeneration = pushRequestedGeneration;
       pushRequested = false;
+      pushRequestedGeneration = null;
+      if (expectedGeneration === null || !isSyncReadyForGeneration(expectedGeneration)) {
+        continue;
+      }
       try {
         await pushToSupabase(expectedGeneration);
       } catch (err) {
@@ -227,11 +231,6 @@ async function drainPushes(): Promise<void> {
       }
     }
   } finally {
-    // Requests made under a newer auth generation cannot safely run until AuthContext finishes
-    // account isolation and issues a fresh sync request.
-    if (authGeneration() !== expectedGeneration) {
-      pushRequested = false;
-    }
     // This executes synchronously when the final pass settles. A later caller sees null and
     // starts a fresh drain instead of setting a dirty bit on a promise that is about to resolve.
     inFlightPush = null;

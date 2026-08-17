@@ -27,6 +27,7 @@ import {
   deleteWorkout,
   deleteTemplate,
   clearLocalUpcomingWorkout,
+  inferLocalDataOwner,
 } from '../database';
 
 beforeEach(() => {
@@ -77,6 +78,34 @@ describe('DB query failures', () => {
 
     await expect(getWorkoutHistory()).rejects.toThrow('DB history failure');
     expect(Sentry.captureException).toHaveBeenCalledWith(error);
+  });
+});
+
+describe('inferLocalDataOwner', () => {
+  it('proves the sole authenticated owner across all owner-bearing tables', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([{ user_id: 'user-A' }]);
+
+    await expect(inferLocalDataOwner()).resolves.toBe('user-A');
+    expect(__mockDb.getAllAsync).toHaveBeenCalledWith(expect.stringContaining('FROM workouts'));
+  });
+
+  it.each([
+    ['a local placeholder', [{ user_id: 'local' }]],
+    ['multiple authenticated owners', [{ user_id: 'user-A' }, { user_id: 'user-B' }]],
+  ])('refuses to infer ownership from %s', async (_case, rows) => {
+    __mockDb.getAllAsync.mockResolvedValueOnce(rows);
+
+    await expect(inferLocalDataOwner()).resolves.toBeNull();
+  });
+
+  it('treats an owner in any owner-bearing table as an ambiguity', async () => {
+    __mockDb.getAllAsync.mockImplementationOnce(async (sql: string) => (
+      ['workouts', 'templates', 'exercises', 'user_exercise_notes'].every(table => sql.includes(`FROM ${table}`))
+        ? [{ user_id: 'user-A' }, { user_id: 'user-B' }]
+        : [{ user_id: 'user-A' }]
+    ));
+
+    await expect(inferLocalDataOwner()).resolves.toBeNull();
   });
 });
 

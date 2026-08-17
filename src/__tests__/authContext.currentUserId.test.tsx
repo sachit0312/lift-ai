@@ -10,6 +10,10 @@ const mockClearAllLocalData = jest.fn().mockResolvedValue(undefined);
 jest.mock('../services/database', () => ({
   setCurrentUserId: (...args: any[]) => mockSetCurrentUserId(...args),
   clearAllLocalData: (...args: any[]) => mockClearAllLocalData(...args),
+  resetDatabase: jest.fn().mockResolvedValue(undefined),
+  isDatabaseHealthy: jest.fn().mockResolvedValue(true),
+  inferLocalDataOwner: jest.fn().mockResolvedValue(null),
+  markSyncReadyForUser: jest.fn(),
 }));
 
 jest.mock('../services/sync', () => {

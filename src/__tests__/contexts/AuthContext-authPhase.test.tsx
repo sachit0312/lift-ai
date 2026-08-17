@@ -7,6 +7,7 @@ let mockInitialSession: any = null;
 let mockGetSessionMode: 'immediate' | 'pending' = 'immediate';
 let mockPendingGetSessionResolve: ((value: { data: { session: any } }) => void) | null = null;
 let mockDurableOwner: string | null = null;
+let mockInferredOwner: string | null = null;
 let mockSecureStoreReadError: Error | null = null;
 let mockSecureStoreWriteError: Error | null = null;
 
@@ -44,6 +45,8 @@ jest.mock('../../services/database', () => ({
   resetDatabase: jest.fn(),
   setCurrentUserId: jest.fn(),
   isDatabaseHealthy: jest.fn().mockResolvedValue(true),
+  inferLocalDataOwner: jest.fn(() => Promise.resolve(mockInferredOwner)),
+  markSyncReadyForUser: jest.fn(),
 }));
 
 jest.mock('../../services/sync', () => ({
@@ -106,6 +109,7 @@ describe('AuthContext reconciliation', () => {
     mockGetSessionMode = 'immediate';
     mockPendingGetSessionResolve = null;
     mockDurableOwner = null;
+    mockInferredOwner = null;
     mockSecureStoreReadError = null;
     mockSecureStoreWriteError = null;
     mockResetDatabase.mockResolvedValue(undefined);
@@ -332,6 +336,39 @@ describe('AuthContext reconciliation', () => {
       'liftai-local-data-owner',
       'user-B',
     );
+  });
+
+  it('preserves an upgraded restored user\'s active local data when every owner-bearing row proves that user', async () => {
+    // Pre-marker installs can contain an active workout that is not remotely recoverable. A
+    // healthy database whose only owner is the restored user is safe to adopt without reset.
+    mockInitialSession = sessionFor('user-A');
+    mockInferredOwner = 'user-A';
+
+    const { getByTestId } = render(
+      <AuthProvider><AuthPhaseProbe /></AuthProvider>,
+    );
+
+    await waitFor(() => expect(getByTestId('authPhase').props.children).toBe('ready'));
+    expect(mockResetDatabase).not.toHaveBeenCalled();
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+      'liftai-local-data-owner',
+      'user-A',
+    );
+  });
+
+  it.each([
+    ['ambiguous owner rows', null],
+    ['a different proven owner', 'user-B'],
+  ])('resets before exposing an upgraded restored user with %s', async (_case, inferredOwner) => {
+    mockInitialSession = sessionFor('user-A');
+    mockInferredOwner = inferredOwner;
+
+    const { getByTestId } = render(
+      <AuthProvider><AuthPhaseProbe /></AuthProvider>,
+    );
+
+    await waitFor(() => expect(mockResetDatabase).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getByTestId('authPhase').props.children).toBe('ready'));
   });
 
   it('treats a durable-owner read failure as unknown and reconciles before ready', async () => {

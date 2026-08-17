@@ -260,6 +260,7 @@ const RESET_TABLES = [
 // ─── Current User ID (set by AuthContext on login/logout) ───
 let currentUserId = 'local';
 let currentUserGeneration = 0;
+let syncReadyGeneration: number | null = null;
 
 /**
  * AuthContext calls this synchronously from every auth-state event. The generation lets an
@@ -270,9 +271,28 @@ export function setCurrentUserId(id: string) {
   if (currentUserId === id) return;
   currentUserId = id;
   currentUserGeneration += 1;
+  syncReadyGeneration = null;
 }
 export function getCurrentUserId(): string { return currentUserId; }
 export function getCurrentUserGeneration(): number { return currentUserGeneration; }
+
+/**
+ * Auth reconciliation calls this only once the current account either owns the on-disk data or
+ * has completed a reset and strict pull. A push requested before that boundary is unsafe: it
+ * could upload rows that still belong to the prior account.
+ */
+export function markSyncReadyForUser(userId: string): void {
+  if (userId !== 'local' && currentUserId === userId) {
+    syncReadyGeneration = currentUserGeneration;
+  }
+}
+
+export function isSyncReadyForGeneration(generation: number): boolean {
+  // Generation zero is the pre-auth process state. It keeps existing best-effort callers
+  // harmless before AuthContext has observed any account transition; once an identity changes,
+  // only reconciliation can explicitly reopen pushes.
+  return generation === 0 || syncReadyGeneration === generation;
+}
 
 /**
  * Returns the effective user id for DB reads/writes.
@@ -350,6 +370,34 @@ export async function isDatabaseHealthy(): Promise<boolean> {
     if (__DEV__) console.error('Local database failed health check', e);
     Sentry.captureException(e);
     return false;
+  }
+}
+
+/**
+ * Upgrade-only ownership proof for installs created before the SecureStore owner marker existed.
+ * Unscoped rows are deliberately ignored: only a single non-local value across every table that
+ * carries a user_id can prove that preserving the file cannot expose another account's data.
+ */
+export async function inferLocalDataOwner(): Promise<string | null> {
+  try {
+    const database = await getDb();
+    const owners = await database.getAllAsync<{ user_id: string }>(`
+      SELECT DISTINCT user_id FROM (
+        SELECT user_id FROM workouts WHERE user_id IS NOT NULL
+        UNION
+        SELECT user_id FROM templates WHERE user_id IS NOT NULL
+        UNION
+        SELECT user_id FROM exercises WHERE user_id IS NOT NULL
+        UNION
+        SELECT user_id FROM user_exercise_notes WHERE user_id IS NOT NULL
+      )
+    `);
+    if (owners.length !== 1) return null;
+    const userId = owners[0]?.user_id;
+    return userId && userId !== 'local' ? userId : null;
+  } catch (error) {
+    Sentry.captureException(error);
+    return null;
   }
 }
 
