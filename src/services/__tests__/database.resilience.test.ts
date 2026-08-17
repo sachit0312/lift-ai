@@ -90,12 +90,21 @@ describe('inferLocalDataOwner', () => {
   });
 
   it.each([
-    ['a local placeholder', [{ user_id: 'local' }]],
+    ['only a local placeholder', [{ user_id: 'local' }]],
     ['multiple authenticated owners', [{ user_id: 'user-A' }, { user_id: 'user-B' }]],
   ])('refuses to infer ownership from %s', async (_case, rows) => {
     __mockDb.getAllAsync.mockResolvedValueOnce(rows);
 
     await expect(inferLocalDataOwner()).resolves.toBeNull();
+  });
+
+  it('tolerates legacy local rows when exactly one authenticated owner is proven', async () => {
+    __mockDb.getAllAsync.mockResolvedValueOnce([
+      { user_id: 'user-A' },
+      { user_id: 'local' },
+    ]);
+
+    await expect(inferLocalDataOwner()).resolves.toBe('user-A');
   });
 
   it('treats an owner in any owner-bearing table as an ambiguity', async () => {

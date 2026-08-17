@@ -392,9 +392,9 @@ export async function inferLocalDataOwner(): Promise<string | null> {
         SELECT user_id FROM user_exercise_notes WHERE user_id IS NOT NULL
       )
     `);
-    if (owners.length !== 1) return null;
-    const userId = owners[0]?.user_id;
-    return userId && userId !== 'local' ? userId : null;
+    const authenticatedOwners = owners.filter(({ user_id }) => user_id && user_id !== 'local');
+    if (authenticatedOwners.length !== 1) return null;
+    return authenticatedOwners[0].user_id;
   } catch (error) {
     Sentry.captureException(error);
     return null;
@@ -1053,11 +1053,12 @@ export function startWorkout(templateId: string | null, upcomingWorkoutId?: stri
   return withDb('startWorkout', async (database) => {
     const id = uuid();
     const now = new Date().toISOString();
+    const userId = await resolveUserId();
     await database.runAsync(
-      'INSERT INTO workouts (id, template_id, upcoming_workout_id, started_at) VALUES (?, ?, ?, ?)',
-      id, templateId, upcomingWorkoutId ?? null, now,
+      'INSERT INTO workouts (id, user_id, template_id, upcoming_workout_id, started_at) VALUES (?, ?, ?, ?, ?)',
+      id, userId, templateId, upcomingWorkoutId ?? null, now,
     );
-    return { id, user_id: 'local', template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null };
+    return { id, user_id: userId, template_id: templateId, upcoming_workout_id: upcomingWorkoutId ?? null, started_at: now, finished_at: null, coach_notes: null, exercise_coach_notes: null, session_notes: null, planned_exercise_ids: null };
   });
 }
 
